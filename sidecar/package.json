@@ -1,0 +1,19 @@
+{
+  "name": "integratedeck-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "optionalDependencies": {
+    "@companion-module/host": "^1.0.2",
+    "@companion-surface/host": "^1.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.6.0"
+  }
+}

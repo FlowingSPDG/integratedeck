@@ -1,0 +1,154 @@
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #e8e8e8;
+  background: #1a1a1e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 240px 1fr 320px;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+}
+
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: #121216;
+  border-bottom: 1px solid #2a2a32;
+  gap: 12px;
+}
+
+header h1 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+aside,
+main,
+.inspector {
+  padding: 12px;
+  overflow: auto;
+}
+
+aside {
+  background: #141418;
+  border-right: 1px solid #2a2a32;
+}
+
+.inspector {
+  background: #141418;
+  border-left: 1px solid #2a2a32;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(5, 72px);
+  grid-template-rows: repeat(3, 72px);
+}
+
+.slot {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  border: 2px solid #3a3a48;
+  background: #222228;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.slot.selected {
+  border-color: #5b8def;
+}
+
+.slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: inherit;
+}
+
+button:hover {
+  background: #2a2a34;
+}
+
+.section {
+  margin-bottom: 16px;
+}
+
+.section h2 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  margin: 0 0 8px;
+}
+
+ul.plugins {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+ul.plugins li {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+ul.plugins li:hover {
+  background: #2a2a34;
+}
+
+#pi-frame {
+  width: 100%;
+  height: 280px;
+  border: 1px solid #3a3a48;
+  border-radius: 6px;
+  background: #0e0e12;
+}
+
+.status {
+  font-size: 0.8rem;
+  color: #8a8;
+}
+
+.warn {
+  color: #da8;
+  font-size: 0.8rem;
+}

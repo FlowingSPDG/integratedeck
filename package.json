@@ -1,0 +1,13 @@
+{
+  "name": "integratedeck",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix src-ui",
+    "build": "npm run build --prefix src-ui && npm run build --prefix sidecar",
+    "tauri": "cargo tauri",
+    "tauri:dev": "cargo tauri dev",
+    "tauri:build": "cargo tauri build",
+    "sidecar:build": "npm run build --prefix sidecar"
+  }
+}
