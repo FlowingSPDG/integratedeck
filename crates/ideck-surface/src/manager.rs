@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Stream;
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
 
@@ -28,10 +27,15 @@ pub trait Surface: Send + Sync {
 pub struct MockSurface {
     descriptor: SurfaceDescriptor,
     input_tx: broadcast::Sender<SurfaceInput>,
+    cell_visuals: RwLock<HashMap<(u32, u32), ideck_core::VisualState>>,
 }
 
 impl MockSurface {
     pub fn new(id: SurfaceId, name: impl Into<String>) -> Arc<Self> {
+        Self::with_id(id, name)
+    }
+
+    pub fn with_id(id: SurfaceId, name: impl Into<String>) -> Arc<Self> {
         let caps = SurfaceCapabilities::mock_3x5();
         Arc::new(Self {
             descriptor: SurfaceDescriptor {
@@ -41,7 +45,12 @@ impl MockSurface {
                 backend: crate::SurfaceBackend::Mock,
             },
             input_tx: broadcast::channel(64).0,
+            cell_visuals: RwLock::new(HashMap::new()),
         })
+    }
+
+    pub async fn cell_visuals(&self) -> HashMap<(u32, u32), ideck_core::VisualState> {
+        self.cell_visuals.read().await.clone()
     }
 
     pub fn inject_input(&self, input: SurfaceInput) {
@@ -59,7 +68,14 @@ impl Surface for MockSurface {
         &self.descriptor
     }
 
-    async fn render(&self, _updates: &[CellUpdate]) -> Result<(), SurfaceError> {
+    async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
+        let mut visuals = self.cell_visuals.write().await;
+        for update in updates {
+            visuals.insert(
+                (update.address.row, update.address.column),
+                update.visual.clone(),
+            );
+        }
         Ok(())
     }
 }
@@ -68,6 +84,7 @@ impl Surface for MockSurface {
 pub struct SurfaceManager {
     surfaces: RwLock<HashMap<SurfaceId, Arc<dyn Surface>>>,
     mock_inputs: RwLock<HashMap<SurfaceId, broadcast::Sender<SurfaceInput>>>,
+    hid_inputs: RwLock<HashMap<SurfaceId, broadcast::Sender<SurfaceInput>>>,
 }
 
 impl Default for SurfaceManager {
@@ -81,6 +98,7 @@ impl SurfaceManager {
         Self {
             surfaces: RwLock::new(HashMap::new()),
             mock_inputs: RwLock::new(HashMap::new()),
+            hid_inputs: RwLock::new(HashMap::new()),
         }
     }
 
@@ -99,6 +117,25 @@ impl SurfaceManager {
     pub async fn register(&self, surface: Arc<dyn Surface>) {
         let id = surface.descriptor().id;
         self.surfaces.write().await.insert(id, surface);
+    }
+
+    pub async fn register_hid(&self, surface: Arc<crate::StreamDeckHidSurface>) {
+        let id = surface.id();
+        self.hid_inputs
+            .write()
+            .await
+            .insert(id, surface.input_sender());
+        self.surfaces
+            .write()
+            .await
+            .insert(id, surface as Arc<dyn Surface>);
+    }
+
+    pub fn subscribe_hid_inputs(&self, id: SurfaceId) -> Option<broadcast::Receiver<SurfaceInput>> {
+        self.hid_inputs
+            .try_read()
+            .ok()
+            .and_then(|m| m.get(&id).map(|tx| tx.subscribe()))
     }
 
     pub async fn list(&self) -> Vec<SurfaceDescriptor> {
@@ -128,5 +165,11 @@ impl SurfaceManager {
             .try_read()
             .ok()
             .and_then(|m| m.get(&id).map(|tx| tx.subscribe()))
+    }
+
+    pub async fn unregister(&self, id: SurfaceId) {
+        self.surfaces.write().await.remove(&id);
+        self.mock_inputs.write().await.remove(&id);
+        self.hid_inputs.write().await.remove(&id);
     }
 }

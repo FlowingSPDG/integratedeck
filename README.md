@@ -11,13 +11,9 @@ Cross-platform desktop app bridging **Elgato Stream Deck plugins** and **Bitfocu
 ## Development
 
 ```bash
-# UI + sidecar
 npm install
-npm run build --prefix sidecar
-npm install --prefix src-ui
-
-# Run app
-cargo tauri dev
+npm run sidecar:build
+npm run tauri dev
 ```
 
 ### Plugin directories

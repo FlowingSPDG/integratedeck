@@ -1,0 +1,31 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Allow integratedeck frontend to call app IPC commands"
+commands.allow = [
+  "get_app_info",
+  "list_surfaces",
+  "get_profile",
+  "save_profile",
+  "scan_plugins",
+  "scan_hid_devices",
+  "connect_hid_device",
+  "open_plugins_folder",
+  "get_runtime_status",
+  "unload_sd_plugin",
+  "disconnect_hid_device",
+  "load_sd_plugin",
+  "bind_slot_sd",
+  "trigger_slot",
+  "list_connections",
+  "add_connection",
+  "execute_companion_action",
+  "sidecar_ping",
+  "get_pi_url",
+  "get_cell_visuals",
+  "get_property_inspector_url",
+  "register_mock_surface",
+  "create_slot",
+  "export_profile",
+  "import_profile",
+  "apply_surface_input"
+]

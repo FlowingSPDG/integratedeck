@@ -1,12 +1,18 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ideck_comp_host::ConnectionRecord;
-use ideck_core::{PageId, Profile, Slot, SlotId, SlotLocator, SurfaceId};
+use ideck_core::{PageId, Profile, Slot, SlotId, SlotLocator, SurfaceId, VisualState};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tokio::sync::RwLock;
 
-use crate::orchestrator::{LoadPluginResult, Orchestrator, ScanResult};
+use ideck_surface::StreamDeckHidSurface;
+
+use crate::errors::{friendly_anyhow, friendly_error};
+use crate::orchestrator::{
+    ConnectHidResult, LoadPluginResult, Orchestrator, RuntimeStatus, ScanResult,
+};
 use crate::paths;
 
 type OrchState = Arc<RwLock<Orchestrator>>;
@@ -46,24 +52,76 @@ pub async fn save_profile(state: State<'_, OrchState>) -> Result<(), String> {
 #[tauri::command]
 pub async fn scan_plugins(state: State<'_, OrchState>) -> Result<ScanResult, String> {
     let o = state.read().await;
-    Ok(o.scan_plugins())
+    o.scan_plugins().map_err(friendly_error)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LoadSdPluginArgs {
-    pub path: String,
+#[tauri::command]
+pub async fn open_plugins_folder() -> Result<String, String> {
+    paths::ensure_dirs().map_err(|e| e.to_string())?;
+    let dir = paths::sd_plugins_dir();
+    open_path_in_file_manager(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.display().to_string())
+}
+
+fn open_path_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer").arg(path).spawn()?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_runtime_status(state: State<'_, OrchState>) -> Result<RuntimeStatus, String> {
+    let o = state.read().await;
+    o.runtime_status().await.map_err(friendly_error)
+}
+
+#[tauri::command]
+pub async fn unload_sd_plugin(state: State<'_, OrchState>) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.unload_sd_plugin().await
+}
+
+#[tauri::command]
+pub async fn disconnect_hid_device(
+    state: State<'_, OrchState>,
+    surface_id: String,
+) -> Result<(), String> {
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let mut o = state.write().await;
+    o.disconnect_hid_device(surface_id).await
 }
 
 #[tauri::command]
 pub async fn load_sd_plugin(
     state: State<'_, OrchState>,
-    args: LoadSdPluginArgs,
+    path: String,
 ) -> Result<LoadPluginResult, String> {
+    let state_clone = state.inner().clone();
     let mut o = state.write().await;
-    o.load_sd_plugin(args.path.into())
+    let (result, events) = o
+        .load_sd_plugin(path.into())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(friendly_anyhow)?;
+
+    let handle = tokio::spawn(async move {
+        let mut rx = events;
+        while let Some(ev) = rx.recv().await {
+            let mut o = state_clone.write().await;
+            o.apply_broker_event(ev).await.ok();
+        }
+    });
+    o.set_broker_drain_handle(handle);
+    Ok(result)
 }
 
 #[derive(Deserialize)]
@@ -154,6 +212,66 @@ pub async fn get_pi_url(state: State<'_, OrchState>) -> Result<Option<String>, S
     Ok(o
         .pi_websocket_port()
         .map(|p| format!("ws://127.0.0.1:{p}")))
+}
+
+#[tauri::command]
+pub async fn get_cell_visuals(
+    state: State<'_, OrchState>,
+) -> Result<HashMap<String, VisualState>, String> {
+    let o = state.read().await;
+    Ok(o.get_cell_visuals().await)
+}
+
+#[tauri::command]
+pub async fn get_property_inspector_url(
+    state: State<'_, OrchState>,
+    action_uuid: String,
+) -> Result<Option<String>, String> {
+    let o = state.read().await;
+    Ok(o
+        .property_inspector_path(&action_uuid)
+        .map(|p| p.display().to_string()))
+}
+
+#[tauri::command]
+pub async fn scan_hid_devices(
+    state: State<'_, OrchState>,
+) -> Result<Vec<ideck_surface::HidDeviceDescriptor>, String> {
+    let o = state.read().await;
+    o.scan_hid_devices()
+}
+
+#[tauri::command]
+pub async fn connect_hid_device(
+    state: State<'_, OrchState>,
+    serial: String,
+    kind: String,
+) -> Result<ConnectHidResult, String> {
+    let state_clone = state.inner().clone();
+    let (result, surface) = {
+        let mut o = state.write().await;
+        o.connect_hid_device(serial, kind).await?
+    };
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&result.surface_id).map_err(|e| e.to_string())?);
+    let mut input_rx = surface.subscribe_inputs();
+    let reader_surface = surface.clone();
+
+    let reader = tokio::spawn(async move {
+        StreamDeckHidSurface::run_input_loop(reader_surface, 30.0).await;
+    });
+    let forward = tokio::spawn(async move {
+        while let Ok(input) = input_rx.recv().await {
+            let mut o = state_clone.write().await;
+            o.apply_surface_input(surface_id, input).await.ok();
+        }
+    });
+
+    {
+        let mut o = state.write().await;
+        o.store_hid_tasks(surface_id, vec![reader, forward]);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]

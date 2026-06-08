@@ -18,6 +18,38 @@ pub fn companion_modules_dir() -> PathBuf {
     data_dir().join("plugins").join("companion")
 }
 
+/// Directories scanned for Stream Deck plugins (primary data dir + optional dev/elgato paths).
+pub fn sd_plugin_scan_roots() -> Vec<PathBuf> {
+    let mut roots = vec![sd_plugins_dir()];
+
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../plugins/streamdeck");
+    if dev.is_dir() {
+        roots.push(dev);
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(home) = dirs::home_dir() {
+        let elgato = home
+            .join("Library")
+            .join("Application Support")
+            .join("com.elgato.StreamDeck")
+            .join("Plugins");
+        if elgato.is_dir() {
+            roots.push(elgato);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(roaming) = dirs::data_dir() {
+        let elgato = roaming.join("Elgato").join("StreamDeck").join("Plugins");
+        if elgato.is_dir() {
+            roots.push(elgato);
+        }
+    }
+
+    roots
+}
+
 pub fn sidecar_dir() -> PathBuf {
     // Development: repo sidecar/; production: resource dir
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sidecar");

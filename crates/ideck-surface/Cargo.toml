@@ -14,3 +14,7 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 ideck-core = { workspace = true }
 tokio = { workspace = true }
+elgato-streamdeck = { workspace = true }
+hidapi = "2.6"
+image = { workspace = true }
+tracing = { workspace = true }

@@ -15,7 +15,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: 240px 1fr 320px;
+  grid-template-columns: 280px 1fr 320px;
   grid-template-rows: 48px 1fr;
   height: 100vh;
 }
@@ -67,6 +67,7 @@ main {
 }
 
 .slot {
+  position: relative;
   width: 72px;
   height: 72px;
   border-radius: 8px;
@@ -89,6 +90,16 @@ main {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.slot .slot-title {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  font-size: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 2px;
 }
 
 button,
@@ -127,12 +138,32 @@ ul.plugins {
 ul.plugins li {
   padding: 6px 8px;
   border-radius: 4px;
-  cursor: pointer;
   font-size: 0.85rem;
 }
 
-ul.plugins li:hover {
+ul.plugins li.plugin-item {
+  cursor: pointer;
+}
+
+ul.plugins li.plugin-item:hover {
   background: #2a2a34;
+}
+
+ul.plugins li.empty {
+  color: #888;
+  cursor: default;
+}
+
+#scan-status,
+#hid-status {
+  white-space: pre-wrap;
+  margin: 0 0 8px;
+  line-height: 1.35;
+}
+
+.muted {
+  color: #888;
+  font-size: 0.8em;
 }
 
 #pi-frame {
@@ -151,4 +182,102 @@ ul.plugins li:hover {
 .warn {
   color: #da8;
   font-size: 0.8rem;
+}
+
+.section-desc {
+  font-size: 0.75rem;
+  color: #888;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.instance-card {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #2a2a32;
+  background: #1a1a20;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+}
+
+.instance-card .card-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.instance-card .card-meta {
+  color: #aaa;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.instance-card .card-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.badge-running,
+.badge-connected {
+  background: #1a3a2a;
+  color: #6c6;
+}
+
+.badge-stopped,
+.badge-available {
+  background: #2a2a32;
+  color: #888;
+}
+
+.badge-disabled {
+  background: #3a2a1a;
+  color: #da8;
+}
+
+ul.plugins li.runtime-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+}
+
+ul.plugins li.runtime-item .item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+ul.plugins li.runtime-item .item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-sm {
+  padding: 2px 8px;
+  font-size: 0.7rem;
+}
+
+#runtime-updated {
+  font-size: 0.7rem;
+  color: #666;
+  margin: 0 0 8px;
 }

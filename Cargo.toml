@@ -28,6 +28,7 @@ async-trait = "0.1"
 futures = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 base64 = "0.22"
+elgato-streamdeck = { version = "0.13", features = ["async"] }
 tokio-tungstenite = "0.26"
 tungstenite = "0.26"
 

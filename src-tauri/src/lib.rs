@@ -1,4 +1,5 @@
 mod commands;
+mod errors;
 mod orchestrator;
 mod paths;
 mod state;
@@ -34,6 +35,12 @@ pub fn run() {
             commands::get_profile,
             commands::save_profile,
             commands::scan_plugins,
+            commands::open_plugins_folder,
+            commands::scan_hid_devices,
+            commands::connect_hid_device,
+            commands::get_runtime_status,
+            commands::unload_sd_plugin,
+            commands::disconnect_hid_device,
             commands::load_sd_plugin,
             commands::bind_slot_sd,
             commands::trigger_slot,
@@ -42,6 +49,8 @@ pub fn run() {
             commands::execute_companion_action,
             commands::sidecar_ping,
             commands::get_pi_url,
+            commands::get_cell_visuals,
+            commands::get_property_inspector_url,
             commands::register_mock_surface,
             commands::create_slot,
             commands::export_profile,

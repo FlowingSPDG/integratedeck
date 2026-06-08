@@ -5,8 +5,10 @@ mod input;
 mod manager;
 mod satellite;
 mod update;
+mod hid;
 
 pub use capabilities::*;
+pub use hid::*;
 pub use input::*;
 pub use manager::*;
 pub use satellite::*;
