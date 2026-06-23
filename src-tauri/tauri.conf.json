@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "integratedeck",
+  "version": "0.1.0",
+  "identifier": "app.integratedeck.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "integratedeck",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 480,
+        "minHeight": 360,
+        "center": true,
+        "visible": false,
+        "resizable": true
+      },
+      {
+        "label": "settings",
+        "create": false,
+        "url": "settings.html",
+        "title": "設定 — integratedeck",
+        "width": 640,
+        "height": 520,
+        "minWidth": 480,
+        "minHeight": 400,
+        "center": true,
+        "visible": false,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline' asset: https://asset.localhost; script-src 'self' 'unsafe-inline' asset: https://asset.localhost; frame-src 'self' asset: https://asset.localhost blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/**",
+          "$LOCALAPPDATA/**",
+          "$RESOURCE/**",
+          "$HOME/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {}
+}

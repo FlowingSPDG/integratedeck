@@ -1,0 +1,15 @@
+[package]
+name = "ideck-core"
+description = "Core types for integratedeck profiles, slots, and bindings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+base64 = { workspace = true }
+image = { workspace = true }
+ab_glyph = "0.2"

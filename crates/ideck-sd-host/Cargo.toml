@@ -1,0 +1,22 @@
+[package]
+name = "ideck-sd-host"
+description = "Stream Deck WebSocket broker and plugin host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tungstenite = { workspace = true }
+base64 = { workspace = true }
+ideck-core = { workspace = true }
+ideck-surface = { workspace = true }
+ideck-js-runtime = { workspace = true }

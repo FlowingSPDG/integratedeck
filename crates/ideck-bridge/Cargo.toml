@@ -1,0 +1,17 @@
+[package]
+name = "ideck-bridge"
+description = "Bridge between Stream Deck plugins and surfaces"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+image = { workspace = true }
+base64 = { workspace = true }
+ideck-core = { workspace = true }
+ideck-surface = { workspace = true }
+ideck-sd-host = { workspace = true }
