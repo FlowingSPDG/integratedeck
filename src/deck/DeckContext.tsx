@@ -229,9 +229,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     setCellVisuals(visuals);
   }, []);
 
-  const refreshCellVisualsRef = useRef(refreshCellVisuals);
-  refreshCellVisualsRef.current = refreshCellVisuals;
-
   const applyDeviceFromSurfaces = useCallback(
     (surfaces: SurfaceRuntimeEntry[], preferredSurfaceId: string | null) => {
       const connected = surfaces.filter((s) => s.status === "connected");
@@ -688,12 +685,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         if (!keyDownActive) return;
         keyDownActive = false;
         slotEl.classList.remove("pressed");
-        void simulateSlotKey(slot.id, "key_up")
-          .then(() => {
-            const sid = selectedSurfaceIdRef.current;
-            if (sid) void pollCellVisuals(sid, setCellVisuals);
-          })
-          .catch((err) => setStatusText(`実行に失敗: ${formatUserError(err)}`));
+        void simulateSlotKey(slot.id, "key_up").catch((err) =>
+          setStatusText(`実行に失敗: ${formatUserError(err)}`),
+        );
       };
 
       if (canExecute) {
@@ -1077,13 +1071,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubs: (() => void)[] = [];
-    void listen("visual-updated", () => {
-      void Promise.all([refreshCellVisualsRef.current(), invoke<Profile>("get_profile")]).then(
-        ([, prof]) => {
-          setProfile(prof);
-          profileRef.current = prof;
-        },
-      );
+    void listen<{ row: number; column: number; visual: VisualState }>("visual-updated", (ev) => {
+      const { row, column, visual } = ev.payload;
+      setCellVisuals((prev) => ({
+        ...prev,
+        [`${row},${column}`]: visual,
+      }));
     }).then((u) => unsubs.push(u));
 
     void listen<{ surfaceId?: string }>("surfaces-changed", (ev) => {

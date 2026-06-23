@@ -38,6 +38,14 @@ pub enum SimulateKeyPhase {
     KeyUp,
 }
 
+enum SlotKeyDispatch {
+    StreamDeckReady {
+        broker: Arc<StreamDeckBroker>,
+        context: String,
+    },
+    NeedsWriteLock,
+}
+
 pub struct Orchestrator {
     app: AppHandle,
     inner: AppStateInner,
@@ -234,12 +242,18 @@ impl Orchestrator {
                 o.sd_slot_id_at(surface_id, &address)
             };
             if let Some(slot_id) = slot_id {
-                let mut o = state.write().await;
-                if let Err(e) = o
-                    .prepare_sd_slot_for_input_from_slot_id(slot_id, Some(state.clone()))
-                    .await
-                {
-                    warn!("prepare SD slot for HID input: {e}");
+                let ready = {
+                    let o = state.read().await;
+                    o.sd_slot_context_ready(slot_id).await
+                };
+                if !ready {
+                    let mut o = state.write().await;
+                    if let Err(e) = o
+                        .prepare_sd_slot_for_input_from_slot_id(slot_id, Some(state.clone()))
+                        .await
+                    {
+                        warn!("prepare SD slot for HID input: {e}");
+                    }
                 }
             }
         }
@@ -701,6 +715,110 @@ impl Orchestrator {
             SimulateKeyPhase::KeyUp => broker.key_up(context).await?,
         }
         Ok(())
+    }
+
+    /// True when the SD broker already has a registered context for this slot.
+    async fn sd_slot_context_ready(&self, slot_id: SlotId) -> bool {
+        let Some((Some(binding), _)) = self.slot_binding_and_locator(slot_id) else {
+            return true;
+        };
+        let BindingKind::StreamDeck {
+            plugin_uuid,
+            action_uuid,
+            instance_id,
+            ..
+        } = &binding.kind
+        else {
+            return true;
+        };
+        let plugin_uuid = self.resolve_loaded_plugin_uuid(plugin_uuid);
+        let context = self
+            .inner
+            .routing
+            .slot_to_context
+            .get(&slot_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                SdSurfaceBridge::build_context_id(&plugin_uuid, action_uuid, &instance_id.0)
+            });
+        let Some(broker) = self.inner.sd_supervisor.get(&plugin_uuid) else {
+            return false;
+        };
+        broker.has_context(&context).await
+    }
+
+    async fn plan_sd_slot_key(
+        &self,
+        slot_id: SlotId,
+        binding: &BindingKind,
+    ) -> SlotKeyDispatch {
+        let BindingKind::StreamDeck {
+            plugin_uuid,
+            action_uuid,
+            instance_id,
+            ..
+        } = binding
+        else {
+            return SlotKeyDispatch::NeedsWriteLock;
+        };
+        let plugin_uuid = self.resolve_loaded_plugin_uuid(plugin_uuid);
+        let context = self
+            .inner
+            .routing
+            .slot_to_context
+            .get(&slot_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                SdSurfaceBridge::build_context_id(&plugin_uuid, action_uuid, &instance_id.0)
+            });
+        let Some(broker) = self.inner.sd_supervisor.get(&plugin_uuid) else {
+            return SlotKeyDispatch::NeedsWriteLock;
+        };
+        if broker.has_context(&context).await {
+            SlotKeyDispatch::StreamDeckReady { broker, context }
+        } else {
+            SlotKeyDispatch::NeedsWriteLock
+        }
+    }
+
+    /// Handle simulated key input with minimal orchestrator lock contention.
+    pub async fn dispatch_simulate_slot_key(
+        state: Arc<RwLock<Self>>,
+        slot_id: SlotId,
+        phase: SimulateKeyPhase,
+    ) -> anyhow::Result<()> {
+        let plan = {
+            let o = state.read().await;
+            let Some((binding, _locator)) = o.slot_binding_and_locator(slot_id) else {
+                anyhow::bail!("slot not found");
+            };
+            let Some(binding) = binding else {
+                return Ok(());
+            };
+            match (&binding.kind, phase) {
+                (BindingKind::StreamDeck { .. }, _) => {
+                    o.plan_sd_slot_key(slot_id, &binding.kind).await
+                }
+                (_, SimulateKeyPhase::KeyUp) => return Ok(()),
+                _ => SlotKeyDispatch::NeedsWriteLock,
+            }
+        };
+
+        match plan {
+            SlotKeyDispatch::StreamDeckReady { broker, context } => {
+                match phase {
+                    SimulateKeyPhase::KeyDown => broker.key_down(&context).await?,
+                    SimulateKeyPhase::KeyUp => broker.key_up(&context).await?,
+                }
+                Ok(())
+            }
+            SlotKeyDispatch::NeedsWriteLock => {
+                let state_for_prepare = state.clone();
+                let mut o = state.write().await;
+                o.simulate_slot_key(slot_id, phase, Some(state_for_prepare))
+                    .await
+            }
+        }
     }
 
     fn restore_companion_binding(
@@ -1826,8 +1944,10 @@ impl Orchestrator {
             let orch = orch.clone();
             let uuid = plugin_uuid.clone();
             async move {
-                let mut o = orch.write().await;
-                o.apply_broker_event(&uuid, ev).await.ok();
+                tauri::async_runtime::spawn(async move {
+                    let mut o = orch.write().await;
+                    o.apply_broker_event(&uuid, ev).await.ok();
+                });
             }
         });
         self.inner
@@ -3439,27 +3559,27 @@ impl Orchestrator {
         column: u32,
         visual: VisualState,
     ) {
-        let update = CellUpdate {
-            address: CellAddress { row, column },
-            visual: visual.clone(),
-        };
-        self.inner
-            .surfaces
-            .render(surface_id, &[update])
-            .await
-            .ok();
         HubEvents::emit_visual(
             &self.app,
             VisualUpdatedPayload {
                 row,
                 column,
-                visual,
+                visual: visual.clone(),
             },
         );
+        if let Some(surface) = self.inner.surfaces.get(surface_id).await {
+            let update = CellUpdate {
+                address: CellAddress { row, column },
+                visual,
+            };
+            tauri::async_runtime::spawn(async move {
+                let _ = surface.render(&[update]).await;
+            });
+        }
     }
 
     async fn flash_cell_feedback(
-        &mut self,
+        &self,
         surface_id: SurfaceId,
         row: u32,
         col: u32,
@@ -3483,7 +3603,6 @@ impl Orchestrator {
         };
         self.push_cell_render(surface_id, row, col, flash_visual)
             .await;
-        tokio::time::sleep(Duration::from_millis(450)).await;
         let page_id = self
             .inner
             .page_for_surface(surface_id)
@@ -3495,7 +3614,25 @@ impl Orchestrator {
             .get(&(surface_id, page_id, row, col))
             .cloned()
             .unwrap_or_default();
-        self.push_cell_render(surface_id, row, col, restored).await;
+        if let Some(surface) = self.inner.surfaces.get(surface_id).await {
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(450)).await;
+                HubEvents::emit_visual(
+                    &app,
+                    VisualUpdatedPayload {
+                        row,
+                        column: col,
+                        visual: restored.clone(),
+                    },
+                );
+                let update = CellUpdate {
+                    address: CellAddress { row, column: col },
+                    visual: restored,
+                };
+                let _ = surface.render(&[update]).await;
+            });
+        }
     }
 
     fn surface_id_for_cell(&self, row: u32, column: u32) -> SurfaceId {

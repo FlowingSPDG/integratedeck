@@ -402,10 +402,14 @@ pub async fn simulate_slot_key(
         other => return Err(format!("invalid phase: {other}")),
     };
     let state_clone = state.inner().clone();
-    let mut o = state.write().await;
-    o.simulate_slot_key(slot_id, phase, Some(state_clone))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) =
+            Orchestrator::dispatch_simulate_slot_key(state_clone, slot_id, phase).await
+        {
+            tracing::warn!("simulate_slot_key: {e}");
+        }
+    });
+    Ok(())
 }
 
 #[tauri::command]
