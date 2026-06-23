@@ -309,12 +309,17 @@ impl Orchestrator {
                             .profile
                             .active_page_id
                             .unwrap_or_else(PageId::new);
-                        self.inner.cell_visuals.insert(
-                            (page_id, update.address.row, update.address.column),
-                            visual.clone(),
-                        );
                         let surface_id =
                             self.surface_id_for_cell(update.address.row, update.address.column);
+                        self.inner.cell_visuals.insert(
+                            (
+                                surface_id,
+                                page_id,
+                                update.address.row,
+                                update.address.column,
+                            ),
+                            visual.clone(),
+                        );
                         self.inner
                             .surfaces
                             .render(surface_id, &[update.clone()])
@@ -606,7 +611,12 @@ impl Orchestrator {
     }
 
     fn effective_visual(&self, page_id: PageId, slot: &Slot) -> VisualState {
-        let key = (page_id, slot.locator.row, slot.locator.column);
+        let key = (
+            slot.locator.surface_id,
+            page_id,
+            slot.locator.row,
+            slot.locator.column,
+        );
         let mut visual = self
             .inner
             .cell_visuals
@@ -866,7 +876,7 @@ impl Orchestrator {
         }
 
         self.persist_slot_changes(surface_id).await?;
-        let (row, col, visual) = {
+        let (row, col, configured) = {
             let page = self
                 .inner
                 .profile
@@ -878,21 +888,14 @@ impl Orchestrator {
                 .slots
                 .get(&slot_id)
                 .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
-            let visual = self.effective_visual(page_id, slot);
-            (slot.locator.row, slot.locator.column, visual)
+            (
+                slot.locator.row,
+                slot.locator.column,
+                is_slot_configured(slot),
+            )
         };
-        self.inner
-            .cell_visuals
-            .insert((page_id, row, col), visual.clone());
-        HubEvents::emit_visual(
-            &self.app,
-            VisualUpdatedPayload {
-                row,
-                column: col,
-                visual: visual.clone(),
-            },
-        );
-        self.refresh_page_visuals(page_id, surface_id).await;
+        self.sync_slot_cell_display(page_id, surface_id, row, col, configured, false)
+            .await;
         Ok(())
     }
 
@@ -1980,6 +1983,10 @@ impl Orchestrator {
                 serial,
                 kind,
                 product,
+                active_page_id: self
+                    .inner
+                    .page_for_surface(desc.id)
+                    .map(|id| id.0.to_string()),
             });
         }
 
@@ -2247,6 +2254,26 @@ impl Orchestrator {
         }
 
         self.persist_slot_changes(surface_id).await?;
+        let (row, col, configured) = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            (
+                slot.locator.row,
+                slot.locator.column,
+                is_slot_configured(slot),
+            )
+        };
+        self.sync_slot_cell_display(page_id, surface_id, row, col, configured, true)
+            .await;
         Ok(())
     }
 
@@ -2333,8 +2360,270 @@ impl Orchestrator {
         }
 
         self.persist_slot_changes(surface_id).await?;
+        self.inner
+            .cell_visuals
+            .remove(&(surface_id, page_id, row, col));
+        self.sync_slot_cell_display(
+            page_id,
+            surface_id,
+            row,
+            col,
+            {
+                let page = self
+                    .inner
+                    .profile
+                    .pages
+                    .iter()
+                    .find(|p| p.id == page_id)
+                    .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                let slot = page
+                    .slots
+                    .get(&slot_id)
+                    .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                is_slot_configured(slot)
+            },
+            true,
+        )
+        .await;
+        Ok(())
+    }
+
+    pub async fn transfer_slot_cell(
+        &mut self,
+        surface_id: SurfaceId,
+        page_id: PageId,
+        from_row: u32,
+        from_col: u32,
+        to_row: u32,
+        to_col: u32,
+        orch: Arc<RwLock<Self>>,
+    ) -> anyhow::Result<()> {
+        if from_row == to_row && from_col == to_col {
+            return Ok(());
+        }
+
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter()
+            .find(|p| p.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+
+        let source_slot = page
+            .slots
+            .values()
+            .find(|s| {
+                s.locator.surface_id == surface_id
+                    && s.locator.row == from_row
+                    && s.locator.column == from_col
+            })
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("source slot not found"))?;
+
+        if !is_slot_configured(&source_slot) {
+            anyhow::bail!("source slot is empty");
+        }
+
+        let source_binding_json = source_slot
+            .binding
+            .as_ref()
+            .map(|b| serde_json::to_value(&b.kind))
+            .transpose()?;
+        let source_appearance = source_slot.appearance.clone();
+        let source_slot_id = source_slot.id;
+
+        let target_slot = page
+            .slots
+            .values()
+            .find(|s| {
+                s.locator.surface_id == surface_id
+                    && s.locator.row == to_row
+                    && s.locator.column == to_col
+            })
+            .cloned();
+        let target_configured = target_slot.as_ref().is_some_and(is_slot_configured);
+
+        if !target_configured {
+            let target_id = if let Some(slot) = target_slot {
+                slot.id
+            } else {
+                self.ensure_slot_at(surface_id, page_id, to_row, to_col)
+                    .await?
+            };
+            self.apply_slot_snapshot(
+                target_id,
+                source_binding_json,
+                source_appearance,
+                orch.clone(),
+            )
+            .await?;
+            self.delete_slot(source_slot_id).await?;
+            self.clear_cell_at(page_id, surface_id, from_row, from_col)
+                .await;
+        } else {
+            let target_slot = target_slot.unwrap();
+            let target_id = target_slot.id;
+            let target_binding_json = target_slot
+                .binding
+                .as_ref()
+                .map(|b| serde_json::to_value(&b.kind))
+                .transpose()?;
+            let target_appearance = target_slot.appearance.clone();
+
+            self.apply_slot_snapshot(
+                source_slot_id,
+                target_binding_json,
+                target_appearance,
+                orch.clone(),
+            )
+            .await?;
+            self.apply_slot_snapshot(
+                target_id,
+                source_binding_json,
+                source_appearance,
+                orch,
+            )
+            .await?;
+        }
+
+        self.sync_sd_routing_for_surface_page(surface_id, page_id)
+            .await;
+        self.rebuild_companion_bridge_for_page(page_id);
         self.refresh_page_visuals(page_id, surface_id).await;
         Ok(())
+    }
+
+    async fn ensure_slot_at(
+        &mut self,
+        surface_id: SurfaceId,
+        page_id: PageId,
+        row: u32,
+        column: u32,
+    ) -> anyhow::Result<SlotId> {
+        if let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) {
+            if let Some(slot) = page.slots.values().find(|s| {
+                s.locator.surface_id == surface_id
+                    && s.locator.row == row
+                    && s.locator.column == column
+            }) {
+                return Ok(slot.id);
+            }
+        }
+
+        let locator = ideck_core::SlotLocator {
+            surface_id,
+            page_id,
+            row,
+            column,
+        };
+        let slot = Slot::new(locator);
+        let slot_id = slot.id;
+        if let Some(page) = self.inner.profile.pages.iter_mut().find(|p| p.id == page_id) {
+            page.slots.insert(slot_id, slot);
+        }
+        self.save_profile().await?;
+        Ok(slot_id)
+    }
+
+    async fn blank_cell_visual(&self, surface_id: SurfaceId) -> VisualState {
+        let (width, height) = self
+            .inner
+            .surfaces
+            .get(surface_id)
+            .await
+            .map(|s| {
+                let c = &s.descriptor().capabilities;
+                (c.key_width_px, c.key_height_px)
+            })
+            .unwrap_or((72, 72));
+        VisualState {
+            image: Some(solid_key_png(width, height, 0, 0, 0)),
+            ..Default::default()
+        }
+    }
+
+    async fn sync_slot_cell_display(
+        &mut self,
+        page_id: PageId,
+        surface_id: SurfaceId,
+        row: u32,
+        col: u32,
+        configured: bool,
+        drop_plugin_cache: bool,
+    ) {
+        if drop_plugin_cache {
+            self.inner
+                .cell_visuals
+                .remove(&(surface_id, page_id, row, col));
+        }
+        if configured {
+            let visual = {
+                let page = self.inner.profile.pages.iter().find(|p| p.id == page_id);
+                let slot = page.and_then(|p| {
+                    p.slots.values().find(|s| {
+                        s.locator.surface_id == surface_id
+                            && s.locator.row == row
+                            && s.locator.column == col
+                    })
+                });
+                match slot {
+                    Some(s) if drop_plugin_cache => s.appearance.base_visual(),
+                    Some(s) => self.effective_visual(page_id, s),
+                    None => VisualState::default(),
+                }
+            };
+            self.inner
+                .cell_visuals
+                .insert((surface_id, page_id, row, col), visual.clone());
+            self.push_cell_render(surface_id, row, col, visual).await;
+        } else {
+            self.clear_cell_at(page_id, surface_id, row, col).await;
+        }
+    }
+
+    async fn clear_cell_at(
+        &mut self,
+        page_id: PageId,
+        surface_id: SurfaceId,
+        row: u32,
+        col: u32,
+    ) {
+        self.inner
+            .cell_visuals
+            .remove(&(surface_id, page_id, row, col));
+        let blank = self.blank_cell_visual(surface_id).await;
+        self.push_cell_render(surface_id, row, col, blank).await;
+    }
+
+    fn rebuild_companion_bridge_for_page(&mut self, page_id: PageId) {
+        let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
+            return;
+        };
+        let mut bridge = CompSurfaceBridge::new();
+        for slot in page.slots.values() {
+            let Some(Binding {
+                kind:
+                    BindingKind::Companion {
+                        connection_id,
+                        action_id,
+                        ..
+                    },
+            }) = &slot.binding
+            else {
+                continue;
+            };
+            let control_id = format!("{connection_id}:{action_id}");
+            bridge.register_cell(slot.locator.row, slot.locator.column, control_id);
+            self.inner.routing.register_companion_slot(
+                slot.id,
+                connection_id.clone(),
+                action_id.clone(),
+            );
+        }
+        if !bridge.control_by_cell.is_empty() || self.inner.comp_bridge.is_some() {
+            self.inner.comp_bridge = Some(bridge);
+        }
     }
 
     pub async fn update_slot_settings(
@@ -2529,25 +2818,58 @@ impl Orchestrator {
         }
         self.inner.profile.active_page_id = Some(page_id);
         self.save_profile().await?;
-        for surface in self.inner.profile.surfaces.clone() {
-            self.inner.surface_pages.insert(surface.surface_id, page_id);
-            self.sync_sd_routing_for_surface_page(surface.surface_id, page_id)
-                .await;
-            self.refresh_page_visuals(page_id, surface.surface_id).await;
+        Ok(())
+    }
+
+    pub async fn set_surface_page(
+        &mut self,
+        surface_id: SurfaceId,
+        page_id: PageId,
+    ) -> anyhow::Result<()> {
+        if !self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .any(|s| s.surface_id == surface_id)
+        {
+            anyhow::bail!("surface not found");
         }
+        self.navigate_surface_to_page(surface_id, page_id, false)
+            .await?;
+        self.inner.profile.active_page_id = Some(page_id);
+        self.save_profile().await?;
         Ok(())
     }
 
     pub async fn delete_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
-        self.unbind_slot(slot_id).await?;
         let page_id = self
-            .inner
-            .profile
-            .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+        let (surface_id, row, col) = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            (
+                slot.locator.surface_id,
+                slot.locator.row,
+                slot.locator.column,
+            )
+        };
+
+        self.unbind_slot(slot_id).await?;
         if let Some(page) = self.inner.profile.pages.iter_mut().find(|p| p.id == page_id) {
             page.slots.remove(&slot_id);
         }
+        self.clear_cell_at(page_id, surface_id, row, col).await;
         Ok(())
     }
 
@@ -2801,7 +3123,12 @@ impl Orchestrator {
                             .unwrap_or_else(PageId::new),
                     )
                 };
-                let cell_key = (page_id, update.address.row, update.address.column);
+                let cell_key = (
+                    surface_id,
+                    page_id,
+                    update.address.row,
+                    update.address.column,
+                );
                 let merged = {
                     let existing = self
                         .inner
@@ -2897,7 +3224,7 @@ impl Orchestrator {
         let restored = self
             .inner
             .cell_visuals
-            .get(&(page_id, row, col))
+            .get(&(surface_id, page_id, row, col))
             .cloned()
             .unwrap_or_default();
         self.push_cell_render(surface_id, row, col, restored).await;
@@ -2921,8 +3248,11 @@ impl Orchestrator {
             .unwrap_or_else(SurfaceId::new)
     }
 
-    pub async fn get_cell_visuals(&self) -> std::collections::HashMap<String, VisualState> {
-        let Some(page_id) = self.inner.profile.active_page_id else {
+    pub async fn get_cell_visuals(
+        &self,
+        surface_id: SurfaceId,
+    ) -> std::collections::HashMap<String, VisualState> {
+        let Some(page_id) = self.inner.page_for_surface(surface_id) else {
             return std::collections::HashMap::new();
         };
         let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
@@ -2930,6 +3260,9 @@ impl Orchestrator {
         };
         let mut out = std::collections::HashMap::new();
         for slot in page.slots.values() {
+            if slot.locator.surface_id != surface_id {
+                continue;
+            }
             let visual = self.effective_visual(page_id, slot);
             out.insert(
                 format!("{},{}", slot.locator.row, slot.locator.column),
@@ -3461,6 +3794,8 @@ pub struct SurfaceRuntimeEntry {
     pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_page_id: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -3521,4 +3856,14 @@ fn fresh_binding_kind(kind: &BindingKind) -> BindingKind {
             delay_ms: *delay_ms,
         },
     }
+}
+
+fn is_slot_configured(slot: &Slot) -> bool {
+    slot.binding.is_some()
+        || slot
+            .appearance
+            .title
+            .as_ref()
+            .is_some_and(|t| !t.trim().is_empty())
+        || slot.appearance.default_image.is_some()
 }

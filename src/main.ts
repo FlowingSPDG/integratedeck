@@ -166,6 +166,7 @@ interface SurfaceRuntimeEntry {
   serial?: string;
   kind?: string;
   product?: string;
+  activePageId?: string;
 }
 
 interface UsbDeviceRuntimeEntry {
@@ -246,6 +247,17 @@ let settingsAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 const DRAG_THRESHOLD_PX = 6;
 let dragGhost: HTMLElement | null = null;
 let activeDragPayload: DragActionPayload | null = null;
+
+interface SlotDragPayload {
+  slotId: string;
+  fromRow: number;
+  fromCol: number;
+  label: string;
+}
+
+let activeSlotDrag: SlotDragPayload | null = null;
+let isDraggingSlot = false;
+let suppressSlotClick = false;
 
 interface SlotClipboard {
   binding?: Record<string, unknown>;
@@ -427,9 +439,148 @@ function cleanupPointerDrag() {
   dragGhost?.remove();
   dragGhost = null;
   activeDragPayload = null;
+  activeSlotDrag = null;
   isDraggingAction = false;
+  isDraggingSlot = false;
   clearDragHighlights();
-  document.body.classList.remove("action-dragging");
+  document.body.classList.remove("action-dragging", "slot-dragging");
+  gridEl.querySelectorAll(".slot.dragging").forEach((el) => el.classList.remove("dragging"));
+}
+
+function slotDragLabel(slot: Slot, row: number, col: number): string {
+  const visual = visualForCell(row, col);
+  const title = visual?.title ?? slot.appearance?.title ?? slot.label;
+  if (title?.trim()) return title;
+  const b = normalizeBinding(slot.binding);
+  if (b?.type === "builtin") {
+    if (b.actionId === BUILTIN_OPEN_FOLDER) return "Folder";
+    if (b.actionId === BUILTIN_BACK) return "Back";
+    if (b.actionId === BUILTIN_SWITCH_PAGE) return "Page";
+    if (b.actionId === BUILTIN_MULTI) return "Multi Action";
+  }
+  if (b?.type === "stream_deck") return "Stream Deck";
+  if (b?.type === "companion") return "Companion";
+  if (b?.type === "multi_action") return "Multi Action";
+  return "Key";
+}
+
+function beginSlotPointerDrag(
+  e: PointerEvent,
+  slotEl: HTMLElement,
+  slot: Slot,
+) {
+  if (e.button !== 0 || !isSlotConfigured(slot)) return;
+
+  const fromRow = Number(slotEl.dataset.row);
+  const fromCol = Number(slotEl.dataset.col);
+  if (Number.isNaN(fromRow) || Number.isNaN(fromCol)) return;
+
+  const payload: SlotDragPayload = {
+    slotId: slot.id,
+    fromRow,
+    fromCol,
+    label: slotDragLabel(slot, fromRow, fromCol),
+  };
+  const startX = e.clientX;
+  const startY = e.clientY;
+  let dragging = false;
+
+  const onMove = (ev: PointerEvent) => {
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
+      dragging = true;
+      isDraggingSlot = true;
+      activeSlotDrag = payload;
+      dragGhost = createDragGhost(payload.label);
+      slotEl.classList.add("dragging");
+      document.body.classList.add("slot-dragging");
+    }
+    if (dragGhost) {
+      positionGhost(dragGhost, ev.clientX, ev.clientY);
+      const targetEl = findSlotAt(ev.clientX, ev.clientY);
+      if (targetEl && targetEl !== slotEl) {
+        setDropHighlight(targetEl);
+      } else {
+        clearDragHighlights();
+      }
+    }
+  };
+
+  const onUp = (ev: PointerEvent) => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
+
+    if (dragging && activeSlotDrag) {
+      const targetEl = findSlotAt(ev.clientX, ev.clientY);
+      if (targetEl && targetEl !== slotEl) {
+        const toRow = Number(targetEl.dataset.row);
+        const toCol = Number(targetEl.dataset.col);
+        if (!Number.isNaN(toRow) && !Number.isNaN(toCol)) {
+          suppressSlotClick = true;
+          void transferSlotCell(payload.fromRow, payload.fromCol, toRow, toCol, payload.slotId);
+        }
+      }
+    }
+    cleanupPointerDrag();
+  };
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
+}
+
+async function transferSlotCell(
+  fromRow: number,
+  fromCol: number,
+  toRow: number,
+  toCol: number,
+  sourceSlotId: string,
+) {
+  if (!selectedSurfaceId || !activePageId) return;
+
+  const profileBefore = await invoke<Profile>("get_profile");
+  const pageBefore =
+    profileBefore.pages.find((p) => p.id === activePageId) ?? profileBefore.pages[0];
+  const targetSlotBefore = pageBefore
+    ? findSlot(pageBefore, toRow, toCol, selectedSurfaceId)
+    : undefined;
+  const isSwap = isSlotConfigured(targetSlotBefore);
+  const wasSourceSelected = selectedSlotId === sourceSlotId;
+  const wasTargetSelected = targetSlotBefore?.id === selectedSlotId;
+
+  try {
+    await invoke("transfer_slot_cell", {
+      args: {
+        surfaceId: selectedSurfaceId,
+        pageId: activePageId,
+        fromRow,
+        fromCol,
+        toRow,
+        toCol,
+      },
+    });
+    await pollCellVisuals();
+    const profile = await invoke<Profile>("get_profile");
+    const page = profile.pages.find((p) => p.id === activePageId) ?? profile.pages[0];
+    if (wasSourceSelected) {
+      selectedSlotId =
+        findSlot(page, toRow, toCol, selectedSurfaceId)?.id ?? null;
+    } else if (wasTargetSelected) {
+      selectedSlotId =
+        findSlot(page, fromRow, fromCol, selectedSurfaceId)?.id ?? null;
+    }
+    renderGrid(profile);
+    if (selectedSlotId) {
+      const slot = Object.values(page?.slots ?? {}).find((s) => s.id === selectedSlotId);
+      await updatePropertyInspector(slot);
+    } else if (wasSourceSelected || wasTargetSelected) {
+      await updatePropertyInspector(undefined);
+    }
+    statusEl.textContent = isSwap ? "入れ替えました" : "移動しました";
+  } catch (err) {
+    statusEl.textContent = `移動に失敗: ${formatUserError(err)}`;
+  }
 }
 
 function beginActionPointerDrag(e: PointerEvent, itemEl: HTMLElement) {
@@ -541,7 +692,10 @@ function updateGridCss() {
 }
 
 async function refreshCellVisuals() {
-  cellVisuals = await invoke<Record<string, VisualState>>("get_cell_visuals");
+  if (!selectedSurfaceId) return;
+  cellVisuals = await invoke<Record<string, VisualState>>("get_cell_visuals", {
+    surfaceId: selectedSurfaceId,
+  });
 }
 
 async function pollCellVisuals(times = 8) {
@@ -552,7 +706,7 @@ async function pollCellVisuals(times = 8) {
 }
 
 async function refreshActionLibrary() {
-  if (isDraggingAction) return;
+  if (isDraggingAction || isDraggingSlot) return;
   actionLibrary = await invoke<ActionLibrary>("list_action_library");
   renderActionSidebar();
 }
@@ -796,7 +950,18 @@ function renderGrid(profile: Profile) {
       el.dataset.col = String(col);
       renderSlotContent(el, row, col, slot);
 
-      el.addEventListener("click", () => void onSlotClick(page, row, col, slot));
+      el.addEventListener("click", () => {
+        if (suppressSlotClick) {
+          suppressSlotClick = false;
+          return;
+        }
+        void onSlotClick(page, row, col, slot);
+      });
+      if (slot && isSlotConfigured(slot)) {
+        el.addEventListener("pointerdown", (ev) => {
+          beginSlotPointerDrag(ev as PointerEvent, el, slot);
+        });
+      }
       el.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1359,7 +1524,13 @@ async function applyActionToCell(row: number, col: number, payload: DragActionPa
 }
 
 async function setActivePage(pageId: string) {
-  await invoke("set_active_page", { pageId });
+  if (!selectedSurfaceId) return;
+  await invoke("set_surface_page", {
+    args: {
+      surfaceId: selectedSurfaceId,
+      pageId,
+    },
+  });
   activePageId = pageId;
   selectedSlotId = null;
   configPlaceholder.classList.remove("hidden");
@@ -1417,7 +1588,6 @@ async function refresh() {
   statusEl.textContent = `v${info.version}`;
 
   const profile = await invoke<Profile>("get_profile");
-  activePageId = profile.active_page_id ?? profile.pages[0]?.id ?? null;
 
   if (profile.surfaces.length === 0) {
     selectedSurfaceId = await invoke<string>("register_mock_surface", { name: "Mock 3×5" });
@@ -1429,12 +1599,19 @@ async function refresh() {
     selectedSurfaceId = profile.surfaces[0].surface_id;
   }
 
-  await refreshCellVisuals();
-  renderPagePicker(profile);
-
   try {
     const status = await invoke<RuntimeStatus>("get_runtime_status");
     renderDevicePicker(status.surfaces);
+
+    const surfaceEntry = status.surfaces.find((s) => s.surfaceId === selectedSurfaceId);
+    if (surfaceEntry?.activePageId) {
+      activePageId = surfaceEntry.activePageId;
+    } else {
+      activePageId = profile.active_page_id ?? profile.pages[0]?.id ?? null;
+    }
+
+    await refreshCellVisuals();
+    renderPagePicker(profile);
     renderGrid(profile);
     await refreshActionLibrary();
   } catch (e) {
@@ -1549,6 +1726,6 @@ refresh().catch((e) => {
 });
 
 setInterval(() => {
-  if (isDraggingAction) return;
+  if (isDraggingAction || isDraggingSlot) return;
   void refreshActionLibrary().catch(() => {});
 }, 5000);

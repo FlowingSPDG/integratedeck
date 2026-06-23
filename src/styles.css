@@ -256,8 +256,9 @@ select,
   font-size: 10px;
   text-align: center;
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
   user-select: none;
+  touch-action: none;
 }
 
 .slot * {
@@ -281,6 +282,14 @@ select,
 .slot.drag-over {
   border-color: #6cf;
   background: #1a2830;
+}
+
+.slot.dragging {
+  opacity: 0.45;
+}
+
+body.slot-dragging .slot:not(.dragging):not(.drag-over) {
+  cursor: grabbing;
 }
 
 .slot-context-menu {

@@ -331,8 +331,21 @@ impl super::Surface for StreamDeckHidSurface {
                 None
             };
 
-            let Some(img) = decoded else {
-                continue;
+            let img = if let Some(img) = decoded {
+                img
+            } else {
+                let blank = ideck_core::solid_key_png(width, height, 0, 0, 0);
+                match ImageReader::new(Cursor::new(&blank.data))
+                    .with_guessed_format()
+                    .ok()
+                    .and_then(|r| r.decode().ok())
+                {
+                    Some(img) => img,
+                    None => {
+                        warn!("blank key image decode failed");
+                        continue;
+                    }
+                }
             };
 
             let converted = if has_title {

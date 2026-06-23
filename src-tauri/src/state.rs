@@ -20,8 +20,8 @@ pub struct AppStateInner {
     pub sd_supervisor: PluginSupervisor,
     pub bridges: HashMap<String, SdSurfaceBridge>,
     pub comp_bridge: Option<CompSurfaceBridge>,
-    /// Plugin-driven visuals keyed by (page, row, col).
-    pub cell_visuals: HashMap<(PageId, u32, u32), ideck_core::VisualState>,
+    /// Plugin-driven visuals keyed by (surface, page, row, col).
+    pub cell_visuals: HashMap<(SurfaceId, PageId, u32, u32), ideck_core::VisualState>,
     pub device_bus: DeviceEventBus,
     pub routing: RoutingTable,
     pub global_settings: HashMap<String, serde_json::Value>,

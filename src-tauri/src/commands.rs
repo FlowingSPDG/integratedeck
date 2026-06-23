@@ -490,9 +490,11 @@ pub async fn list_variables(
 #[tauri::command]
 pub async fn get_cell_visuals(
     state: State<'_, OrchState>,
+    surface_id: String,
 ) -> Result<HashMap<String, VisualState>, String> {
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
     let o = state.read().await;
-    Ok(o.get_cell_visuals().await)
+    Ok(o.get_cell_visuals(surface_id).await)
 }
 
 #[tauri::command]
@@ -564,6 +566,26 @@ pub async fn set_active_page(
     let page_id = PageId(uuid::Uuid::parse_str(&page_id).map_err(|e| e.to_string())?);
     let mut o = state.write().await;
     o.set_active_page(page_id).await.map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSurfacePageArgs {
+    pub surface_id: String,
+    pub page_id: String,
+}
+
+#[tauri::command]
+pub async fn set_surface_page(
+    state: State<'_, OrchState>,
+    args: SetSurfacePageArgs,
+) -> Result<(), String> {
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let page_id = PageId(uuid::Uuid::parse_str(&args.page_id).map_err(|e| e.to_string())?);
+    let mut o = state.write().await;
+    o.set_surface_page(surface_id, page_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -698,6 +720,39 @@ pub async fn apply_slot_snapshot(
     o.apply_slot_snapshot(slot_id, args.binding, args.appearance, state_clone)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferSlotCellArgs {
+    pub surface_id: String,
+    pub page_id: String,
+    pub from_row: u32,
+    pub from_col: u32,
+    pub to_row: u32,
+    pub to_col: u32,
+}
+
+#[tauri::command]
+pub async fn transfer_slot_cell(
+    state: State<'_, OrchState>,
+    args: TransferSlotCellArgs,
+) -> Result<(), String> {
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let page_id = PageId(uuid::Uuid::parse_str(&args.page_id).map_err(|e| e.to_string())?);
+    let state_clone = state.inner().clone();
+    let mut o = state.write().await;
+    o.transfer_slot_cell(
+        surface_id,
+        page_id,
+        args.from_row,
+        args.from_col,
+        args.to_row,
+        args.to_col,
+        state_clone,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 fn parse_slot_id(s: &str) -> Result<SlotId, String> {
