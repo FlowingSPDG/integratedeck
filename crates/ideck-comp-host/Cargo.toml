@@ -1,6 +1,6 @@
 [package]
 name = "ideck-comp-host"
-description = "Companion module host bridge to Node sidecar"
+description = "Companion module host bridge (Orchestrator-managed Node process)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

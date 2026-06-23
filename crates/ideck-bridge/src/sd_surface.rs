@@ -50,6 +50,23 @@ impl SdSurfaceBridge {
             SurfaceInput::KeyUp { address } => self
                 .context_for_input(address)
                 .map(|c| (c.to_string(), "keyUp")),
+            SurfaceInput::EncoderRotate { index, ticks, pressed } => {
+                let ctx = self
+                    .context_by_cell
+                    .get(&(0, *index))
+                    .cloned()
+                    .or_else(|| self.context_by_cell.get(&(*index, 0)).cloned())?;
+                let _ = (ticks, pressed);
+                Some((ctx, "dialRotate"))
+            }
+            SurfaceInput::EncoderPress { index, pressed: _ } => {
+                let ctx = self
+                    .context_by_cell
+                    .get(&(0, *index))
+                    .cloned()
+                    .or_else(|| self.context_by_cell.get(&(*index, 0)).cloned())?;
+                Some((ctx, "dialPress"))
+            }
             _ => None,
         }
     }
@@ -99,6 +116,16 @@ impl SdSurfaceBridge {
                             row: *row,
                             column: *col,
                         },
+                        visual: visual.clone(),
+                    });
+                }
+            }
+            BrokerEvent::SetState { context, state } => {
+                if let Some((row, col)) = self.cell_by_context.get(context) {
+                    let visual = visuals.entry((*row, *col)).or_default();
+                    visual.state_index = *state;
+                    updates.push(CellUpdate {
+                        address: CellAddress { row: *row, column: *col },
                         visual: visual.clone(),
                     });
                 }

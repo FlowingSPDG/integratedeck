@@ -22,9 +22,28 @@ pub enum BindingKind {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Binding {
+    #[serde(flatten)]
     pub kind: BindingKind,
+}
+
+impl<'de> Deserialize<'de> for Binding {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = JsonValue::deserialize(deserializer)?;
+        if let Ok(kind) = serde_json::from_value::<BindingKind>(value.clone()) {
+            return Ok(Binding { kind });
+        }
+        if let Some(inner) = value.get("kind") {
+            if let Ok(kind) = serde_json::from_value::<BindingKind>(inner.clone()) {
+                return Ok(Binding { kind });
+            }
+        }
+        Err(serde::de::Error::custom("invalid binding"))
+    }
 }
 
 impl Binding {

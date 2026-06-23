@@ -2,25 +2,24 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
 
-use crate::{CellUpdate, SurfaceCapabilities, SurfaceDescriptor, SurfaceInput};
+use crate::driver::PhysicalSurface;
+use crate::{CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput};
 use ideck_core::SurfaceId;
 
-#[derive(Debug, Error)]
-pub enum SurfaceError {
-    #[error("surface not found: {0:?}")]
-    NotFound(SurfaceId),
-    #[error("{0}")]
-    Other(String),
-}
+/// Erases [`PhysicalSurface`] for storage as [`Surface`].
+struct ErasedPhysicalSurface(Arc<dyn PhysicalSurface>);
 
-/// Physical or virtual control surface.
 #[async_trait]
-pub trait Surface: Send + Sync {
-    fn descriptor(&self) -> &SurfaceDescriptor;
-    async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError>;
+impl Surface for ErasedPhysicalSurface {
+    fn descriptor(&self) -> &SurfaceDescriptor {
+        Surface::descriptor(self.0.as_ref())
+    }
+
+    async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
+        Surface::render(self.0.as_ref(), updates).await
+    }
 }
 
 /// Mock surface for development and tests.
@@ -84,7 +83,7 @@ impl Surface for MockSurface {
 pub struct SurfaceManager {
     surfaces: RwLock<HashMap<SurfaceId, Arc<dyn Surface>>>,
     mock_inputs: RwLock<HashMap<SurfaceId, broadcast::Sender<SurfaceInput>>>,
-    hid_inputs: RwLock<HashMap<SurfaceId, broadcast::Sender<SurfaceInput>>>,
+    physical: RwLock<HashMap<SurfaceId, Arc<dyn PhysicalSurface>>>,
 }
 
 impl Default for SurfaceManager {
@@ -98,7 +97,7 @@ impl SurfaceManager {
         Self {
             surfaces: RwLock::new(HashMap::new()),
             mock_inputs: RwLock::new(HashMap::new()),
-            hid_inputs: RwLock::new(HashMap::new()),
+            physical: RwLock::new(HashMap::new()),
         }
     }
 
@@ -114,28 +113,20 @@ impl SurfaceManager {
             .insert(id, surface as Arc<dyn Surface>);
     }
 
-    pub async fn register(&self, surface: Arc<dyn Surface>) {
-        let id = surface.descriptor().id;
-        self.surfaces.write().await.insert(id, surface);
-    }
-
-    pub async fn register_hid(&self, surface: Arc<crate::StreamDeckHidSurface>) {
-        let id = surface.id();
-        self.hid_inputs
-            .write()
-            .await
-            .insert(id, surface.input_sender());
+    pub async fn register_physical(&self, surface: Arc<dyn PhysicalSurface>) {
+        let id = surface.surface_id();
+        self.physical.write().await.insert(id, surface.clone());
         self.surfaces
             .write()
             .await
-            .insert(id, surface as Arc<dyn Surface>);
+            .insert(id, Arc::new(ErasedPhysicalSurface(surface)));
     }
 
-    pub fn subscribe_hid_inputs(&self, id: SurfaceId) -> Option<broadcast::Receiver<SurfaceInput>> {
-        self.hid_inputs
+    pub fn physical(&self, id: SurfaceId) -> Option<Arc<dyn PhysicalSurface>> {
+        self.physical
             .try_read()
             .ok()
-            .and_then(|m| m.get(&id).map(|tx| tx.subscribe()))
+            .and_then(|m| m.get(&id).cloned())
     }
 
     pub async fn list(&self) -> Vec<SurfaceDescriptor> {
@@ -160,7 +151,6 @@ impl SurfaceManager {
     }
 
     pub fn subscribe_mock_inputs(&self, id: SurfaceId) -> Option<broadcast::Receiver<SurfaceInput>> {
-        // Called synchronously from sync context in tests; use try_read in production orchestrator
         self.mock_inputs
             .try_read()
             .ok()
@@ -170,6 +160,6 @@ impl SurfaceManager {
     pub async fn unregister(&self, id: SurfaceId) {
         self.surfaces.write().await.remove(&id);
         self.mock_inputs.write().await.remove(&id);
-        self.hid_inputs.write().await.remove(&id);
+        self.physical.write().await.remove(&id);
     }
 }

@@ -4,16 +4,18 @@ use std::sync::Arc;
 use ideck_comp_host::ConnectionRecord;
 use ideck_core::{PageId, Profile, Slot, SlotId, SlotLocator, SurfaceId, VisualState};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::sync::RwLock;
-
-use ideck_surface::StreamDeckHidSurface;
 
 use crate::errors::{friendly_anyhow, friendly_error};
 use crate::orchestrator::{
-    ConnectHidResult, LoadPluginResult, Orchestrator, RuntimeStatus, ScanResult,
+    ActionLibrary, ConnectHidResult, LoadPluginResult, Orchestrator,
+    PiContextDto, PluginActionInfo, RuntimeStatus, ScanResult, SettingsDeviceEntry,
 };
+use crate::settings_store::AppGlobalSettings;
 use crate::paths;
+use crate::settings_store;
+use crate::windows;
 
 type OrchState = Arc<RwLock<Orchestrator>>;
 
@@ -86,9 +88,12 @@ pub async fn get_runtime_status(state: State<'_, OrchState>) -> Result<RuntimeSt
 }
 
 #[tauri::command]
-pub async fn unload_sd_plugin(state: State<'_, OrchState>) -> Result<(), String> {
+pub async fn unload_sd_plugin(
+    state: State<'_, OrchState>,
+    plugin_uuid: Option<String>,
+) -> Result<(), String> {
     let mut o = state.write().await;
-    o.unload_sd_plugin().await
+    o.unload_sd_plugin(plugin_uuid).await
 }
 
 #[tauri::command]
@@ -108,20 +113,9 @@ pub async fn load_sd_plugin(
 ) -> Result<LoadPluginResult, String> {
     let state_clone = state.inner().clone();
     let mut o = state.write().await;
-    let (result, events) = o
-        .load_sd_plugin(path.into())
+    o.load_sd_plugin(path.into(), state_clone)
         .await
-        .map_err(friendly_anyhow)?;
-
-    let handle = tokio::spawn(async move {
-        let mut rx = events;
-        while let Some(ev) = rx.recv().await {
-            let mut o = state_clone.write().await;
-            o.apply_broker_event(ev).await.ok();
-        }
-    });
-    o.set_broker_drain_handle(handle);
-    Ok(result)
+        .map_err(friendly_anyhow)
 }
 
 #[derive(Deserialize)]
@@ -142,6 +136,40 @@ pub async fn bind_slot_sd(
     o.bind_slot_streamdeck(slot_id, args.plugin_uuid, args.action_uuid)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindSlotCompanionArgs {
+    pub slot_id: String,
+    pub connection_id: String,
+    pub action_id: String,
+    #[serde(default)]
+    pub options: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn bind_slot_companion(
+    state: State<'_, OrchState>,
+    args: BindSlotCompanionArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.bind_slot_companion(
+        slot_id,
+        args.connection_id,
+        args.action_id,
+        args.options,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn unbind_slot(state: State<'_, OrchState>, slot_id: String) -> Result<(), String> {
+    let slot_id = parse_slot_id(&slot_id)?;
+    let mut o = state.write().await;
+    o.unbind_slot(slot_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -178,8 +206,21 @@ pub async fn add_connection(
         enabled: true,
     };
     let mut o = state.write().await;
-    o.add_connection(record.clone());
+    o.add_connection(record.clone())
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(record)
+}
+
+#[tauri::command]
+pub async fn remove_connection(
+    state: State<'_, OrchState>,
+    connection_id: String,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.remove_connection(connection_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Deserialize)]
@@ -196,22 +237,56 @@ pub async fn execute_companion_action(
     args: ExecuteCompanionArgs,
 ) -> Result<(), String> {
     let o = state.read().await;
-    o.execute_companion_via_sidecar(&args.connection_id, &args.action_id, args.options);
-    Ok(())
+    o.execute_companion_action(&args.connection_id, &args.action_id, args.options)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn sidecar_ping(state: State<'_, OrchState>) -> Result<Option<String>, String> {
+pub async fn companion_ping(state: State<'_, OrchState>) -> Result<Option<String>, String> {
     let o = state.read().await;
-    Ok(o.sidecar_ping())
+    Ok(o.companion_ping().await)
 }
 
 #[tauri::command]
-pub async fn get_pi_url(state: State<'_, OrchState>) -> Result<Option<String>, String> {
+pub async fn get_pi_url(
+    state: State<'_, OrchState>,
+    plugin_uuid: Option<String>,
+) -> Result<Option<String>, String> {
     let o = state.read().await;
-    Ok(o
-        .pi_websocket_port()
-        .map(|p| format!("ws://127.0.0.1:{p}")))
+    let port = plugin_uuid
+        .as_deref()
+        .and_then(|uuid| o.pi_websocket_port(uuid))
+        .or_else(|| o.any_pi_websocket_port());
+    Ok(port.map(|p| format!("ws://127.0.0.1:{p}")))
+}
+
+#[tauri::command]
+pub async fn get_pi_context(
+    state: State<'_, OrchState>,
+    slot_id: String,
+) -> Result<Option<PiContextDto>, String> {
+    let slot_id = parse_slot_id(&slot_id)?;
+    let o = state.read().await;
+    Ok(o.get_pi_context(slot_id))
+}
+
+#[tauri::command]
+pub async fn focus_pi_slot(
+    state: State<'_, OrchState>,
+    slot_id: Option<String>,
+) -> Result<(), String> {
+    let slot_id = slot_id.map(|s| parse_slot_id(&s)).transpose()?;
+    let mut o = state.write().await;
+    o.focus_pi_slot(slot_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_variables(
+    state: State<'_, OrchState>,
+) -> Result<HashMap<String, String>, String> {
+    let o = state.read().await;
+    Ok(o.variables().clone())
 }
 
 #[tauri::command]
@@ -223,14 +298,74 @@ pub async fn get_cell_visuals(
 }
 
 #[tauri::command]
+pub async fn list_action_library(state: State<'_, OrchState>) -> Result<ActionLibrary, String> {
+    let o = state.read().await;
+    o.list_action_library().await.map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertyInspectorUrlArgs {
+    pub plugin_uuid: String,
+    pub action_uuid: String,
+}
+
+#[tauri::command]
 pub async fn get_property_inspector_url(
     state: State<'_, OrchState>,
-    action_uuid: String,
+    args: PropertyInspectorUrlArgs,
 ) -> Result<Option<String>, String> {
     let o = state.read().await;
     Ok(o
-        .property_inspector_path(&action_uuid)
+        .property_inspector_path(&args.plugin_uuid, &args.action_uuid)
         .map(|p| p.display().to_string()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListPluginActionsArgs {
+    pub connection_id: Option<String>,
+    pub plugin_uuid: Option<String>,
+}
+
+#[tauri::command]
+pub async fn list_plugin_actions(
+    state: State<'_, OrchState>,
+    args: ListPluginActionsArgs,
+) -> Result<Vec<PluginActionInfo>, String> {
+    let o = state.read().await;
+    o.list_plugin_actions(args.connection_id, args.plugin_uuid)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSlotSettingsArgs {
+    pub slot_id: String,
+    pub settings: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn update_slot_settings(
+    state: State<'_, OrchState>,
+    args: UpdateSlotSettingsArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.update_slot_settings(slot_id, args.settings)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_active_page(
+    state: State<'_, OrchState>,
+    page_id: String,
+) -> Result<(), String> {
+    let page_id = PageId(uuid::Uuid::parse_str(&page_id).map_err(|e| e.to_string())?);
+    let mut o = state.write().await;
+    o.set_active_page(page_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -239,6 +374,14 @@ pub async fn scan_hid_devices(
 ) -> Result<Vec<ideck_surface::HidDeviceDescriptor>, String> {
     let o = state.read().await;
     o.scan_hid_devices()
+}
+
+#[tauri::command]
+pub async fn list_surface_drivers(
+    state: State<'_, OrchState>,
+) -> Result<Vec<ideck_surface::SurfaceDriverManifest>, String> {
+    let o = state.read().await;
+    Ok(o.list_surface_drivers())
 }
 
 #[tauri::command]
@@ -254,11 +397,8 @@ pub async fn connect_hid_device(
     };
     let surface_id = SurfaceId(uuid::Uuid::parse_str(&result.surface_id).map_err(|e| e.to_string())?);
     let mut input_rx = surface.subscribe_inputs();
-    let reader_surface = surface.clone();
+    let reader = surface.clone().spawn_input_loop();
 
-    let reader = tokio::spawn(async move {
-        StreamDeckHidSurface::run_input_loop(reader_surface, 30.0).await;
-    });
     let forward = tokio::spawn(async move {
         while let Ok(input) = input_rx.recv().await {
             let mut o = state_clone.write().await;
@@ -352,8 +492,143 @@ pub async fn create_slot(
     Ok(slot)
 }
 
+#[tauri::command]
+pub async fn delete_slot(state: State<'_, OrchState>, slot_id: String) -> Result<(), String> {
+    let slot_id = parse_slot_id(&slot_id)?;
+    let mut o = state.write().await;
+    o.delete_slot(slot_id).await.map_err(|e| e.to_string())
+}
+
 fn parse_slot_id(s: &str) -> Result<SlotId, String> {
     Ok(SlotId(
         uuid::Uuid::parse_str(s).map_err(|e| e.to_string())?,
     ))
+}
+
+#[tauri::command]
+pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
+    windows::show_settings_window(&app)
+}
+
+#[tauri::command]
+pub async fn get_global_settings() -> Result<AppGlobalSettings, String> {
+    Ok(settings_store::load_global_settings())
+}
+
+#[tauri::command]
+pub async fn set_global_settings(settings: AppGlobalSettings) -> Result<(), String> {
+    settings_store::save_global_settings(&settings)
+}
+
+#[tauri::command]
+pub async fn list_settings_devices(
+    state: State<'_, OrchState>,
+) -> Result<Vec<SettingsDeviceEntry>, String> {
+    let o = state.read().await;
+    Ok(o.list_settings_devices().await)
+}
+
+#[tauri::command]
+pub async fn get_settings_device(
+    state: State<'_, OrchState>,
+    device_key: String,
+) -> Result<Option<SettingsDeviceEntry>, String> {
+    let o = state.read().await;
+    Ok(o.get_settings_device(&device_key).await)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetDeviceLabelArgs {
+    pub device_key: String,
+    pub label: String,
+}
+
+#[tauri::command]
+pub async fn set_device_label(
+    state: State<'_, OrchState>,
+    args: SetDeviceLabelArgs,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.set_device_label(&args.device_key, args.label).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetDeviceBrightnessArgs {
+    pub device_key: String,
+    pub brightness: u8,
+}
+
+#[tauri::command]
+pub async fn set_device_brightness(
+    state: State<'_, OrchState>,
+    args: SetDeviceBrightnessArgs,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.set_device_brightness(&args.device_key, args.brightness)
+        .await
+}
+
+#[tauri::command]
+pub async fn connect_settings_device(
+    state: State<'_, OrchState>,
+    device_key: String,
+) -> Result<ConnectHidResult, String> {
+    let state_clone = state.inner().clone();
+    let (result, surface) = {
+        let mut o = state.write().await;
+        o.connect_settings_device(&device_key).await?
+    };
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&result.surface_id).map_err(|e| e.to_string())?);
+    let mut input_rx = surface.subscribe_inputs();
+    let reader = surface.clone().spawn_input_loop();
+
+    let forward = tokio::spawn(async move {
+        while let Ok(input) = input_rx.recv().await {
+            let mut o = state_clone.write().await;
+            o.apply_surface_input(surface_id, input).await.ok();
+        }
+    });
+
+    {
+        let mut o = state.write().await;
+        o.store_hid_tasks(surface_id, vec![reader, forward]);
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn export_device_preset(
+    state: State<'_, OrchState>,
+    device_key: String,
+) -> Result<String, String> {
+    let o = state.read().await;
+    o.export_device_preset(&device_key)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDevicePresetArgs {
+    pub device_key: String,
+    pub json: String,
+}
+
+#[tauri::command]
+pub async fn import_device_preset(
+    state: State<'_, OrchState>,
+    args: ImportDevicePresetArgs,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.import_device_preset(&args.device_key, &args.json).await
+}
+
+#[tauri::command]
+pub async fn load_saved_device_preset(
+    state: State<'_, OrchState>,
+    device_key: String,
+) -> Result<Option<String>, String> {
+    let o = state.read().await;
+    o.load_saved_device_preset(&device_key)
 }

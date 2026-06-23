@@ -17,11 +17,12 @@ type WsSink = futures::stream::SplitSink<
 >;
 
 #[derive(Debug, Clone)]
-pub struct ActionContext {
-    pub context: String,
-    pub action_uuid: String,
-    pub settings: Value,
-    pub coordinates: (u32, u32),
+pub struct DeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub rows: u32,
+    pub columns: u32,
+    pub device_type: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,11 @@ pub enum BrokerEvent {
     SetTitle { context: String, title: Option<String> },
     SettingsChanged { context: String, settings: Value },
     SendToPropertyInspector { context: String, payload: Value },
+    ShowAlert { context: String },
+    ShowOk { context: String },
+    SetState { context: String, state: u8 },
+    OpenUrl { url: String },
+    LogMessage { message: String },
 }
 
 /// Stream Deck-compatible WebSocket broker (dynamic port per plugin session).
@@ -48,13 +54,24 @@ pub struct StreamDeckBroker {
     contexts: RwLock<HashMap<String, ActionContext>>,
     event_tx: mpsc::UnboundedSender<BrokerEvent>,
     device_id: String,
+    global_settings: RwLock<Value>,
     _plugin_process: PluginProcess,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionContext {
+    pub context: String,
+    pub action_uuid: String,
+    pub settings: Value,
+    pub coordinates: (u32, u32),
 }
 
 impl StreamDeckBroker {
     pub async fn start(
         plugin_dir: &std::path::Path,
         node_binary: &std::path::Path,
+        devices: Value,
+        html_host_script: Option<&std::path::Path>,
     ) -> anyhow::Result<(Arc<Self>, mpsc::UnboundedReceiver<BrokerEvent>)> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
@@ -63,7 +80,22 @@ impl StreamDeckBroker {
         let (plugin_msg_tx, mut plugin_msg_rx) = mpsc::unbounded_channel();
 
         info!("starting SD plugin on port {port}");
-        let plugin_process = PluginProcess::spawn_node(plugin_dir, port, node_binary).await?;
+        let plugin_process = PluginProcess::spawn(
+            plugin_dir,
+            port,
+            node_binary,
+            devices.clone(),
+            html_host_script,
+        )
+        .await?;
+
+        let device_id = devices
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|d| d.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("integratedeck-device-1")
+            .to_string();
 
         let broker = Arc::new(Self {
             port,
@@ -74,7 +106,8 @@ impl StreamDeckBroker {
             pending_plugin_msgs: Mutex::new(VecDeque::new()),
             contexts: RwLock::new(HashMap::new()),
             event_tx,
-            device_id: "integratedeck-virtual-1".into(),
+            device_id,
+            global_settings: RwLock::new(json!({})),
             _plugin_process: plugin_process,
         });
 
@@ -150,7 +183,30 @@ impl StreamDeckBroker {
         Ok(())
     }
 
-    pub async fn will_appear(&self, context: &str) -> anyhow::Result<()> {
+    pub async fn will_disappear(&self, context: &str) -> anyhow::Result<()> {
+        self.send_lifecycle(context, "willDisappear").await
+    }
+
+    pub async fn property_inspector_did_appear(&self, context: &str) -> anyhow::Result<()> {
+        self.send_lifecycle(context, "propertyInspectorDidAppear").await
+    }
+
+    pub async fn property_inspector_did_disappear(&self, context: &str) -> anyhow::Result<()> {
+        self.send_lifecycle(context, "propertyInspectorDidDisappear").await
+    }
+
+    pub async fn device_did_connect(&self) -> anyhow::Result<()> {
+        let payload = json!({
+            "event": "deviceDidConnect",
+            "device": self.device_id,
+            "deviceInfo": { "type": 0, "size": { "columns": 5, "rows": 3 } }
+        });
+        self.plugin_tx
+            .send(Message::Text(payload.to_string().into()))?;
+        Ok(())
+    }
+
+    async fn send_lifecycle(&self, context: &str, event: &str) -> anyhow::Result<()> {
         let ctx = self
             .contexts
             .read()
@@ -169,11 +225,46 @@ impl StreamDeckBroker {
             }
         });
         if let Some(obj) = payload.as_object_mut() {
-            obj.insert("event".into(), json!("willAppear"));
+            obj.insert("event".into(), json!(event));
         }
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
         Ok(())
+    }
+
+    pub async fn dial_rotate(
+        &self,
+        context: &str,
+        ticks: i32,
+        pressed: bool,
+    ) -> anyhow::Result<()> {
+        let ctx = self
+            .contexts
+            .read()
+            .await
+            .get(context)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        let payload = json!({
+            "event": "dialRotate",
+            "action": ctx.action_uuid,
+            "context": context,
+            "device": self.device_id,
+            "payload": {
+                "settings": ctx.settings,
+                "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
+                "ticks": ticks,
+                "pressed": pressed
+            },
+            "controller": "Encoder"
+        });
+        self.plugin_tx
+            .send(Message::Text(payload.to_string().into()))?;
+        Ok(())
+    }
+
+    pub async fn will_appear(&self, context: &str) -> anyhow::Result<()> {
+        self.send_lifecycle(context, "willAppear").await
     }
 
     async fn handle_plugin_message(&self, text: &str) {
@@ -242,13 +333,70 @@ impl StreamDeckBroker {
                     context: context.into(),
                     payload: payload.clone(),
                 });
-                let out = json!({ "event": "sendToPropertyInspector", "payload": payload });
+                let out = json!({
+                    "event": "sendToPropertyInspector",
+                    "context": context,
+                    "payload": payload
+                });
                 let mut pi = self.pi_connections.write().await;
                 if let Some(sink) = pi.get_mut(context) {
                     let _ = sink
                         .send(Message::Text(out.to_string().into()))
                         .await;
                 }
+            }
+            "showAlert" => {
+                let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+                let _ = self.event_tx.send(BrokerEvent::ShowAlert {
+                    context: context.into(),
+                });
+            }
+            "showOk" => {
+                let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+                let _ = self.event_tx.send(BrokerEvent::ShowOk {
+                    context: context.into(),
+                });
+            }
+            "setState" => {
+                let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+                let state = msg
+                    .pointer("/payload/state")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u8;
+                let _ = self.event_tx.send(BrokerEvent::SetState {
+                    context: context.into(),
+                    state,
+                });
+            }
+            "openUrl" => {
+                let url = msg
+                    .pointer("/payload/url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let _ = self.event_tx.send(BrokerEvent::OpenUrl { url });
+            }
+            "logMessage" => {
+                let message = msg
+                    .pointer("/payload/message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let _ = self.event_tx.send(BrokerEvent::LogMessage { message });
+            }
+            "setGlobalSettings" => {
+                if let Some(settings) = msg.pointer("/payload/settings").cloned() {
+                    *self.global_settings.write().await = settings;
+                }
+            }
+            "getGlobalSettings" => {
+                let settings = self.global_settings.read().await.clone();
+                let payload = json!({
+                    "event": "didReceiveGlobalSettings",
+                    "payload": { "settings": settings }
+                });
+                self.enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
+                    .await;
             }
             _ => debug!("unhandled plugin command: {event}"),
         }
@@ -350,7 +498,21 @@ async fn handle_pi_message(broker: &StreamDeckBroker, text: &str) {
         return;
     };
     let event = msg.get("event").and_then(|v| v.as_str()).unwrap_or("");
-    if matches!(event, "setSettings" | "sendToPlugin") {
+    if matches!(event, "setSettings" | "sendToPlugin" | "getSettings" | "setGlobalSettings" | "getGlobalSettings" | "openUrl" | "logMessage") {
+        if event == "getSettings" {
+            let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+            if let Some(ctx) = broker.contexts.read().await.get(context) {
+                let payload = json!({
+                    "event": "didReceiveSettings",
+                    "action": ctx.action_uuid,
+                    "context": context,
+                    "device": broker.device_id,
+                    "payload": { "settings": ctx.settings }
+                });
+                let _ = broker.plugin_tx.send(Message::Text(payload.to_string().into()));
+                return;
+            }
+        }
         let _ = broker.plugin_tx.send(Message::Text(text.into()));
     }
 }

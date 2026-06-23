@@ -1,7 +1,6 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use elgato_streamdeck::asynchronous::AsyncStreamDeck;
 use elgato_streamdeck::images::convert_image_async;
 use elgato_streamdeck::info::Kind;
@@ -171,25 +170,40 @@ impl HidSession {
 /// Physical Stream Deck surface backed by HID.
 pub struct StreamDeckHidSurface {
     descriptor: SurfaceDescriptor,
-    device: AsyncStreamDeck,
-    kind: Kind,
+    session: HidSession,
     input_tx: broadcast::Sender<SurfaceInput>,
 }
 
 impl StreamDeckHidSurface {
-    pub fn new(id: SurfaceId, session: &HidSession, label: impl Into<String>) -> Arc<Self> {
-        let caps = capabilities_from_kind(session.kind);
+    pub fn new(
+        id: SurfaceId,
+        session: HidSession,
+        label: impl Into<String>,
+        device_id: impl Into<String>,
+    ) -> Arc<Self> {
+        let kind = session.kind;
+        let caps = capabilities_from_kind(kind);
         Arc::new(Self {
             descriptor: SurfaceDescriptor {
                 id,
                 name: label.into(),
                 capabilities: caps,
-                backend: SurfaceBackend::StreamDeckHid,
+                backend: SurfaceBackend::Physical {
+                    driver_id: crate::driver::DRIVER_ID.into(),
+                    device_id: device_id.into(),
+                },
             },
-            device: session.device.clone(),
-            kind: session.kind,
+            session,
             input_tx: broadcast::channel(64).0,
         })
+    }
+
+    fn kind(&self) -> Kind {
+        self.session.kind
+    }
+
+    fn device(&self) -> &AsyncStreamDeck {
+        &self.session.device
     }
 
     pub fn id(&self) -> SurfaceId {
@@ -208,18 +222,33 @@ impl StreamDeckHidSurface {
         let _ = self.input_tx.send(input);
     }
 
+    pub async fn firmware_version(&self) -> Result<String, String> {
+        self.device()
+            .firmware_version()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn set_brightness(&self, percent: u8) -> Result<(), String> {
+        self.device()
+            .set_brightness(percent.min(100))
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     pub async fn run_input_loop(surface: Arc<Self>, poll_rate: f32) {
-        let reader = surface.device.get_reader();
+        let reader = surface.device().get_reader();
         loop {
             match reader.read(poll_rate).await {
                 Ok(updates) => {
                     for update in updates {
+                        let kind = surface.kind();
                         let input = match update {
                             DeviceStateUpdate::ButtonDown(key) => Some(SurfaceInput::KeyDown {
-                                address: key_to_address(surface.kind, key),
+                                address: key_to_address(kind, key),
                             }),
                             DeviceStateUpdate::ButtonUp(key) => Some(SurfaceInput::KeyUp {
-                                address: key_to_address(surface.kind, key),
+                                address: key_to_address(kind, key),
                             }),
                             DeviceStateUpdate::EncoderTwist(index, ticks) => {
                                 Some(SurfaceInput::EncoderRotate {
@@ -256,7 +285,7 @@ impl StreamDeckHidSurface {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl super::Surface for StreamDeckHidSurface {
     fn descriptor(&self) -> &SurfaceDescriptor {
         &self.descriptor
@@ -264,7 +293,7 @@ impl super::Surface for StreamDeckHidSurface {
 
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         for update in updates {
-            let key = address_to_key(self.kind, &update.address);
+            let key = address_to_key(self.kind(), &update.address);
             if let Some(image) = &update.visual.image {
                 let Ok(reader) =
                     ImageReader::new(Cursor::new(&image.data)).with_guessed_format()
@@ -274,15 +303,15 @@ impl super::Surface for StreamDeckHidSurface {
                 let Ok(img) = reader.decode() else {
                     continue;
                 };
-                let converted = convert_image_async(self.kind, img)
+                let converted = convert_image_async(self.kind(), img)
                     .map_err(|e| SurfaceError::Other(e.to_string()))?;
-                self.device
+                self.device()
                     .write_image(key, &converted)
                     .await
                     .map_err(|e| SurfaceError::Other(e.to_string()))?;
             }
         }
-        self.device
+        self.device()
             .flush()
             .await
             .map_err(|e| SurfaceError::Other(e.to_string()))?;

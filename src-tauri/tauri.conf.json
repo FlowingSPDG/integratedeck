@@ -5,8 +5,8 @@
   "identifier": "app.integratedeck.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && npm run sidecar:build",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build && npm run companion-host:build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -14,17 +14,40 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "integratedeck",
         "width": 1280,
         "height": 800,
+        "minWidth": 480,
+        "minHeight": 360,
+        "center": true,
+        "visible": false,
+        "resizable": true
+      },
+      {
+        "label": "settings",
+        "create": false,
+        "url": "settings.html",
+        "title": "設定 — integratedeck",
+        "width": 640,
+        "height": 520,
+        "minWidth": 480,
+        "minHeight": 400,
+        "center": true,
+        "visible": false,
         "resizable": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: asset: https://asset.localhost; frame-src 'self' asset: https://asset.localhost",
+      "csp": "default-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline' asset: https://asset.localhost; script-src 'self' 'unsafe-inline' asset: https://asset.localhost; frame-src 'self' asset: https://asset.localhost blob:",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$HOME/**", "$RESOURCE/**"]
+        "scope": [
+          "$APPDATA/**",
+          "$LOCALAPPDATA/**",
+          "$RESOURCE/**",
+          "$HOME/**"
+        ]
       }
     }
   },

@@ -1,6 +1,7 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { loadPiInFrame } from "./pi-webview";
 
-/** Show backend error strings as-is; unwrap nested invoke errors when needed. */
 function formatUserError(err: unknown): string {
   if (typeof err === "string") return err;
   if (err && typeof err === "object") {
@@ -33,45 +34,75 @@ interface Slot {
     row: number;
     column: number;
   };
-  binding?: {
-    kind: string;
-    plugin_uuid?: string;
-    action_uuid?: string;
-  };
+  binding?: Record<string, unknown>;
+}
+
+interface NormalizedBinding {
+  type: "stream_deck" | "companion";
+  pluginUuid?: string;
+  actionUuid?: string;
+  connectionId?: string;
+  actionId?: string;
+  settings?: unknown;
+  options?: unknown;
+}
+
+function normalizeBinding(binding?: Record<string, unknown>): NormalizedBinding | null {
+  if (!binding) return null;
+
+  const nested = binding.kind;
+  if (typeof nested === "string") {
+    if (nested === "stream_deck" && binding.plugin_uuid && binding.action_uuid) {
+      return {
+        type: "stream_deck",
+        pluginUuid: String(binding.plugin_uuid),
+        actionUuid: String(binding.action_uuid),
+        settings: binding.settings,
+      };
+    }
+    if (nested === "companion" && binding.connection_id && binding.action_id) {
+      return {
+        type: "companion",
+        connectionId: String(binding.connection_id),
+        actionId: String(binding.action_id),
+        options: binding.options,
+      };
+    }
+  }
+
+  if (nested && typeof nested === "object") {
+    const tag = (nested as { kind?: string }).kind;
+    if (tag === "stream_deck") {
+      const n = nested as { plugin_uuid?: string; action_uuid?: string; settings?: unknown };
+      if (n.plugin_uuid && n.action_uuid) {
+        return {
+          type: "stream_deck",
+          pluginUuid: n.plugin_uuid,
+          actionUuid: n.action_uuid,
+          settings: n.settings,
+        };
+      }
+    }
+    if (tag === "companion") {
+      const n = nested as { connection_id?: string; action_id?: string; options?: unknown };
+      if (n.connection_id && n.action_id) {
+        return {
+          type: "companion",
+          connectionId: n.connection_id,
+          actionId: n.action_id,
+          options: n.options,
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 interface VisualState {
   image?: { format: string; data: string };
   title?: string;
   state_index?: number;
-}
-
-interface PluginScanEntry {
-  path: string;
-  name: string;
-  bundleName: string;
-  uuid?: string;
-  version?: string;
-}
-
-interface SdPluginRuntime {
-  status: string;
-  path: string;
-  name: string;
-  pluginUuid: string;
-  port: number;
-  piUrl: string;
-}
-
-interface PluginRuntimeEntry {
-  status: string;
-  path: string;
-  name: string;
-  bundleName: string;
-  uuid?: string;
-  version?: string;
-  port?: number;
-  piUrl?: string;
 }
 
 interface SurfaceRuntimeEntry {
@@ -96,111 +127,281 @@ interface UsbDeviceRuntimeEntry {
   surfaceId?: string;
 }
 
-interface ConnectionRecord {
+interface PluginLibraryEntry {
   id: string;
-  module_id: string;
-  label: string;
-  enabled: boolean;
+  name: string;
+  path: string;
+  source: string;
+  status: string;
+  port?: number;
+  actions: { id: string; name: string; source: string }[];
 }
 
-interface CompanionRuntimeStatus {
-  sidecarRunning: boolean;
-  connections: ConnectionRecord[];
-  modules: PluginScanEntry[];
+interface ActionLibrary {
+  streamdeck: PluginLibraryEntry[];
+  companion: PluginLibraryEntry[];
 }
 
 interface RuntimeStatus {
-  sdPlugin?: SdPluginRuntime;
-  plugins: PluginRuntimeEntry[];
+  sdPlugins: { pluginUuid: string; name: string; status: string; port: number }[];
+  plugins: {
+    path: string;
+    name: string;
+    status: string;
+    uuid?: string;
+  }[];
   surfaces: SurfaceRuntimeEntry[];
   usbDevices: UsbDeviceRuntimeEntry[];
   streamdeckDirs: string[];
-  companion: CompanionRuntimeStatus;
+  companion: {
+    companionHostRunning: boolean;
+    connections: { id: string; module_id: string; label: string; enabled: boolean }[];
+    modules: { path: string; name: string }[];
+  };
+}
+
+interface DragActionPayload {
+  source: "streamdeck" | "companion";
+  pluginId: string;
+  actionId: string;
+  actionName: string;
+  pluginPath?: string;
 }
 
 const app = document.getElementById("app")!;
+
 let selectedSlotId: string | null = null;
-let mockSurfaceId: string | null = null;
+let selectedSurfaceId: string | null = null;
 let activePageId: string | null = null;
+let gridRows = 3;
+let gridCols = 5;
 let cellVisuals: Record<string, VisualState> = {};
+let actionLibrary: ActionLibrary = { streamdeck: [], companion: [] };
+let expandedGroups = new Set<string>();
+let isDraggingAction = false;
+
+const DRAG_THRESHOLD_PX = 6;
+let dragGhost: HTMLElement | null = null;
+let activeDragPayload: DragActionPayload | null = null;
 
 app.innerHTML = `
-  <header>
-    <h1>integratedeck</h1>
-    <span class="status" id="status">Starting…</span>
-    <button id="btn-save">Save profile</button>
-    <button id="btn-mock-surface">Add mock surface</button>
+  <header class="toolbar">
+    <span class="toolbar-brand">integratedeck</span>
+    <div class="toolbar-select">
+      <label>デバイス</label>
+      <select id="device-picker"></select>
+    </div>
+    <div class="toolbar-select">
+      <label>プロファイル</label>
+      <select id="page-picker"></select>
+    </div>
+    <span class="toolbar-spacer"></span>
+    <span class="toolbar-status" id="status">Starting…</span>
+    <button type="button" id="btn-save">保存</button>
+    <button type="button" id="btn-settings">⚙</button>
   </header>
-  <aside>
-    <div class="section">
-      <h2>稼働状況</h2>
-      <p id="runtime-updated">更新中…</p>
-      <div id="running-plugin-card"></div>
+  <div class="workspace">
+    <div class="center-panel">
+      <div class="device-frame">
+        <div class="device-shell">
+          <div class="device-label" id="device-label">Stream Deck</div>
+          <div class="grid" id="grid"></div>
+        </div>
+        <div class="page-nav" id="page-nav"></div>
+      </div>
+      <div class="config-panel" id="config-panel">
+        <p class="config-placeholder" id="config-placeholder">キーを選択してアクションを設定してください</p>
+        <div id="pi-section" class="hidden">
+          <h2 id="pi-title">Property Inspector</h2>
+          <p class="muted" id="pi-status"></p>
+          <iframe id="pi-frame" title="Property Inspector" sandbox="allow-scripts allow-same-origin"></iframe>
+          <div id="native-settings" class="hidden">
+            <label>Settings JSON
+              <textarea id="settings-json" rows="4" style="width:100%"></textarea>
+            </label>
+            <button type="button" id="btn-save-settings">設定を保存</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="section">
-      <h2>Stream Deck プラグイン</h2>
-      <p class="section-desc">スキャンした .sdPlugin の起動・停止を管理します（同時に1つのみ起動）。</p>
-      <ul class="plugins" id="sd-plugins"></ul>
-      <p class="status" id="scan-status">スキャンでプラグインを検索</p>
-      <button type="button" id="btn-scan">プラグインをスキャン</button>
-      <button type="button" id="btn-open-plugins-folder">フォルダを開く</button>
-    </div>
-    <div class="section">
-      <h2>接続済みサーフェス</h2>
-      <p class="section-desc">アプリが認識しているボタン面（モックまたは物理デバイス）。</p>
-      <ul class="plugins" id="surfaces-list"></ul>
-    </div>
-    <div class="section">
-      <h2>物理 Stream Deck (USB)</h2>
-      <p class="section-desc">USB 接続の本体。Elgato アプリを終了してから接続してください。</p>
-      <ul class="plugins" id="hid-devices"></ul>
-      <p class="status" id="hid-status">USB デバイスをスキャン</p>
-      <button type="button" id="btn-scan-hid">ハードウェアをスキャン</button>
-    </div>
-    <div class="section">
-      <h2>Companion 接続</h2>
-      <p class="section-desc">Bitfocus Companion のモジュール接続です。OBS・vMix など外部機器へのリンク設定で、Stream Deck プラグインとは別物です。</p>
-      <p class="status" id="companion-status">Sidecar 状態を確認中…</p>
-      <ul class="plugins" id="connections"></ul>
-      <button id="btn-add-connection">テスト接続を追加</button>
-    </div>
-    <div class="section">
-      <h2>Companion モジュール</h2>
-      <ul class="plugins" id="companion-modules"></ul>
-    </div>
-    <p class="warn">物理 Stream Deck 利用時は Elgato Stream Deck アプリを終了してください。</p>
-  </aside>
-  <main>
-    <div class="grid" id="grid"></div>
-    <button id="btn-trigger">Trigger selected slot</button>
-  </main>
-  <div class="inspector">
-    <div class="section">
-      <h2>Property Inspector</h2>
-      <p class="status" id="pi-status">Select a slot with an SD binding</p>
-      <iframe id="pi-frame" title="Property Inspector" sandbox="allow-scripts allow-same-origin"></iframe>
-    </div>
-    <div class="section">
-      <h2>Bind SD action</h2>
-      <label>Plugin UUID <input id="plugin-uuid" type="text" style="width:100%" /></label>
-      <label>Action UUID <input id="action-uuid" type="text" style="width:100%" /></label>
-      <button id="btn-bind">Bind to selected slot</button>
-    </div>
+    <aside class="action-sidebar">
+      <div class="action-sidebar-header">
+        <h2>Actions</h2>
+        <input type="search" id="action-search" placeholder="アクションを検索…" />
+      </div>
+      <div class="action-list" id="action-list"></div>
+    </aside>
   </div>
 `;
 
 const statusEl = document.getElementById("status")!;
-const scanStatusEl = document.getElementById("scan-status")!;
 const gridEl = document.getElementById("grid")!;
-const sdPluginsList = document.getElementById("sd-plugins")!;
-const hidDevicesList = document.getElementById("hid-devices")!;
-const hidStatusEl = document.getElementById("hid-status")!;
-const companionModulesList = document.getElementById("companion-modules")!;
-const surfacesList = document.getElementById("surfaces-list")!;
-const runningPluginCard = document.getElementById("running-plugin-card")!;
-const runtimeUpdatedEl = document.getElementById("runtime-updated")!;
-const companionStatusEl = document.getElementById("companion-status")!;
+const devicePicker = document.getElementById("device-picker") as HTMLSelectElement;
+const pagePicker = document.getElementById("page-picker") as HTMLSelectElement;
+const actionListEl = document.getElementById("action-list")!;
+const configPlaceholder = document.getElementById("config-placeholder")!;
+const piSection = document.getElementById("pi-section")!;
 
+function payloadFromActionEl(el: HTMLElement): DragActionPayload {
+  return {
+    source: el.dataset.source as "streamdeck" | "companion",
+    pluginId: el.dataset.pluginId!,
+    actionId: el.dataset.actionId!,
+    actionName: el.dataset.actionName!,
+    pluginPath: el.dataset.pluginPath
+      ? decodeURIComponent(el.dataset.pluginPath)
+      : undefined,
+  };
+}
+
+function clearDragHighlights() {
+  gridEl.querySelectorAll(".slot.drag-over").forEach((el) => el.classList.remove("drag-over"));
+}
+
+function findSlotAt(clientX: number, clientY: number): HTMLElement | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  const direct = hit?.closest(".slot") as HTMLElement | null;
+  if (direct) return direct;
+
+  const rect = gridEl.getBoundingClientRect();
+  if (
+    clientX < rect.left ||
+    clientX > rect.right ||
+    clientY < rect.top ||
+    clientY > rect.bottom
+  ) {
+    return null;
+  }
+
+  const gap = 8;
+  const cellSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--slot-size")) || 72;
+  const relX = clientX - rect.left;
+  const relY = clientY - rect.top;
+  const col = Math.floor(relX / (cellSize + gap));
+  const row = Math.floor(relY / (cellSize + gap));
+  if (col < 0 || col >= gridCols || row < 0 || row >= gridRows) return null;
+
+  return gridEl.querySelector(
+    `.slot[data-row="${row}"][data-col="${col}"]`,
+  ) as HTMLElement | null;
+}
+
+function setDropHighlight(slotEl: HTMLElement | null) {
+  clearDragHighlights();
+  slotEl?.classList.add("drag-over");
+}
+
+function createDragGhost(name: string): HTMLElement {
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+  ghost.textContent = name;
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+function positionGhost(ghost: HTMLElement, x: number, y: number) {
+  ghost.style.left = `${x + 12}px`;
+  ghost.style.top = `${y + 12}px`;
+}
+
+function cleanupPointerDrag() {
+  dragGhost?.remove();
+  dragGhost = null;
+  activeDragPayload = null;
+  isDraggingAction = false;
+  clearDragHighlights();
+  document.body.classList.remove("action-dragging");
+}
+
+function beginActionPointerDrag(e: PointerEvent, itemEl: HTMLElement) {
+  if (e.button !== 0) return;
+
+  const payload = payloadFromActionEl(itemEl);
+  const startX = e.clientX;
+  const startY = e.clientY;
+  let dragging = false;
+
+  const onMove = (ev: PointerEvent) => {
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
+      dragging = true;
+      isDraggingAction = true;
+      activeDragPayload = payload;
+      dragGhost = createDragGhost(payload.actionName);
+      document.body.classList.add("action-dragging");
+    }
+    if (dragGhost) {
+      positionGhost(dragGhost, ev.clientX, ev.clientY);
+      setDropHighlight(findSlotAt(ev.clientX, ev.clientY));
+    }
+  };
+
+  const onUp = (ev: PointerEvent) => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
+
+    if (dragging && activeDragPayload) {
+      const slotEl = findSlotAt(ev.clientX, ev.clientY);
+      if (slotEl) {
+        const row = Number(slotEl.dataset.row);
+        const col = Number(slotEl.dataset.col);
+        if (!Number.isNaN(row) && !Number.isNaN(col)) {
+          void applyActionToCell(row, col, activeDragPayload);
+        } else {
+          statusEl.textContent = "ドロップ先のキーを特定できませんでした";
+        }
+      } else {
+        statusEl.textContent = "キー上で離してください";
+      }
+    }
+    cleanupPointerDrag();
+  };
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
+}
+
+function setupActionPointerDrag() {
+  actionListEl.addEventListener("pointerdown", (ev) => {
+    const item = (ev.target as HTMLElement).closest(".action-item");
+    if (!item) return;
+    ev.preventDefault();
+    beginActionPointerDrag(ev as PointerEvent, item as HTMLElement);
+  });
+}
+
+setupActionPointerDrag();
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function statusBadge(status: string): string {
+  const labels: Record<string, string> = {
+    running: "起動中",
+    stopped: "停止",
+    connected: "接続済",
+    available: "未接続",
+  };
+  const cls =
+    status === "running" || status === "connected" ? "badge-running" : "badge-stopped";
+  return `<span class="badge ${cls}">${labels[status] ?? status}</span>`;
+}
+
+function visualForCell(row: number, col: number): VisualState | undefined {
+  return cellVisuals[`${row},${col}`];
+}
+
+function updateGridCss() {
+  gridEl.style.gridTemplateColumns = `repeat(${gridCols}, var(--slot-size))`;
+  gridEl.style.gridTemplateRows = `repeat(${gridRows}, var(--slot-size))`;
+}
 
 async function refreshCellVisuals() {
   cellVisuals = await invoke<Record<string, VisualState>>("get_cell_visuals");
@@ -213,41 +414,13 @@ async function pollCellVisuals(times = 8) {
   }
 }
 
-async function refresh() {
-  const info = await invoke<{ version: string; data_dir: string }>("get_app_info");
-  statusEl.textContent = `v${info.version} · ${info.data_dir}`;
-
-  const profile = await invoke<Profile>("get_profile");
-  activePageId = profile.active_page_id ?? profile.pages[0]?.id ?? null;
-
-  if (!mockSurfaceId && profile.surfaces.length === 0) {
-    mockSurfaceId = await invoke<string>("register_mock_surface", { name: "Mock 3×5" });
-    await refresh();
-    return;
-  }
-
-  if (profile.surfaces.length > 0) {
-    mockSurfaceId = profile.surfaces[0].surface_id;
-  }
-
-  await refreshCellVisuals();
-  renderGrid(profile);
-  try {
-    await refreshRuntimeStatus();
-  } catch (e) {
-    scanStatusEl.textContent = `状態取得に失敗: ${formatUserError(e)}`;
-  }
+async function refreshActionLibrary() {
+  if (isDraggingAction) return;
+  actionLibrary = await invoke<ActionLibrary>("list_action_library");
+  renderActionSidebar();
 }
 
-function slotUuid(slot: Slot): string {
-  return slot.id;
-}
-
-function visualForCell(row: number, col: number): VisualState | undefined {
-  return cellVisuals[`${row},${col}`];
-}
-
-function renderSlotContent(el: HTMLButtonElement, row: number, col: number, slot?: Slot) {
+function renderSlotContent(el: HTMLElement, row: number, col: number, slot?: Slot) {
   el.innerHTML = "";
   const visual = visualForCell(row, col);
   if (visual?.image?.data) {
@@ -264,453 +437,445 @@ function renderSlotContent(el: HTMLButtonElement, row: number, col: number, slot
     }
   } else if (visual?.title) {
     el.textContent = visual.title;
+  } else if (slot?.binding) {
+    const b = normalizeBinding(slot.binding);
+    el.textContent = b?.type === "stream_deck" ? "SD" : b?.type === "companion" ? "Comp" : "";
   } else {
-    el.textContent = slot ? `${row},${col}` : "+";
+    el.textContent = "";
   }
+}
+
+function findSlot(page: Page, row: number, col: number, surfaceId: string): Slot | undefined {
+  return Object.values(page.slots).find(
+    (s) =>
+      s.locator.row === row &&
+      s.locator.column === col &&
+      s.locator.surface_id === surfaceId,
+  );
 }
 
 function renderGrid(profile: Profile) {
   gridEl.innerHTML = "";
+  updateGridCss();
   const page = profile.pages.find((p) => p.id === activePageId) ?? profile.pages[0];
-  if (!page) return;
+  if (!page || !selectedSurfaceId) return;
 
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 5; col++) {
-      const slot = Object.values(page.slots).find(
-        (s) => s.locator.row === row && s.locator.column === col,
-      );
-      const el = document.createElement("button");
-      el.className = "slot" + (slot && slotUuid(slot) === selectedSlotId ? " selected" : "");
-      el.type = "button";
+  for (let row = 0; row < gridRows; row++) {
+    for (let col = 0; col < gridCols; col++) {
+      const slot = findSlot(page, row, col, selectedSurfaceId);
+      const el = document.createElement("div");
+      el.className =
+        "slot" + (slot && slot.id === selectedSlotId ? " selected" : "");
+      el.setAttribute("role", "button");
+      el.tabIndex = 0;
       el.dataset.row = String(row);
       el.dataset.col = String(col);
       renderSlotContent(el, row, col, slot);
-      el.addEventListener("click", () => onSlotClick(page, row, col, slot));
+
+      el.addEventListener("click", () => void onSlotClick(page, row, col, slot));
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          void onSlotClick(page, row, col, slot);
+        }
+      });
+
       gridEl.appendChild(el);
     }
   }
 }
 
-async function sendSurfaceInput(row: number, col: number, type: "key_down" | "key_up") {
-  if (!mockSurfaceId) return;
-  await invoke("apply_surface_input", {
-    surfaceId: mockSurfaceId,
-    inputJson: JSON.stringify({
-      type,
-      address: { row, column: col },
-    }),
+function renderPagePicker(profile: Profile) {
+  pagePicker.innerHTML = profile.pages
+    .map(
+      (p) =>
+        `<option value="${p.id}"${p.id === activePageId ? " selected" : ""}>${escapeHtml(p.name)}</option>`,
+    )
+    .join("");
+
+  const pageNav = document.getElementById("page-nav")!;
+  pageNav.innerHTML = profile.pages
+    .map(
+      (p, i) =>
+        `<button type="button" class="page-btn${p.id === activePageId ? " page-active" : ""}" data-page-id="${p.id}">${i + 1}</button>`,
+    )
+    .join("");
+  pageNav.querySelectorAll(".page-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pageId = (btn as HTMLElement).dataset.pageId!;
+      void setActivePage(pageId);
+    });
+  });
+}
+
+function renderDevicePicker(surfaces: SurfaceRuntimeEntry[]) {
+  const connected = surfaces.filter((s) => s.status === "connected");
+  devicePicker.innerHTML = connected
+    .map(
+      (s) =>
+        `<option value="${s.surfaceId}"${s.surfaceId === selectedSurfaceId ? " selected" : ""}>${escapeHtml(s.label)} (${s.rows}×${s.columns})</option>`,
+    )
+    .join("");
+
+  const selected = connected.find((s) => s.surfaceId === selectedSurfaceId);
+  const labelEl = document.getElementById("device-label")!;
+  if (selected) {
+    labelEl.textContent = selected.label;
+    gridRows = selected.rows;
+    gridCols = selected.columns;
+  }
+}
+
+function filterActions(query: string, entries: PluginLibraryEntry[]): PluginLibraryEntry[] {
+  const q = query.toLowerCase().trim();
+  if (!q) return entries;
+  return entries
+    .map((entry) => ({
+      ...entry,
+      actions: entry.actions.filter(
+        (a) =>
+          a.name.toLowerCase().includes(q) ||
+          a.id.toLowerCase().includes(q) ||
+          entry.name.toLowerCase().includes(q),
+      ),
+    }))
+    .filter((e) => e.actions.length > 0 || e.name.toLowerCase().includes(q));
+}
+
+function renderPluginGroup(entry: PluginLibraryEntry, sectionKey: string): string {
+  const groupKey = `${sectionKey}:${entry.id}`;
+  const isExpanded = expandedGroups.has(groupKey);
+
+  const startStop =
+    entry.source === "streamdeck"
+      ? entry.status === "running"
+        ? `<button type="button" class="btn-xs btn-stop-plugin" data-uuid="${escapeHtml(entry.id)}">停止</button>`
+        : `<button type="button" class="btn-xs btn-load-plugin" data-path="${encodeURIComponent(entry.path)}">起動</button>`
+      : "";
+
+  const actionsHtml = isExpanded
+    ? entry.actions
+        .map(
+          (a) =>
+            `<div class="action-item"
+              data-source="${entry.source}"
+              data-plugin-id="${escapeHtml(entry.id)}"
+              data-action-id="${escapeHtml(a.id)}"
+              data-action-name="${escapeHtml(a.name)}"
+              data-plugin-path="${encodeURIComponent(entry.path)}">
+              <span class="action-icon"></span>
+              <span>${escapeHtml(a.name)}</span>
+            </div>`,
+        )
+        .join("")
+    : "";
+
+  return `
+    <div class="plugin-group" data-group="${escapeHtml(groupKey)}">
+      <div class="plugin-group-header" data-toggle="${escapeHtml(groupKey)}">
+        <span class="chevron">${isExpanded ? "▼" : "▶"}</span>
+        <span class="plugin-name">${escapeHtml(entry.name)}</span>
+        ${statusBadge(entry.status)}
+        <span class="plugin-controls">${startStop}</span>
+      </div>
+      ${isExpanded ? `<div class="plugin-group-actions">${actionsHtml || '<p class="muted">アクションなし</p>'}</div>` : ""}
+    </div>`;
+}
+
+function renderActionSidebar() {
+  const query = (document.getElementById("action-search") as HTMLInputElement).value;
+  const sd = filterActions(query, actionLibrary.streamdeck);
+  const comp = filterActions(query, actionLibrary.companion);
+
+  actionListEl.innerHTML = `
+    <div class="action-section-title">Stream Deck プラグイン (${sd.length})</div>
+    ${sd.map((e) => renderPluginGroup(e, "sd")).join("") || '<p class="muted">プラグインなし — 設定からスキャン</p>'}
+    <div class="action-section-title">Companion (${comp.length})</div>
+    ${comp.map((e) => renderPluginGroup(e, "comp")).join("") || '<p class="muted">Companion 接続なし</p>'}
+  `;
+
+  actionListEl.querySelectorAll(".plugin-group-header[data-toggle]").forEach((header) => {
+    header.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".plugin-controls")) return;
+      const key = (header as HTMLElement).dataset.toggle!;
+      if (expandedGroups.has(key)) expandedGroups.delete(key);
+      else expandedGroups.add(key);
+      renderActionSidebar();
+    });
+  });
+
+  actionListEl.querySelectorAll(".btn-load-plugin").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const path = decodeURIComponent((btn as HTMLElement).dataset.path!);
+      void loadPlugin(path);
+    });
+  });
+
+  actionListEl.querySelectorAll(".btn-stop-plugin").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const uuid = (btn as HTMLElement).dataset.uuid!;
+      void stopPlugin(uuid);
+    });
   });
 }
 
 async function updatePropertyInspector(slot?: Slot) {
   const piStatus = document.getElementById("pi-status")!;
   const piFrame = document.getElementById("pi-frame") as HTMLIFrameElement;
-  const actionUuid =
-    slot?.binding?.kind === "stream_deck" ? slot.binding.action_uuid : undefined;
+  const nativeSettings = document.getElementById("native-settings")!;
+  const settingsJson = document.getElementById("settings-json") as HTMLTextAreaElement;
+  const piTitle = document.getElementById("pi-title")!;
+  const binding = normalizeBinding(slot?.binding);
 
-  if (!actionUuid) {
-    piStatus.textContent = "Select a slot with an SD binding";
+  if (!selectedSlotId || !binding) {
+    configPlaceholder.classList.remove("hidden");
+    piSection.classList.add("hidden");
     piFrame.removeAttribute("src");
+    await invoke("focus_pi_slot", { slotId: null });
     return;
   }
 
-  const piPath = await invoke<string | null>("get_property_inspector_url", { actionUuid });
-  if (piPath) {
-    piFrame.src = convertFileSrc(piPath);
-    piStatus.textContent = `PI: ${actionUuid}`;
+  configPlaceholder.classList.add("hidden");
+  piSection.classList.remove("hidden");
+  await invoke("focus_pi_slot", { slotId: selectedSlotId });
+
+  if (binding.type === "companion") {
+    piFrame.removeAttribute("src");
+    nativeSettings.classList.remove("hidden");
+    settingsJson.value = JSON.stringify(binding.options ?? {}, null, 2);
+    piTitle.textContent = "Companion アクション設定";
+    piStatus.textContent = binding.actionId ?? "";
+    return;
+  }
+
+  if (!binding.pluginUuid || !binding.actionUuid) {
+    piTitle.textContent = "Property Inspector";
+    piStatus.textContent = "バインディング情報が不完全です";
+    return;
+  }
+
+  piTitle.textContent = `Stream Deck: ${binding.actionUuid}`;
+  const piPath = await invoke<string | null>("get_property_inspector_url", {
+    args: {
+      pluginUuid: binding.pluginUuid,
+      actionUuid: binding.actionUuid,
+    },
+  });
+  const piCtx = await invoke<{
+    port: number;
+    context: string;
+    actionUuid: string;
+    pluginUuid: string;
+  } | null>("get_pi_context", { slotId: selectedSlotId });
+
+  if (piPath && piCtx) {
+    nativeSettings.classList.add("hidden");
+    await loadPiInFrame(piFrame, piPath, piCtx);
+    piStatus.textContent = piCtx.context;
+  } else if (piCtx) {
+    piFrame.removeAttribute("src");
+    nativeSettings.classList.remove("hidden");
+    settingsJson.value = JSON.stringify(binding.settings ?? {}, null, 2);
+    piStatus.textContent = "ネイティブ設定（PI HTML なし）";
   } else {
     piFrame.removeAttribute("src");
-    piStatus.textContent = "No property inspector for this action";
+    nativeSettings.classList.add("hidden");
+    piStatus.textContent = "PI コンテキストを取得できません（プラグイン未起動？）";
   }
 }
 
 async function onSlotClick(page: Page, row: number, col: number, existing?: Slot) {
-  if (!mockSurfaceId || !activePageId) return;
+  if (!selectedSurfaceId || !activePageId) return;
 
   let slot = existing;
   if (!slot) {
     slot = await invoke<Slot>("create_slot", {
-      surfaceId: mockSurfaceId,
-      pageId: activePageId,
-      row,
-      column: col,
+      args: {
+        surfaceId: selectedSurfaceId,
+        pageId: activePageId,
+        row,
+        column: col,
+      },
     });
-    await refresh();
-    slot =
-      Object.values(page.slots).find((s) => s.locator.row === row && s.locator.column === col) ??
-      slot;
+    const profile = await invoke<Profile>("get_profile");
+    slot = findSlot(
+      profile.pages.find((p) => p.id === activePageId) ?? page,
+      row,
+      col,
+      selectedSurfaceId,
+    ) ?? slot;
   }
-  selectedSlotId = slotUuid(slot);
+
+  selectedSlotId = slot.id;
   const profile = await invoke<Profile>("get_profile");
   renderGrid(profile);
   await updatePropertyInspector(slot);
-
-  if (slot.binding?.kind === "stream_deck") {
-    await sendSurfaceInput(row, col, "key_down");
-    await sendSurfaceInput(row, col, "key_up");
-    await refreshCellVisuals();
-    renderGrid(profile);
-  }
 }
 
-function pluginLabel(p: PluginScanEntry): string {
-  if (p.name !== p.bundleName) {
-    return `${escapeHtml(p.name)} <span class="muted">(${escapeHtml(p.bundleName)})</span>`;
-  }
-  return escapeHtml(p.name);
-}
-
-function statusBadge(status: string): string {
-  const labels: Record<string, string> = {
-    running: "起動中",
-    stopped: "停止",
-    connected: "接続済み",
-    available: "未接続",
-    disconnected: "切断",
-  };
-  const cls =
-    status === "running" || status === "connected"
-      ? status === "running"
-        ? "badge-running"
-        : "badge-connected"
-      : status === "stopped" || status === "available"
-        ? status === "stopped"
-          ? "badge-stopped"
-          : "badge-available"
-        : "badge-disabled";
-  return `<span class="badge ${cls}">${labels[status] ?? status}</span>`;
-}
-
-function backendLabel(backend: string): string {
-  const labels: Record<string, string> = {
-    mock: "モック",
-    stream_deck_hid: "物理 SD",
-    companion_sidecar: "Companion",
-  };
-  return labels[backend] ?? backend;
-}
-
-function renderRunningPluginCard(sd?: SdPluginRuntime) {
-  if (!sd) {
-    runningPluginCard.innerHTML =
-      '<p class="status">起動中の Stream Deck プラグインはありません</p>';
+async function applyActionToCell(row: number, col: number, payload: DragActionPayload) {
+  if (!selectedSurfaceId || !activePageId) {
+    statusEl.textContent = "デバイスまたはページが未選択です";
     return;
   }
-  runningPluginCard.innerHTML = `
-    <div class="instance-card">
-      <div class="card-title">${escapeHtml(sd.name)} ${statusBadge(sd.status)}</div>
-      <div class="card-meta">
-        UUID: ${escapeHtml(sd.pluginUuid)}<br/>
-        WebSocket: ${escapeHtml(sd.piUrl)} (port ${sd.port})<br/>
-        ${escapeHtml(sd.path)}
-      </div>
-      <div class="card-actions">
-        <button type="button" class="btn-sm" id="btn-stop-plugin">停止</button>
-      </div>
-    </div>`;
-  document.getElementById("btn-stop-plugin")?.addEventListener("click", () => {
-    void stopPlugin();
-  });
-}
 
-function renderPluginList(plugins: PluginRuntimeEntry[], scanDirs: string[]) {
-  sdPluginsList.innerHTML =
-    plugins
-      .map((p) => {
-        const running = p.status === "running";
-        const meta = [p.version, p.uuid].filter(Boolean).join(" · ");
-        const title = meta ? `${p.path}\n${meta}` : p.path;
-        const connInfo =
-          running && p.port
-            ? `<div class="card-meta">port ${p.port}${p.piUrl ? ` · ${escapeHtml(p.piUrl)}` : ""}</div>`
-            : "";
-        const action = running
-          ? `<button type="button" class="btn-sm btn-stop-plugin" data-path="${encodeURIComponent(p.path)}">停止</button>`
-          : `<button type="button" class="btn-sm btn-load-plugin" data-path="${encodeURIComponent(p.path)}">起動</button>`;
-        return `<li class="runtime-item" title="${escapeHtml(title)}">
-          <div class="item-row">
-            <span class="item-name">${pluginLabel({ ...p, bundleName: p.bundleName })}</span>
-            ${statusBadge(p.status)}
-          </div>
-          ${connInfo}
-          <div class="card-actions">${action}</div>
-        </li>`;
-      })
-      .join("") ||
-    `<li class="empty">プラグインが見つかりません。以下に .sdPlugin を配置:\n${escapeHtml(scanDirs.join("\n"))}</li>`;
+  const profile = await invoke<Profile>("get_profile");
+  const page = profile.pages.find((p) => p.id === activePageId) ?? profile.pages[0];
+  if (!page) return;
 
-  scanStatusEl.textContent =
-    plugins.length === 0
-      ? `プラグインなし（配置先:\n${scanDirs.join("\n")}）`
-      : `${plugins.length} 件 · 起動中 ${plugins.filter((p) => p.status === "running").length} 件`;
-}
+  let slot = findSlot(page, row, col, selectedSurfaceId);
+  if (!slot) {
+    slot = await invoke<Slot>("create_slot", {
+      args: {
+        surfaceId: selectedSurfaceId,
+        pageId: activePageId,
+        row,
+        column: col,
+      },
+    });
+  }
 
-function renderSurfaces(surfaces: SurfaceRuntimeEntry[]) {
-  surfacesList.innerHTML =
-    surfaces
-      .map((s) => {
-        const details = [
-          backendLabel(s.backend),
-          `${s.rows}×${s.columns}`,
-          s.serial ? `S/N ${s.serial}` : null,
-          s.product ?? null,
-        ]
-          .filter(Boolean)
-          .join(" · ");
-        const disconnectBtn =
-          s.backend === "stream_deck_hid" && s.status === "connected"
-            ? `<button type="button" class="btn-sm btn-disconnect-surface" data-surface-id="${escapeHtml(s.surfaceId)}">切断</button>`
-            : "";
-        return `<li class="runtime-item">
-          <div class="item-row">
-            <span class="item-name">${escapeHtml(s.label)}</span>
-            ${statusBadge(s.status)}
-          </div>
-          <div class="card-meta">${escapeHtml(details)}<br/>ID: ${escapeHtml(s.surfaceId)}</div>
-          ${disconnectBtn ? `<div class="card-actions">${disconnectBtn}</div>` : ""}
-        </li>`;
-      })
-      .join("") || '<li class="empty">接続済みサーフェスなし</li>';
-}
+  selectedSlotId = slot.id;
+  statusEl.textContent = `配置中: ${payload.actionName}…`;
 
-function renderUsbDevices(devices: UsbDeviceRuntimeEntry[]) {
-  hidDevicesList.innerHTML =
-    devices
-      .map((d) => {
-        const connected = d.status === "connected";
-        const action = connected
-          ? `<span class="muted">surface ${escapeHtml(d.surfaceId ?? "")}</span>`
-          : `<button type="button" class="btn-sm btn-connect-hid" data-serial="${encodeURIComponent(d.serial)}" data-kind="${escapeHtml(d.kind)}">接続</button>`;
-        return `<li class="runtime-item" title="${escapeHtml(d.serial)}">
-          <div class="item-row">
-            <span class="item-name">${escapeHtml(d.product)} <span class="muted">(${d.rows}×${d.columns})</span></span>
-            ${statusBadge(d.status)}
-          </div>
-          <div class="card-actions">${action}</div>
-        </li>`;
-      })
-      .join("") || '<li class="empty">USB の Stream Deck が見つかりません</li>';
-  hidStatusEl.textContent =
-    devices.length === 0
-      ? "USB デバイスなし。Elgato アプリを終了して再接続してください。"
-      : `${devices.length} 台検出 · 接続済み ${devices.filter((d) => d.status === "connected").length} 台`;
-}
+  try {
+    if (payload.source === "streamdeck") {
+      const plugin = actionLibrary.streamdeck.find((p) => p.id === payload.pluginId);
+      if (plugin?.status !== "running" && plugin?.path) {
+        await invoke("load_sd_plugin", { path: plugin.path });
+        await refreshActionLibrary();
+      }
+      await invoke("bind_slot_sd", {
+        args: {
+          slotId: slot.id,
+          pluginUuid: payload.pluginId,
+          actionUuid: payload.actionId,
+        },
+      });
+    } else {
+      await invoke("bind_slot_companion", {
+        args: {
+          slotId: slot.id,
+          connectionId: payload.pluginId,
+          actionId: payload.actionId,
+          options: {},
+        },
+      });
+    }
 
-function renderCompanionSection(companion: CompanionRuntimeStatus) {
-  companionStatusEl.textContent = companion.sidecarRunning
-    ? "Sidecar: 稼働中"
-    : "Sidecar: 停止（Companion モジュール実行用）";
-
-  companionModulesList.innerHTML =
-    companion.modules
-      .map(
-        (p) =>
-          `<li class="plugin-item" title="${escapeHtml(p.path)}">${escapeHtml(p.name)}</li>`,
-      )
-      .join("") || '<li class="empty">Companion モジュールなし</li>';
-
-  const el = document.getElementById("connections")!;
-  el.innerHTML =
-    companion.connections
-      .map(
-        (c) =>
-          `<li class="runtime-item">
-            <div class="item-row">
-              <span class="item-name">${escapeHtml(c.label)}</span>
-              ${statusBadge(c.enabled ? "connected" : "disconnected")}
-            </div>
-            <div class="card-meta">module: ${escapeHtml(c.module_id)}<br/>id: ${escapeHtml(c.id)}</div>
-          </li>`,
-      )
-      .join("") || '<li class="empty">Companion 接続なし（外部機器リンク未設定）</li>';
-}
-
-function renderRuntimeStatus(status: RuntimeStatus, scanDirs: string[]) {
-  renderRunningPluginCard(status.sdPlugin);
-  renderPluginList(status.plugins, scanDirs);
-  renderSurfaces(status.surfaces);
-  renderUsbDevices(status.usbDevices);
-  renderCompanionSection(status.companion);
-
-  const activeSurface = status.surfaces.find((s) => s.status === "connected");
-  if (activeSurface && mockSurfaceId !== activeSurface.surfaceId) {
-    mockSurfaceId = activeSurface.surfaceId;
+    await pollCellVisuals();
+    const updatedProfile = await invoke<Profile>("get_profile");
+    const updatedSlot = findSlot(
+      updatedProfile.pages.find((p) => p.id === activePageId) ?? page,
+      row,
+      col,
+      selectedSurfaceId,
+    );
+    renderGrid(updatedProfile);
+    await updatePropertyInspector(updatedSlot);
+    statusEl.textContent = `${payload.actionName} を配置しました`;
+  } catch (err) {
+    statusEl.textContent = `配置失敗: ${formatUserError(err)}`;
   }
 }
 
-async function refreshRuntimeStatus(): Promise<RuntimeStatus> {
-  const status = await invoke<RuntimeStatus>("get_runtime_status");
-  renderRuntimeStatus(status, status.streamdeckDirs);
-  const now = new Date();
-  runtimeUpdatedEl.textContent = `最終更新 ${now.toLocaleTimeString()}`;
-  return status;
+async function setActivePage(pageId: string) {
+  await invoke("set_active_page", { pageId });
+  activePageId = pageId;
+  selectedSlotId = null;
+  configPlaceholder.classList.remove("hidden");
+  piSection.classList.add("hidden");
+  await refresh();
+}
+
+async function refresh() {
+  const info = await invoke<{ version: string; data_dir: string }>("get_app_info");
+  statusEl.textContent = `v${info.version}`;
+
+  const profile = await invoke<Profile>("get_profile");
+  activePageId = profile.active_page_id ?? profile.pages[0]?.id ?? null;
+
+  if (profile.surfaces.length === 0) {
+    selectedSurfaceId = await invoke<string>("register_mock_surface", { name: "Mock 3×5" });
+    await refresh();
+    return;
+  }
+
+  if (!selectedSurfaceId) {
+    selectedSurfaceId = profile.surfaces[0].surface_id;
+  }
+
+  await refreshCellVisuals();
+  renderPagePicker(profile);
+
+  try {
+    const status = await invoke<RuntimeStatus>("get_runtime_status");
+    renderDevicePicker(status.surfaces);
+    renderGrid(profile);
+    await refreshActionLibrary();
+  } catch (e) {
+    statusEl.textContent = formatUserError(e);
+  }
 }
 
 async function loadPlugin(path: string) {
-  statusEl.textContent = `起動中…`;
-  const loaded = await invoke<{ pluginUuid: string; port: number; name: string }>("load_sd_plugin", {
-    path,
-  });
-  statusEl.textContent = `${loaded.name} を起動 (port ${loaded.port})`;
-  (document.getElementById("plugin-uuid") as HTMLInputElement).value = loaded.pluginUuid;
-  await refreshRuntimeStatus();
+  statusEl.textContent = "プラグイン起動中…";
+  const loaded = await invoke<{ pluginUuid: string; name: string }>("load_sd_plugin", { path });
+  statusEl.textContent = `${loaded.name} を起動`;
+  expandedGroups.add(`sd:${loaded.pluginUuid}`);
+  await refresh();
 }
 
-async function stopPlugin() {
-  await invoke("unload_sd_plugin");
+async function stopPlugin(pluginUuid: string) {
+  await invoke("unload_sd_plugin", { pluginUuid });
   statusEl.textContent = "プラグインを停止しました";
-  await refreshRuntimeStatus();
-}
-
-async function connectHid(serial: string, kind: string) {
-  hidStatusEl.textContent = `接続中…`;
-  const connected = await invoke<{
-    surfaceId: string;
-    label: string;
-    rows: number;
-    columns: number;
-  }>("connect_hid_device", { serial, kind });
-  mockSurfaceId = connected.surfaceId;
-  statusEl.textContent = `物理サーフェス: ${connected.label}`;
   await refresh();
 }
 
-async function disconnectSurface(surfaceId: string) {
-  await invoke("disconnect_hid_device", { surfaceId });
-  if (mockSurfaceId === surfaceId) {
-    mockSurfaceId = null;
-  }
-  statusEl.textContent = "デバイスを切断しました";
-  await refresh();
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-async function runScan() {
-  const btn = document.getElementById("btn-scan") as HTMLButtonElement;
-  btn.disabled = true;
-  scanStatusEl.textContent = "スキャン中…";
-  try {
-    await refreshRuntimeStatus();
-  } catch (e) {
-    const msg = formatUserError(e);
-    scanStatusEl.textContent = `スキャン失敗: ${msg}`;
-    statusEl.textContent = `スキャン失敗: ${msg}`;
-    throw e;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-sdPluginsList.addEventListener("click", async (ev) => {
-  const loadBtn = (ev.target as HTMLElement).closest<HTMLElement>(".btn-load-plugin");
-  const stopBtn = (ev.target as HTMLElement).closest<HTMLElement>(".btn-stop-plugin");
-  if (loadBtn?.dataset.path) {
-    try {
-      await loadPlugin(decodeURIComponent(loadBtn.dataset.path));
-    } catch (e) {
-      statusEl.textContent = `起動失敗: ${formatUserError(e)}`;
-    }
-    return;
-  }
-  if (stopBtn?.dataset.path) {
-    try {
-      await stopPlugin();
-    } catch (e) {
-      statusEl.textContent = `停止失敗: ${formatUserError(e)}`;
-    }
-  }
-});
-
-hidDevicesList.addEventListener("click", async (ev) => {
-  const btn = (ev.target as HTMLElement).closest<HTMLElement>(".btn-connect-hid");
-  if (!btn?.dataset.serial || !btn.dataset.kind) return;
-  try {
-    await connectHid(decodeURIComponent(btn.dataset.serial), btn.dataset.kind);
-  } catch (e) {
-    const msg = formatUserError(e);
-    hidStatusEl.textContent = msg;
-    statusEl.textContent = msg;
-  }
-});
-
-surfacesList.addEventListener("click", async (ev) => {
-  const btn = (ev.target as HTMLElement).closest<HTMLElement>(".btn-disconnect-surface");
-  if (!btn?.dataset.surfaceId) return;
-  try {
-    await disconnectSurface(btn.dataset.surfaceId);
-  } catch (e) {
-    statusEl.textContent = `切断失敗: ${formatUserError(e)}`;
-  }
-});
-
-document.getElementById("btn-scan")!.addEventListener("click", () => {
-  void runScan();
-});
-
-document.getElementById("btn-scan-hid")!.addEventListener("click", () => {
-  void runScan();
-});
-
-document.getElementById("btn-open-plugins-folder")!.addEventListener("click", async () => {
-  try {
-    const dir = await invoke<string>("open_plugins_folder");
-    scanStatusEl.textContent = `Opened plugins folder:\n${dir}`;
-  } catch (e) {
-    scanStatusEl.textContent = `Could not open folder: ${e}`;
-  }
-});
 document.getElementById("btn-save")!.addEventListener("click", async () => {
   await invoke("save_profile");
-  statusEl.textContent = "Profile saved";
+  statusEl.textContent = "プロファイルを保存しました";
 });
 
-document.getElementById("btn-mock-surface")!.addEventListener("click", async () => {
-  mockSurfaceId = await invoke("register_mock_surface", { name: "Mock surface" });
+document.getElementById("btn-settings")!.addEventListener("click", () => {
+  void invoke("open_settings_window");
+});
+
+document.getElementById("action-search")!.addEventListener("input", () => renderActionSidebar());
+
+devicePicker.addEventListener("change", async () => {
+  selectedSurfaceId = devicePicker.value;
+  selectedSlotId = null;
   await refresh();
 });
 
-document.getElementById("btn-bind")!.addEventListener("click", async () => {
-  if (!selectedSlotId) return;
-  const pluginUuid = (document.getElementById("plugin-uuid") as HTMLInputElement).value;
-  const actionUuid = (document.getElementById("action-uuid") as HTMLInputElement).value;
-  await invoke("bind_slot_sd", {
-    slotId: selectedSlotId,
-    pluginUuid,
-    actionUuid,
-  });
-  statusEl.textContent = "Bound SD action";
-  await pollCellVisuals();
-  const profile = await invoke<Profile>("get_profile");
-  renderGrid(profile);
-  const slot = Object.values(
-    profile.pages.find((p) => p.id === activePageId)?.slots ?? {},
-  ).find((s) => s.id === selectedSlotId);
-  await updatePropertyInspector(slot);
+pagePicker.addEventListener("change", () => {
+  void setActivePage(pagePicker.value);
 });
 
-document.getElementById("btn-trigger")!.addEventListener("click", async () => {
+document.getElementById("btn-save-settings")!.addEventListener("click", async () => {
   if (!selectedSlotId) return;
-  await invoke("trigger_slot", { slotId: selectedSlotId });
-  await pollCellVisuals();
-  renderGrid(await invoke<Profile>("get_profile"));
+  const raw = (document.getElementById("settings-json") as HTMLTextAreaElement).value;
+  await invoke("update_slot_settings", {
+    args: {
+      slotId: selectedSlotId,
+      settings: JSON.parse(raw) as unknown,
+    },
+  });
+  statusEl.textContent = "設定を保存しました";
 });
 
-document.getElementById("btn-add-connection")!.addEventListener("click", async () => {
-  await invoke("add_connection", {
-    moduleId: "companion-module-generic-test",
-    label: "テスト接続",
-    config: {},
-  });
-  await refreshRuntimeStatus();
-  const ping = await invoke<string | null>("sidecar_ping");
-  if (ping) statusEl.textContent = `Sidecar ping: ${ping}`;
+void listen("visual-updated", () => {
+  void refreshCellVisuals().then(() =>
+    invoke<Profile>("get_profile").then(renderGrid),
+  );
+});
+
+void listen<{ status: string; message?: string }>("plugin-status", (ev) => {
+  if (ev.payload.message) {
+    statusEl.textContent = `[${ev.payload.status}] ${ev.payload.message}`;
+  }
 });
 
 refresh().catch((e) => {
@@ -718,7 +883,6 @@ refresh().catch((e) => {
 });
 
 setInterval(() => {
-  void refreshRuntimeStatus().catch(() => {
-    /* keep polling */
-  });
-}, 3000);
+  if (isDraggingAction) return;
+  void refreshActionLibrary().catch(() => {});
+}, 5000);
