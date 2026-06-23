@@ -7,9 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "companion-host:build": "npm run build --prefix companion-host",
-    "host:build": "npm run companion-host:build"
+    "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"

@@ -21,6 +21,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
 dirs = "6"
+sysinfo = "0.33"
 
 ideck-core = { workspace = true }
 ideck-surface = { workspace = true }

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
@@ -8,6 +9,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, info, warn};
+
+use ideck_core::{image_from_plugin_payload, ImagePayload, TitleParams};
 
 use crate::{InboundMessage, PluginProcess, StreamDeckManifest};
 
@@ -30,10 +33,15 @@ pub enum BrokerEvent {
     PluginRegistered { plugin_uuid: String },
     SetImage {
         context: String,
-        image_base64: Option<String>,
+        /// `Unchanged` = payload omitted `image`; `Cleared` = null/empty; `Set` = new bytes.
+        image: ImageSetResult,
         state: u8,
     },
-    SetTitle { context: String, title: Option<String> },
+    SetTitle {
+        context: String,
+        title: Option<String>,
+        title_params: Option<TitleParams>,
+    },
     SettingsChanged { context: String, settings: Value },
     SendToPropertyInspector { context: String, payload: Value },
     ShowAlert { context: String },
@@ -54,8 +62,17 @@ pub struct StreamDeckBroker {
     contexts: RwLock<HashMap<String, ActionContext>>,
     event_tx: mpsc::UnboundedSender<BrokerEvent>,
     device_id: String,
+    device_info: DeviceInfo,
     global_settings: RwLock<Value>,
+    plugin_dir: PathBuf,
     _plugin_process: PluginProcess,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImageSetResult {
+    Unchanged,
+    Cleared,
+    Set(ImagePayload),
 }
 
 #[derive(Debug, Clone)]
@@ -69,9 +86,7 @@ pub struct ActionContext {
 impl StreamDeckBroker {
     pub async fn start(
         plugin_dir: &std::path::Path,
-        node_binary: &std::path::Path,
         devices: Value,
-        html_host_script: Option<&std::path::Path>,
     ) -> anyhow::Result<(Arc<Self>, mpsc::UnboundedReceiver<BrokerEvent>)> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
@@ -80,14 +95,7 @@ impl StreamDeckBroker {
         let (plugin_msg_tx, mut plugin_msg_rx) = mpsc::unbounded_channel();
 
         info!("starting SD plugin on port {port}");
-        let plugin_process = PluginProcess::spawn(
-            plugin_dir,
-            port,
-            node_binary,
-            devices.clone(),
-            html_host_script,
-        )
-        .await?;
+        let plugin_process = PluginProcess::spawn(plugin_dir, port, devices.clone()).await?;
 
         let device_id = devices
             .as_array()
@@ -96,6 +104,8 @@ impl StreamDeckBroker {
             .and_then(|v| v.as_str())
             .unwrap_or("integratedeck-device-1")
             .to_string();
+
+        let device_info = parse_device_info(&devices, &device_id);
 
         let broker = Arc::new(Self {
             port,
@@ -107,7 +117,9 @@ impl StreamDeckBroker {
             contexts: RwLock::new(HashMap::new()),
             event_tx,
             device_id,
+            device_info,
             global_settings: RwLock::new(json!({})),
+            plugin_dir: plugin_dir.to_path_buf(),
             _plugin_process: plugin_process,
         });
 
@@ -164,20 +176,13 @@ impl StreamDeckBroker {
             .get(context)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
-        let mut payload = json!({
+        let payload = json!({
+            "event": event,
             "action": ctx.action_uuid,
             "context": context,
             "device": self.device_id,
-            "payload": {
-                "settings": ctx.settings,
-                "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
-                "isInMultiAction": false
-            },
-            "controller": "Keypad"
+            "payload": single_action_payload(&ctx)
         });
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert("event".into(), json!(event));
-        }
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
         Ok(())
@@ -188,18 +193,46 @@ impl StreamDeckBroker {
     }
 
     pub async fn property_inspector_did_appear(&self, context: &str) -> anyhow::Result<()> {
-        self.send_lifecycle(context, "propertyInspectorDidAppear").await
+        self.send_simple_plugin_event(context, "propertyInspectorDidAppear")
+            .await?;
+        send_did_receive_settings_to_pi(self, context).await;
+        Ok(())
     }
 
     pub async fn property_inspector_did_disappear(&self, context: &str) -> anyhow::Result<()> {
-        self.send_lifecycle(context, "propertyInspectorDidDisappear").await
+        self.send_simple_plugin_event(context, "propertyInspectorDidDisappear")
+            .await
     }
 
     pub async fn device_did_connect(&self) -> anyhow::Result<()> {
+        let info = &self.device_info;
         let payload = json!({
             "event": "deviceDidConnect",
             "device": self.device_id,
-            "deviceInfo": { "type": 0, "size": { "columns": 5, "rows": 3 } }
+            "deviceInfo": {
+                "name": info.name,
+                "type": info.device_type,
+                "size": { "columns": info.columns, "rows": info.rows }
+            }
+        });
+        self.plugin_tx
+            .send(Message::Text(payload.to_string().into()))?;
+        Ok(())
+    }
+
+    async fn send_simple_plugin_event(&self, context: &str, event: &str) -> anyhow::Result<()> {
+        let ctx = self
+            .contexts
+            .read()
+            .await
+            .get(context)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        let payload = json!({
+            "event": event,
+            "action": ctx.action_uuid,
+            "context": context,
+            "device": self.device_id
         });
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
@@ -214,19 +247,13 @@ impl StreamDeckBroker {
             .get(context)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
-        let mut payload = json!({
+        let payload = json!({
+            "event": event,
             "action": ctx.action_uuid,
             "context": context,
             "device": self.device_id,
-            "payload": {
-                "settings": ctx.settings,
-                "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
-                "isInMultiAction": false
-            }
+            "payload": single_action_payload(&ctx)
         });
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert("event".into(), json!(event));
-        }
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
         Ok(())
@@ -253,10 +280,12 @@ impl StreamDeckBroker {
             "payload": {
                 "settings": ctx.settings,
                 "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
+                "isInMultiAction": false,
+                "controller": "Encoder",
+                "resources": {},
                 "ticks": ticks,
                 "pressed": pressed
-            },
-            "controller": "Encoder"
+            }
         });
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
@@ -275,41 +304,63 @@ impl StreamDeckBroker {
         match event {
             "setImage" => {
                 let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
-                let image = msg
-                    .pointer("/payload/image")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
+                let image_field = msg.pointer("/payload/image");
+                let image = match image_field {
+                    None => ImageSetResult::Unchanged,
+                    Some(v) if v.is_null() => ImageSetResult::Cleared,
+                    Some(v) => match v.as_str() {
+                        None => ImageSetResult::Unchanged,
+                        Some(s) if s.is_empty() => ImageSetResult::Cleared,
+                        Some(s) => match image_from_plugin_payload(s, Some(&self.plugin_dir)) {
+                            Some(payload) => ImageSetResult::Set(payload),
+                            None => {
+                                warn!("setImage failed to decode image for context {context}: {s}");
+                                ImageSetResult::Unchanged
+                            }
+                        },
+                    },
+                };
                 let state = msg
                     .pointer("/payload/state")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u8;
+                debug!("setImage context={context} image={image:?} state={state}");
                 let _ = self.event_tx.send(BrokerEvent::SetImage {
                     context: context.into(),
-                    image_base64: image,
+                    image,
                     state,
                 });
             }
             "setTitle" => {
                 let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
-                let title = msg
-                    .pointer("/payload/title")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
+                let title = msg.get("payload").and_then(|p| p.get("title")).and_then(|v| {
+                    if v.is_null() {
+                        None
+                    } else {
+                        v.as_str().map(String::from)
+                    }
+                });
+                let title_params = msg
+                    .pointer("/payload/titleParams")
+                    .map(ideck_core::title_params_from_json);
+                debug!("setTitle context={context} title={title:?}");
                 let _ = self.event_tx.send(BrokerEvent::SetTitle {
                     context: context.into(),
                     title,
+                    title_params,
                 });
             }
             "setSettings" => {
                 let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
-                if let Some(settings) = msg.pointer("/payload/settings").cloned() {
+                if let Some(settings) = extract_set_settings_payload(&msg) {
                     if let Some(ctx) = self.contexts.write().await.get_mut(context) {
                         ctx.settings = settings.clone();
                     }
                     let _ = self.event_tx.send(BrokerEvent::SettingsChanged {
                         context: context.into(),
-                        settings,
+                        settings: settings.clone(),
                     });
+                    send_did_receive_settings_to_pi(self, context).await;
                 }
             }
             "getSettings" => {
@@ -320,7 +371,7 @@ impl StreamDeckBroker {
                         "action": ctx.action_uuid,
                         "context": context,
                         "device": self.device_id,
-                        "payload": { "settings": ctx.settings }
+                        "payload": action_settings_payload(ctx)
                     });
                     self.enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
                         .await;
@@ -335,14 +386,17 @@ impl StreamDeckBroker {
                 });
                 let out = json!({
                     "event": "sendToPropertyInspector",
+                    "action": self.contexts.read().await.get(context).map(|c| c.action_uuid.clone()).unwrap_or_default(),
                     "context": context,
                     "payload": payload
                 });
                 let mut pi = self.pi_connections.write().await;
-                if let Some(sink) = pi.get_mut(context) {
-                    let _ = sink
-                        .send(Message::Text(out.to_string().into()))
-                        .await;
+                if let Some(key) = pi_connection_key(&pi, context) {
+                    if let Some(sink) = pi.get_mut(&key) {
+                        let _ = sink
+                            .send(Message::Text(out.to_string().into()))
+                            .await;
+                    }
                 }
             }
             "showAlert" => {
@@ -385,8 +439,15 @@ impl StreamDeckBroker {
                 let _ = self.event_tx.send(BrokerEvent::LogMessage { message });
             }
             "setGlobalSettings" => {
-                if let Some(settings) = msg.pointer("/payload/settings").cloned() {
-                    *self.global_settings.write().await = settings;
+                if let Some(settings) = extract_set_settings_payload(&msg) {
+                    *self.global_settings.write().await = settings.clone();
+                    send_did_receive_global_settings_to_pi(self).await;
+                    let payload = json!({
+                        "event": "didReceiveGlobalSettings",
+                        "payload": { "settings": settings }
+                    });
+                    self.enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
+                        .await;
                 }
             }
             "getGlobalSettings" => {
@@ -440,6 +501,19 @@ impl StreamDeckBroker {
 
     async fn on_register_pi(&self, uuid: &str, sink: WsSink) {
         self.pi_connections.write().await.insert(uuid.into(), sink);
+        let contexts = self.contexts.read().await;
+        let context_to_notify = if contexts.contains_key(uuid) {
+            uuid.to_string()
+        } else if contexts.len() == 1 {
+            contexts
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| uuid.to_string())
+        } else {
+            uuid.to_string()
+        };
+        send_did_receive_settings_to_pi(self, &context_to_notify).await;
     }
 }
 
@@ -498,21 +572,185 @@ async fn handle_pi_message(broker: &StreamDeckBroker, text: &str) {
         return;
     };
     let event = msg.get("event").and_then(|v| v.as_str()).unwrap_or("");
-    if matches!(event, "setSettings" | "sendToPlugin" | "getSettings" | "setGlobalSettings" | "getGlobalSettings" | "openUrl" | "logMessage") {
-        if event == "getSettings" {
-            let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
-            if let Some(ctx) = broker.contexts.read().await.get(context) {
-                let payload = json!({
-                    "event": "didReceiveSettings",
-                    "action": ctx.action_uuid,
-                    "context": context,
-                    "device": broker.device_id,
-                    "payload": { "settings": ctx.settings }
+    let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+
+    match event {
+        "setSettings" => {
+            if let Some(settings) = extract_set_settings_payload(&msg) {
+                if let Some(ctx) = broker.contexts.write().await.get_mut(context) {
+                    ctx.settings = settings.clone();
+                }
+                let _ = broker.event_tx.send(BrokerEvent::SettingsChanged {
+                    context: context.into(),
+                    settings: settings.clone(),
                 });
-                let _ = broker.plugin_tx.send(Message::Text(payload.to_string().into()));
-                return;
+                send_did_receive_settings_to_pi(broker, context).await;
+                if let Some(ctx) = broker.contexts.read().await.get(context) {
+                    let payload = json!({
+                        "event": "didReceiveSettings",
+                        "action": ctx.action_uuid,
+                        "context": context,
+                        "device": broker.device_id,
+                        "payload": action_settings_payload(ctx)
+                    });
+                    broker
+                        .enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
+                        .await;
+                }
             }
         }
-        let _ = broker.plugin_tx.send(Message::Text(text.into()));
+        "getSettings" => {
+            send_did_receive_settings_to_pi(broker, context).await;
+        }
+        "getGlobalSettings" => {
+            send_did_receive_global_settings_to_pi(broker).await;
+        }
+        "setGlobalSettings" => {
+            if let Some(settings) = extract_set_settings_payload(&msg) {
+                *broker.global_settings.write().await = settings.clone();
+                send_did_receive_global_settings_to_pi(broker).await;
+                let payload = json!({
+                    "event": "didReceiveGlobalSettings",
+                    "payload": { "settings": settings }
+                });
+                broker
+                    .enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
+                    .await;
+            }
+        }
+        "sendToPlugin" | "openUrl" | "logMessage" => {
+            broker
+                .enqueue_or_send_to_plugin(Message::Text(text.into()))
+                .await;
+        }
+        _ => {}
+    }
+}
+
+async fn send_did_receive_settings_to_pi(broker: &StreamDeckBroker, context: &str) {
+    let Some(ctx) = broker.contexts.read().await.get(context).cloned() else {
+        return;
+    };
+    let payload = json!({
+        "event": "didReceiveSettings",
+        "action": ctx.action_uuid,
+        "context": context,
+        "device": broker.device_id,
+        "payload": action_settings_payload(&ctx)
+    });
+    let mut pi = broker.pi_connections.write().await;
+    if let Some(key) = pi_connection_key(&pi, context) {
+        if let Some(sink) = pi.get_mut(&key) {
+            let _ = sink
+                .send(Message::Text(payload.to_string().into()))
+                .await;
+        }
+    }
+}
+
+fn pi_connection_key(pi: &HashMap<String, WsSink>, context: &str) -> Option<String> {
+    if pi.contains_key(context) {
+        return Some(context.to_string());
+    }
+    if pi.len() == 1 {
+        return pi.keys().next().cloned();
+    }
+    None
+}
+
+fn action_settings_payload(ctx: &ActionContext) -> Value {
+    single_action_payload(ctx)
+}
+
+fn single_action_payload(ctx: &ActionContext) -> Value {
+    json!({
+        "settings": ctx.settings,
+        "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
+        "isInMultiAction": false,
+        "controller": "Keypad",
+        "resources": {}
+    })
+}
+
+async fn send_did_receive_global_settings_to_pi(broker: &StreamDeckBroker) {
+    let settings = broker.global_settings.read().await.clone();
+    let payload = json!({
+        "event": "didReceiveGlobalSettings",
+        "payload": { "settings": settings }
+    });
+    let mut pi = broker.pi_connections.write().await;
+    for sink in pi.values_mut() {
+        let _ = sink
+            .send(Message::Text(payload.to_string().into()))
+            .await;
+    }
+}
+
+/// Parse settings from a `setSettings` / `setGlobalSettings` message.
+///
+/// Stream Deck SDK v1/v2 PI sends settings as the payload object directly
+/// (`{ "event": "setSettings", "payload": { "key": "value" } }`), while some
+/// plugin runtimes wrap them under `payload.settings`.
+fn extract_set_settings_payload(msg: &Value) -> Option<Value> {
+    let payload = msg.get("payload")?;
+    match payload {
+        Value::Object(map) if map.contains_key("settings") => Some(map["settings"].clone()),
+        Value::Object(_) | Value::Array(_) => Some(payload.clone()),
+        Value::Null => None,
+        _ => Some(payload.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_set_settings_payload;
+    use serde_json::json;
+
+    #[test]
+    fn extract_settings_from_pi_payload() {
+        let msg = json!({
+            "event": "setSettings",
+            "context": "ctx",
+            "payload": { "foo": "bar", "count": 1 }
+        });
+        let settings = extract_set_settings_payload(&msg).unwrap();
+        assert_eq!(settings, json!({ "foo": "bar", "count": 1 }));
+    }
+
+    #[test]
+    fn extract_settings_from_wrapped_plugin_payload() {
+        let msg = json!({
+            "event": "setSettings",
+            "context": "ctx",
+            "payload": { "settings": { "foo": "bar" } }
+        });
+        let settings = extract_set_settings_payload(&msg).unwrap();
+        assert_eq!(settings, json!({ "foo": "bar" }));
+    }
+}
+
+fn parse_device_info(devices: &Value, device_id: &str) -> DeviceInfo {
+    let first = devices.as_array().and_then(|a| a.first());
+    let rows = first
+        .and_then(|d| d.pointer("/size/rows"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(3) as u32;
+    let columns = first
+        .and_then(|d| d.pointer("/size/columns"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5) as u32;
+    DeviceInfo {
+        id: device_id.to_string(),
+        name: first
+            .and_then(|d| d.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("integratedeck")
+            .to_string(),
+        rows,
+        columns,
+        device_type: first
+            .and_then(|d| d.get("type"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32,
     }
 }

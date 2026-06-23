@@ -2,9 +2,13 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use elgato_streamdeck::asynchronous::AsyncStreamDeck;
-use elgato_streamdeck::images::convert_image_async;
+use elgato_streamdeck::images::convert_image_with_format;
 use elgato_streamdeck::info::Kind;
+use ideck_core::KeyDisplayHints;
 use elgato_streamdeck::{list_devices, new_hidapi, refresh_device_list, DeviceStateUpdate};
+use image::codecs::jpeg::JpegEncoder;
+use image::{ColorType, DynamicImage};
+use image::imageops::FilterType;
 use image::ImageReader;
 use tokio::sync::broadcast;
 use tracing::warn;
@@ -292,9 +296,28 @@ impl super::Surface for StreamDeckHidSurface {
     }
 
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
+        let caps = &self.descriptor.capabilities;
+        let (width, height) = (caps.key_width_px, caps.key_height_px);
+
         for update in updates {
             let key = address_to_key(self.kind(), &update.address);
-            if let Some(image) = &update.visual.image {
+            let has_title = update
+                .visual
+                .title
+                .as_ref()
+                .is_some_and(|t| !t.trim().is_empty());
+
+            let hints = KeyDisplayHints::new(width, height);
+
+            let decoded = if has_title {
+                ideck_core::compose_key_png(&update.visual, hints).and_then(|png| {
+                    ImageReader::new(Cursor::new(png))
+                        .with_guessed_format()
+                        .ok()?
+                        .decode()
+                        .ok()
+                })
+            } else if let Some(image) = &update.visual.image {
                 let Ok(reader) =
                     ImageReader::new(Cursor::new(&image.data)).with_guessed_format()
                 else {
@@ -303,18 +326,64 @@ impl super::Surface for StreamDeckHidSurface {
                 let Ok(img) = reader.decode() else {
                     continue;
                 };
-                let converted = convert_image_async(self.kind(), img)
-                    .map_err(|e| SurfaceError::Other(e.to_string()))?;
-                self.device()
-                    .write_image(key, &converted)
-                    .await
-                    .map_err(|e| SurfaceError::Other(e.to_string()))?;
+                Some(img)
+            } else {
+                None
+            };
+
+            let Some(img) = decoded else {
+                continue;
+            };
+
+            let converted = if has_title {
+                convert_key_image_with_quality(self.kind(), img, 98)
+            } else {
+                convert_key_image_with_quality(self.kind(), img, 90)
             }
+            .map_err(|e| SurfaceError::Other(e.to_string()))?;
+            self.device()
+                .write_image(key, &converted)
+                .await
+                .map_err(|e| SurfaceError::Other(e.to_string()))?;
         }
+
         self.device()
             .flush()
             .await
             .map_err(|e| SurfaceError::Other(e.to_string()))?;
         Ok(())
     }
+}
+
+/// Device key upload: same transforms as `elgato_streamdeck`, with configurable JPEG quality.
+fn convert_key_image_with_quality(
+    kind: Kind,
+    image: DynamicImage,
+    jpeg_quality: u8,
+) -> Result<Vec<u8>, image::ImageError> {
+    let format = kind.key_image_format();
+    match format.mode {
+        elgato_streamdeck::info::ImageMode::JPEG => {}
+        _ => return convert_image_with_format(format, image),
+    }
+
+    let (ws, hs) = format.size;
+    let image = match format.rotation {
+        elgato_streamdeck::info::ImageRotation::Rot0 => image,
+        elgato_streamdeck::info::ImageRotation::Rot90 => image.rotate90(),
+        elgato_streamdeck::info::ImageRotation::Rot180 => image.rotate180(),
+        elgato_streamdeck::info::ImageRotation::Rot270 => image.rotate270(),
+    };
+    let image = image.resize_exact(ws as u32, hs as u32, FilterType::Triangle);
+    let image = match format.mirror {
+        elgato_streamdeck::info::ImageMirroring::None => image,
+        elgato_streamdeck::info::ImageMirroring::X => image.fliph(),
+        elgato_streamdeck::info::ImageMirroring::Y => image.flipv(),
+        elgato_streamdeck::info::ImageMirroring::Both => image.fliph().flipv(),
+    };
+    let rgb = image.into_rgb8();
+    let mut buf = Vec::new();
+    let mut encoder = JpegEncoder::new_with_quality(&mut buf, jpeg_quality);
+    encoder.encode(rgb.as_raw(), ws as u32, hs as u32, ColorType::Rgb8.into())?;
+    Ok(buf)
 }

@@ -19,4 +19,4 @@ tungstenite = { workspace = true }
 base64 = { workspace = true }
 ideck-core = { workspace = true }
 ideck-surface = { workspace = true }
-ideck-comp-host = { workspace = true }
+ideck-js-runtime = { workspace = true }

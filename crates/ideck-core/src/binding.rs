@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::ActionInstanceId;
+use crate::{ActionInstanceId, PageId};
 
 /// What a slot executes when pressed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +20,57 @@ pub enum BindingKind {
         #[serde(default)]
         options: JsonValue,
     },
+    /// Built-in navigation actions (folder, back, page switch).
+    BuiltIn {
+        action_id: String,
+        #[serde(default)]
+        settings: JsonValue,
+    },
+    /// Executes multiple bindings in sequence (Stream Deck Multi Action).
+    MultiAction {
+        #[serde(default)]
+        steps: Vec<MultiActionStep>,
+        /// Delay between steps in milliseconds (Stream Deck default: 200).
+        #[serde(default = "default_multi_delay_ms")]
+        delay_ms: u32,
+    },
+}
+
+fn default_multi_delay_ms() -> u32 {
+    200
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MultiActionStep {
+    pub binding: BindingKind,
+    /// Optional delay before this step runs (e.g. Stream Deck Delay action).
+    #[serde(default)]
+    pub delay_before_ms: u32,
+}
+
+/// Parsed settings for built-in folder navigation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderSettings {
+    #[serde(default, alias = "ProfileUUID", alias = "profile_uuid")]
+    pub child_page_id: Option<String>,
+}
+
+impl FolderSettings {
+    pub fn child_page_id(&self) -> Option<PageId> {
+        let raw = self.child_page_id.as_ref()?;
+        uuid::Uuid::parse_str(raw).ok().map(PageId)
+    }
+}
+
+/// Parsed settings for built-in page / profile switch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchPageSettings {
+    #[serde(default, alias = "ProfileUUID", alias = "profile_uuid")]
+    pub target_page_id: Option<String>,
+    #[serde(default)]
+    pub target_page_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -74,6 +125,21 @@ impl Binding {
                 action_id: action_id.into(),
                 options,
             },
+        }
+    }
+
+    pub fn built_in(action_id: impl Into<String>, settings: JsonValue) -> Self {
+        Self {
+            kind: BindingKind::BuiltIn {
+                action_id: action_id.into(),
+                settings,
+            },
+        }
+    }
+
+    pub fn multi_action(steps: Vec<MultiActionStep>, delay_ms: u32) -> Self {
+        Self {
+            kind: BindingKind::MultiAction { steps, delay_ms },
         }
     }
 }

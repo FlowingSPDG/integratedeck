@@ -6,7 +6,8 @@ pub const SETTINGS_WINDOW_LABEL: &str = "settings";
 
 /// Create the main window from `tauri.conf.json` (must run during `setup`, not from IPC).
 pub fn ensure_main_window(app: &App) -> Result<(), String> {
-    if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        attach_exit_on_close(&window);
         return Ok(());
     }
 
@@ -16,6 +17,7 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(80 * attempt as u64));
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                attach_exit_on_close(&window);
                 let _ = window.show();
                 let _ = window.set_focus();
                 info!("main window ready after retry");
@@ -25,6 +27,7 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
 
         match build_window(app.handle(), &config, false) {
             Ok(window) => {
+                attach_exit_on_close(&window);
                 let _ = window.show();
                 let _ = window.set_focus();
                 info!("main window created");
@@ -107,6 +110,19 @@ fn attach_hide_on_close(window: &WebviewWindow) {
         if let WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             let _ = hide_target.hide();
+        }
+    });
+}
+
+/// Quit the app when the main window closes.
+///
+/// The settings window is pre-created and hidden (`attach_hide_on_close`), so closing
+/// only the main window would otherwise leave the process running.
+fn attach_exit_on_close(window: &WebviewWindow) {
+    let app = window.app_handle().clone();
+    window.clone().on_window_event(move |event| {
+        if matches!(event, WindowEvent::CloseRequested { .. }) {
+            app.exit(0);
         }
     });
 }

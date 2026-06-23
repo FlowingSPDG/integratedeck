@@ -29,6 +29,9 @@ pub struct Page {
     pub id: PageId,
     pub name: String,
     pub slots: HashMap<SlotId, Slot>,
+    /// Parent page when this page is a folder child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_page_id: Option<PageId>,
 }
 
 impl Profile {
@@ -37,6 +40,7 @@ impl Profile {
             id: PageId::new(),
             name: "Page 1".into(),
             slots: HashMap::new(),
+            parent_page_id: None,
         };
         let active = page.id;
         Self {

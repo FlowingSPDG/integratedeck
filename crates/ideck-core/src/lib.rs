@@ -1,12 +1,18 @@
 //! Core domain types: profiles, pages, slots, bindings, visual state.
 
+mod appearance;
 mod binding;
+mod builtin;
+mod key_render;
 mod profile;
 mod slot;
 mod variables;
 mod visual;
 
+pub use appearance::*;
+pub use key_render::*;
 pub use binding::*;
+pub use builtin::*;
 pub use profile::*;
 pub use slot::{Slot, SlotId};
 pub use variables::*;

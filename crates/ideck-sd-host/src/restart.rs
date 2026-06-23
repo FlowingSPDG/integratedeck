@@ -29,5 +29,5 @@ where
 }
 
 pub fn discover_sd_plugins(dir: &Path) -> Vec<std::path::PathBuf> {
-    ideck_comp_host::scan_sd_plugins(dir)
+    crate::scan::scan_sd_plugins(dir)
 }

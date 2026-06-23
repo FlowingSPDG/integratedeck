@@ -7,6 +7,57 @@ export interface PiContext {
   context: string;
   actionUuid: string;
   pluginUuid: string;
+  deviceId?: string;
+  settings?: Record<string, unknown>;
+}
+
+function deviceIdForPlugin(pluginUuid: string): string {
+  return `integratedeck-virtual-${pluginUuid.replace(/\./g, "-")}`;
+}
+
+function buildPiInfo(ctx: PiContext) {
+  const deviceId = ctx.deviceId ?? deviceIdForPlugin(ctx.pluginUuid);
+  return {
+    application: {
+      font: "Arial",
+      language: "en",
+      platform: "windows",
+      platformVersion: "10.0",
+      version: "7.0.0",
+    },
+    plugin: { uuid: ctx.pluginUuid, version: "1.0.0" },
+    devices: [
+      {
+        id: deviceId,
+        name: "integratedeck",
+        size: { columns: 5, rows: 3 },
+        type: 0,
+      },
+    ],
+    colors: {
+      buttonMouseOverBackgroundColor: "#464646FF",
+      buttonPressedBackgroundColor: "#303030FF",
+      buttonPressedBorderColor: "#000000FF",
+      buttonPressedTextColor: "#FFFFFFFF",
+      highlightColor: "#0078FFFF",
+    },
+    devicePixelRatio: 1,
+  };
+}
+
+function buildActionInfo(ctx: PiContext) {
+  const deviceId = ctx.deviceId ?? deviceIdForPlugin(ctx.pluginUuid);
+  return {
+    action: ctx.actionUuid,
+    context: ctx.context,
+    device: deviceId,
+    payload: {
+      settings: ctx.settings ?? {},
+      isInMultiAction: false,
+      controller: "Keypad",
+      resources: {},
+    },
+  };
 }
 
 function base64Json(obj: unknown): string {
@@ -23,44 +74,6 @@ function piDirectoryAssetBase(piFilePath: string): string {
   const dir = slash >= 0 ? normalized.slice(0, slash) : normalized;
   const base = convertFileSrc(dir);
   return base.endsWith("/") ? base : `${base}/`;
-}
-
-function buildPiInfo(ctx: PiContext) {
-  return {
-    application: {
-      font: "Arial",
-      language: "en",
-      platform: "windows",
-      platformVersion: "10.0",
-      version: "7.0.0",
-    },
-    plugin: { uuid: ctx.pluginUuid, version: "1.0.0" },
-    devices: [
-      {
-        id: "integratedeck-virtual-1",
-        name: "integratedeck",
-        size: { columns: 5, rows: 3 },
-        type: 0,
-      },
-    ],
-    colors: {
-      buttonMouseOverBackgroundColor: "#464646FF",
-      buttonPressedBackgroundColor: "#303030FF",
-      highlightColor: "#0078FFFF",
-    },
-  };
-}
-
-function buildActionInfo(ctx: PiContext) {
-  return {
-    action: ctx.actionUuid,
-    context: ctx.context,
-    device: "integratedeck-virtual-1",
-    payload: {
-      settings: {},
-      isInMultiAction: false,
-    },
-  };
 }
 
 function buildPiQueryString(ctx: PiContext): string {
@@ -92,19 +105,19 @@ function injectPiDocumentPreamble(html: string, baseHref: string, queryString: s
 }
 
 export function buildPiBridgeScript(ctx: PiContext): string {
-  const info = JSON.stringify(buildPiInfo(ctx));
-  const actionInfo = JSON.stringify(buildActionInfo(ctx));
+  const infoJson = JSON.stringify(buildPiInfo(ctx));
+  const actionInfoJson = JSON.stringify(buildActionInfo(ctx));
   return `
 (function() {
-  if (window.__integratedeckPiConnected) return;
+  if (window.__integratedeckPiConnected || window.__sdpiWs || (window.$SD && window.$SD.api)) return;
   window.__integratedeckPiConnected = true;
   if (typeof connectElgatoStreamDeckSocket === 'function') {
     connectElgatoStreamDeckSocket(
       ${ctx.port},
       ${JSON.stringify(ctx.context)},
       'registerPropertyInspector',
-      ${info},
-      ${actionInfo}
+      ${JSON.stringify(infoJson)},
+      ${JSON.stringify(actionInfoJson)}
     );
     return;
   }
@@ -114,12 +127,13 @@ export function buildPiBridgeScript(ctx: PiContext): string {
   };
   ws.onmessage = function(ev) {
     try {
-      var msg = JSON.parse(ev.data);
+      var raw = ev.data;
+      var msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (msg.event === 'sendToPropertyInspector') {
         document.dispatchEvent(new CustomEvent('sendToPropertyInspector', { detail: msg.payload }));
       }
       if (msg.event === 'didReceiveSettings') {
-        document.dispatchEvent(new CustomEvent('didReceiveSettings', { detail: msg.payload }));
+        document.dispatchEvent(new CustomEvent('didReceiveSettings', { detail: msg }));
       }
     } catch (e) {}
   };
@@ -128,28 +142,50 @@ export function buildPiBridgeScript(ctx: PiContext): string {
 `;
 }
 
+let piLoadGeneration = 0;
+
+/** Invalidate in-flight PI loads; optionally clear the iframe immediately. */
+export function beginPiLoad(iframe?: HTMLIFrameElement): number {
+  piLoadGeneration += 1;
+  if (iframe) {
+    iframe.removeAttribute("src");
+    iframe.srcdoc = "";
+  }
+  return piLoadGeneration;
+}
+
+function isPiLoadCurrent(generation: number): boolean {
+  return generation === piLoadGeneration;
+}
+
 export async function loadPiInFrame(
   iframe: HTMLIFrameElement,
   piFilePath: string,
   ctx: PiContext,
+  generation: number,
 ): Promise<void> {
   const piAssetUrl = convertFileSrc(piFilePath);
   const baseHref = piDirectoryAssetBase(piFilePath);
   const queryString = buildPiQueryString(ctx);
 
+  iframe.removeAttribute("src");
+  iframe.srcdoc = "";
+
   const resp = await fetch(piAssetUrl);
+  if (!isPiLoadCurrent(generation)) return;
   if (!resp.ok) {
     throw new Error(`Property Inspector HTML の読み込みに失敗しました (${resp.status})`);
   }
 
-  let html = injectPiDocumentPreamble(await resp.text(), baseHref, queryString);
+  const html = injectPiDocumentPreamble(await resp.text(), baseHref, queryString);
+  if (!isPiLoadCurrent(generation)) return;
 
-  iframe.removeAttribute("src");
   iframe.srcdoc = html;
 
   await new Promise<void>((resolve) => {
     iframe.onload = () => resolve();
   });
+  if (!isPiLoadCurrent(generation)) return;
 
   try {
     const doc = iframe.contentDocument;
@@ -159,6 +195,22 @@ export async function loadPiInFrame(
     script.setAttribute("data-integratedeck-pi-bridge", "1");
     script.textContent = buildPiBridgeScript(ctx);
     (doc.head || doc.documentElement).appendChild(script);
+
+    doc.addEventListener(
+      "contextmenu",
+      (event) => {
+        const target = event.target;
+        if (
+          !(target instanceof HTMLInputElement) &&
+          !(target instanceof HTMLTextAreaElement) &&
+          !(target instanceof HTMLSelectElement) &&
+          !(target instanceof HTMLElement && target.isContentEditable)
+        ) {
+          event.preventDefault();
+        }
+      },
+      true,
+    );
   } catch {
     /* srcdoc iframe is same-origin with parent */
   }

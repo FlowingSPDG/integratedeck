@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ideck-core",
     "crates/ideck-surface",
+    "crates/ideck-js-runtime",
     "crates/ideck-sd-host",
     "crates/ideck-comp-host",
     "crates/ideck-bridge",
@@ -34,6 +35,9 @@ tungstenite = "0.26"
 
 ideck-core = { path = "crates/ideck-core" }
 ideck-surface = { path = "crates/ideck-surface" }
+ideck-js-runtime = { path = "crates/ideck-js-runtime" }
 ideck-sd-host = { path = "crates/ideck-sd-host" }
 ideck-comp-host = { path = "crates/ideck-comp-host" }
 ideck-bridge = { path = "crates/ideck-bridge" }
+boa_engine = { version = "0.21.1" }
+boa_runtime = "0.21.1"

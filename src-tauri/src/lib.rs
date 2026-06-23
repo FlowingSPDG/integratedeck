@@ -1,7 +1,7 @@
 mod commands;
+mod conflict_check;
 mod errors;
 mod hub;
-mod html_plugin;
 mod orchestrator;
 mod paths;
 mod settings_store;
@@ -20,9 +20,12 @@ type OrchState = Arc<RwLock<Orchestrator>>;
 
 fn start_orchestrator(app: &App) -> Result<(), String> {
     let handle = app.handle().clone();
-    let orch = tauri::async_runtime::block_on(Orchestrator::new(&handle)).map_err(|e| e.to_string())?;
+    let orch =
+        tauri::async_runtime::block_on(Orchestrator::new(&handle)).map_err(|e| e.to_string())?;
     let state = Arc::new(RwLock::new(orch));
     Orchestrator::start_companion_event_drain(state.clone());
+    Orchestrator::start_background_init(state.clone());
+    Orchestrator::start_usb_watch(state.clone());
     app.manage(state);
     Ok(())
 }
@@ -43,11 +46,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            commands::check_startup_conflicts,
             commands::list_surfaces,
             commands::get_profile,
             commands::save_profile,
             commands::scan_plugins,
             commands::open_plugins_folder,
+            commands::open_companion_modules_folder,
             commands::scan_hid_devices,
             commands::list_surface_drivers,
             commands::connect_hid_device,
@@ -58,6 +63,11 @@ pub fn run() {
             commands::load_sd_plugin,
             commands::bind_slot_sd,
             commands::bind_slot_companion,
+            commands::bind_slot_builtin,
+            commands::update_slot_appearance,
+            commands::update_multi_action,
+            commands::set_switch_page_target,
+            commands::add_multi_action_step,
             commands::unbind_slot,
             commands::trigger_slot,
             commands::list_connections,

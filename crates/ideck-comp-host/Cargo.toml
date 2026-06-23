@@ -1,6 +1,6 @@
 [package]
 name = "ideck-comp-host"
-description = "Companion module host bridge (Orchestrator-managed Node process)"
+description = "Companion module compatibility host (embedded Boa, no Node.js)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,3 +14,4 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 ideck-core = { workspace = true }
+ideck-js-runtime = { workspace = true }

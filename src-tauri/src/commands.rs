@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tokio::sync::RwLock;
 
+use crate::conflict_check;
 use crate::errors::{friendly_anyhow, friendly_error};
 use crate::orchestrator::{
     ActionLibrary, ConnectHidResult, LoadPluginResult, Orchestrator,
@@ -31,6 +32,18 @@ pub async fn get_app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION").into(),
         data_dir: paths::data_dir().display().to_string(),
     }
+}
+
+#[tauri::command]
+pub async fn check_startup_conflicts() -> conflict_check::StartupConflictReport {
+    tauri::async_runtime::spawn_blocking(conflict_check::detect_conflicting_apps)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("startup conflict check failed: {e}");
+            conflict_check::StartupConflictReport {
+                conflicts: Vec::new(),
+            }
+        })
 }
 
 #[tauri::command]
@@ -61,6 +74,14 @@ pub async fn scan_plugins(state: State<'_, OrchState>) -> Result<ScanResult, Str
 pub async fn open_plugins_folder() -> Result<String, String> {
     paths::ensure_dirs().map_err(|e| e.to_string())?;
     let dir = paths::sd_plugins_dir();
+    open_path_in_file_manager(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.display().to_string())
+}
+
+#[tauri::command]
+pub async fn open_companion_modules_folder() -> Result<String, String> {
+    paths::ensure_dirs().map_err(|e| e.to_string())?;
+    let dir = paths::companion_modules_dir();
     open_path_in_file_manager(&dir).map_err(|e| e.to_string())?;
     Ok(dir.display().to_string())
 }
@@ -163,6 +184,183 @@ pub async fn bind_slot_companion(
     )
     .await
     .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindSlotBuiltinArgs {
+    pub slot_id: String,
+    pub action_id: String,
+}
+
+#[tauri::command]
+pub async fn bind_slot_builtin(
+    state: State<'_, OrchState>,
+    args: BindSlotBuiltinArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.bind_slot_builtin(slot_id, args.action_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSlotAppearanceArgs {
+    pub slot_id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub default_image_base64: Option<String>,
+    #[serde(default)]
+    pub clear_image: bool,
+}
+
+#[tauri::command]
+pub async fn update_slot_appearance(
+    state: State<'_, OrchState>,
+    args: UpdateSlotAppearanceArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.update_slot_appearance(
+        slot_id,
+        args.title,
+        args.default_image_base64,
+        args.clear_image,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMultiActionArgs {
+    pub slot_id: String,
+    pub steps: Vec<ideck_core::MultiActionStep>,
+    #[serde(default)]
+    pub delay_ms: Option<u32>,
+}
+
+#[tauri::command]
+pub async fn update_multi_action(
+    state: State<'_, OrchState>,
+    args: UpdateMultiActionArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.update_multi_action(slot_id, args.steps, args.delay_ms)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSwitchPageTargetArgs {
+    pub slot_id: String,
+    pub target_page_id: String,
+}
+
+#[tauri::command]
+pub async fn set_switch_page_target(
+    state: State<'_, OrchState>,
+    args: SetSwitchPageTargetArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let target_page_id = PageId(
+        uuid::Uuid::parse_str(&args.target_page_id).map_err(|e| e.to_string())?,
+    );
+    let mut o = state.write().await;
+    o.set_switch_page_target(slot_id, target_page_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddMultiActionStepArgs {
+    pub slot_id: String,
+    pub source: String,
+    pub plugin_id: String,
+    pub action_id: String,
+    #[serde(default)]
+    pub delay_before_ms: u32,
+}
+
+#[tauri::command]
+pub async fn add_multi_action_step(
+    state: State<'_, OrchState>,
+    args: AddMultiActionStepArgs,
+) -> Result<(), String> {
+    use ideck_core::{ActionInstanceId, BindingKind, MultiActionStep};
+
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let step_binding = match args.source.as_str() {
+        "streamdeck" => BindingKind::StreamDeck {
+            plugin_uuid: args.plugin_id,
+            action_uuid: args.action_id,
+            instance_id: ActionInstanceId::new(),
+            settings: serde_json::json!({}),
+        },
+        "companion" => BindingKind::Companion {
+            connection_id: args.plugin_id,
+            action_id: args.action_id,
+            options: serde_json::json!({}),
+        },
+        "builtin" => BindingKind::BuiltIn {
+            action_id: args.action_id,
+            settings: serde_json::json!({}),
+        },
+        _ => return Err(format!("unknown step source: {}", args.source)),
+    };
+
+    let mut o = state.write().await;
+    let page_id = o
+        .page_id_for_slot(slot_id)
+        .ok_or_else(|| "slot not found".to_string())?;
+    let surface_id = {
+        let page = o
+            .profile()
+            .pages
+            .iter()
+            .find(|p| p.id == page_id)
+            .ok_or_else(|| "page not found".to_string())?;
+        page.slots
+            .get(&slot_id)
+            .map(|s| s.locator.surface_id)
+            .ok_or_else(|| "slot not found".to_string())?
+    };
+
+    let steps = {
+        let profile = o.profile_mut();
+        let page = profile
+            .pages
+            .iter_mut()
+            .find(|p| p.id == page_id)
+            .ok_or_else(|| "page not found".to_string())?;
+        let slot = page
+            .slots
+            .get_mut(&slot_id)
+            .ok_or_else(|| "slot not found".to_string())?;
+        let Some(ideck_core::Binding {
+            kind: ideck_core::BindingKind::MultiAction { steps, .. },
+        }) = &mut slot.binding
+        else {
+            return Err("slot is not a multi-action".into());
+        };
+        steps.push(MultiActionStep {
+            binding: step_binding,
+            delay_before_ms: args.delay_before_ms,
+        });
+        steps.clone()
+    };
+
+    o.update_multi_action(slot_id, steps, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = surface_id;
+    Ok(())
 }
 
 #[tauri::command]
@@ -390,28 +588,7 @@ pub async fn connect_hid_device(
     serial: String,
     kind: String,
 ) -> Result<ConnectHidResult, String> {
-    let state_clone = state.inner().clone();
-    let (result, surface) = {
-        let mut o = state.write().await;
-        o.connect_hid_device(serial, kind).await?
-    };
-    let surface_id = SurfaceId(uuid::Uuid::parse_str(&result.surface_id).map_err(|e| e.to_string())?);
-    let mut input_rx = surface.subscribe_inputs();
-    let reader = surface.clone().spawn_input_loop();
-
-    let forward = tokio::spawn(async move {
-        while let Ok(input) = input_rx.recv().await {
-            let mut o = state_clone.write().await;
-            o.apply_surface_input(surface_id, input).await.ok();
-        }
-    });
-
-    {
-        let mut o = state.write().await;
-        o.store_hid_tasks(surface_id, vec![reader, forward]);
-    }
-
-    Ok(result)
+    Orchestrator::connect_hid_with_loops(state.inner().clone(), serial, kind).await
 }
 
 #[tauri::command]
@@ -489,6 +666,7 @@ pub async fn create_slot(
     if let Some(page) = o.profile_mut().pages.iter_mut().find(|p| p.id == page_id) {
         page.slots.insert(slot.id, slot.clone());
     }
+    o.save_profile().await.map_err(|e| e.to_string())?;
     Ok(slot)
 }
 
@@ -575,28 +753,12 @@ pub async fn connect_settings_device(
     state: State<'_, OrchState>,
     device_key: String,
 ) -> Result<ConnectHidResult, String> {
-    let state_clone = state.inner().clone();
-    let (result, surface) = {
-        let mut o = state.write().await;
-        o.connect_settings_device(&device_key).await?
+    let (serial, kind) = {
+        let o = state.read().await;
+        let record = o.resolve_device_record(&device_key)?;
+        (record.serial, record.kind)
     };
-    let surface_id = SurfaceId(uuid::Uuid::parse_str(&result.surface_id).map_err(|e| e.to_string())?);
-    let mut input_rx = surface.subscribe_inputs();
-    let reader = surface.clone().spawn_input_loop();
-
-    let forward = tokio::spawn(async move {
-        while let Ok(input) = input_rx.recv().await {
-            let mut o = state_clone.write().await;
-            o.apply_surface_input(surface_id, input).await.ok();
-        }
-    });
-
-    {
-        let mut o = state.write().await;
-        o.store_hid_tasks(surface_id, vec![reader, forward]);
-    }
-
-    Ok(result)
+    Orchestrator::connect_hid_with_loops(state.inner().clone(), serial, kind).await
 }
 
 #[tauri::command]
@@ -621,7 +783,8 @@ pub async fn import_device_preset(
     args: ImportDevicePresetArgs,
 ) -> Result<(), String> {
     let mut o = state.write().await;
-    o.import_device_preset(&args.device_key, &args.json).await
+    o.import_device_preset(&args.device_key, &args.json, state.inner().clone())
+        .await
 }
 
 #[tauri::command]

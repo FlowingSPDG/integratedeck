@@ -57,10 +57,10 @@ fn default_font_size() -> u8 {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TitleAlignment {
-    #[default]
-    Middle,
     Top,
+    #[default]
     Bottom,
+    Middle,
     Left,
     Right,
 }
@@ -70,6 +70,40 @@ pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+/// Parse Stream Deck SDK `titleParams` from a setTitle payload object.
+pub fn title_params_from_json(v: &serde_json::Value) -> TitleParams {
+    let mut params = TitleParams::default();
+    if let Some(size) = v.get("fontSize").and_then(|n| n.as_u64()) {
+        params.font_size = size.clamp(6, 24) as u8;
+    }
+    if let Some(family) = v.get("fontFamily").and_then(|s| s.as_str()) {
+        if !family.is_empty() {
+            params.font_family = Some(family.to_string());
+        }
+    }
+    if let Some(style) = v.get("fontStyle").and_then(|s| s.as_str()) {
+        if !style.is_empty() {
+            params.font_style = Some(style.to_string());
+        }
+    }
+    if let Some(underline) = v.get("underline").and_then(|b| b.as_bool()) {
+        params.underline = underline;
+    }
+    if let Some(show) = v.get("showTitle").and_then(|b| b.as_bool()) {
+        params.show_title = show;
+    }
+    if let Some(align) = v.get("alignment").and_then(|s| s.as_str()) {
+        params.alignment = match align.to_lowercase().as_str() {
+            "top" => TitleAlignment::Top,
+            "bottom" => TitleAlignment::Bottom,
+            "left" => TitleAlignment::Left,
+            "right" => TitleAlignment::Right,
+            _ => TitleAlignment::Middle,
+        };
+    }
+    params
 }
 
 mod serde_bytes_base64 {

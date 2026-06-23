@@ -1,18 +1,17 @@
 use std::collections::HashMap;
 
-use base64::{engine::general_purpose::STANDARD, Engine};
-use ideck_core::{ImageFormat, ImagePayload, SlotLocator, VisualState};
-use ideck_sd_host::BrokerEvent;
+use ideck_core::{SlotLocator, SurfaceId, VisualState};
+use ideck_sd_host::{BrokerEvent, ImageSetResult};
 use ideck_surface::{CellAddress, CellUpdate, EmulationProfile, SurfaceCapabilities, SurfaceInput};
 use tracing::debug;
 
 /// Maps surface grid coordinates to Stream Deck action contexts and handles broker events → cell renders.
 pub struct SdSurfaceBridge {
     pub emulation: SurfaceCapabilities,
-    /// (row, col) -> SD context id
-    pub context_by_cell: HashMap<(u32, u32), String>,
-    /// context -> (row, col)
-    pub cell_by_context: HashMap<String, (u32, u32)>,
+    /// (surface, row, col) -> SD context id
+    pub context_by_cell: HashMap<(SurfaceId, u32, u32), String>,
+    /// context -> (surface, row, col)
+    pub cell_by_context: HashMap<String, (SurfaceId, u32, u32)>,
     pub device_id: String,
     pub plugin_uuid: String,
 }
@@ -28,43 +27,63 @@ impl SdSurfaceBridge {
         }
     }
 
-    pub fn register_cell(&mut self, row: u32, column: u32, context: String) {
-        self.context_by_cell.insert((row, column), context.clone());
-        self.cell_by_context.insert(context, (row, column));
+    pub fn register_cell(
+        &mut self,
+        surface_id: SurfaceId,
+        row: u32,
+        column: u32,
+        context: String,
+    ) {
+        let key = (surface_id, row, column);
+        self.context_by_cell.insert(key, context.clone());
+        self.cell_by_context.insert(context, (surface_id, row, column));
     }
 
-    pub fn context_for_input(&self, address: &CellAddress) -> Option<&str> {
+    pub fn context_for_input(
+        &self,
+        surface_id: SurfaceId,
+        address: &CellAddress,
+    ) -> Option<&str> {
         self.context_by_cell
-            .get(&(address.row, address.column))
+            .get(&(surface_id, address.row, address.column))
             .map(String::as_str)
     }
 
     pub fn surface_input_to_sd_event(
         &self,
+        surface_id: SurfaceId,
         input: &SurfaceInput,
     ) -> Option<(String, &'static str)> {
         match input {
             SurfaceInput::KeyDown { address } => self
-                .context_for_input(address)
+                .context_for_input(surface_id, address)
                 .map(|c| (c.to_string(), "keyDown")),
             SurfaceInput::KeyUp { address } => self
-                .context_for_input(address)
+                .context_for_input(surface_id, address)
                 .map(|c| (c.to_string(), "keyUp")),
             SurfaceInput::EncoderRotate { index, ticks, pressed } => {
                 let ctx = self
                     .context_by_cell
-                    .get(&(0, *index))
+                    .get(&(surface_id, 0, *index))
                     .cloned()
-                    .or_else(|| self.context_by_cell.get(&(*index, 0)).cloned())?;
+                    .or_else(|| {
+                        self.context_by_cell
+                            .get(&(surface_id, *index, 0))
+                            .cloned()
+                    })?;
                 let _ = (ticks, pressed);
                 Some((ctx, "dialRotate"))
             }
             SurfaceInput::EncoderPress { index, pressed: _ } => {
                 let ctx = self
                     .context_by_cell
-                    .get(&(0, *index))
+                    .get(&(surface_id, 0, *index))
                     .cloned()
-                    .or_else(|| self.context_by_cell.get(&(*index, 0)).cloned())?;
+                    .or_else(|| {
+                        self.context_by_cell
+                            .get(&(surface_id, *index, 0))
+                            .cloned()
+                    })?;
                 Some((ctx, "dialPress"))
             }
             _ => None,
@@ -80,54 +99,39 @@ impl SdSurfaceBridge {
         match event {
             BrokerEvent::SetImage {
                 context,
-                image_base64,
+                image,
                 state,
             } => {
-                if let Some((row, col)) = self.cell_by_context.get(context) {
+                if let Some((_surface_id, row, col)) = self.cell_by_context.get(context) {
                     let visual = visuals.entry((*row, *col)).or_default();
                     visual.state_index = *state;
-                    if let Some(b64) = image_base64 {
-                        if let Ok(data) = STANDARD.decode(b64) {
-                            visual.image = Some(ImagePayload {
-                                format: ImageFormat::Png,
-                                data: scale_image_for_cell(
-                                    &data,
-                                    self.emulation.key_width_px,
-                                    self.emulation.key_height_px,
-                                ),
-                            });
-                        }
+                    match image {
+                        ImageSetResult::Set(payload) => visual.image = Some(payload.clone()),
+                        ImageSetResult::Cleared => visual.image = None,
+                        ImageSetResult::Unchanged => {}
                     }
-                    updates.push(CellUpdate {
-                        address: CellAddress {
-                            row: *row,
-                            column: *col,
-                        },
-                        visual: visual.clone(),
-                    });
+                    updates.push(cell_update(*row, *col, visual.clone()));
                 }
             }
-            BrokerEvent::SetTitle { context, title } => {
-                if let Some((row, col)) = self.cell_by_context.get(context) {
+            BrokerEvent::SetTitle {
+                context,
+                title,
+                title_params,
+            } => {
+                if let Some((_surface_id, row, col)) = self.cell_by_context.get(context) {
                     let visual = visuals.entry((*row, *col)).or_default();
                     visual.title = title.clone();
-                    updates.push(CellUpdate {
-                        address: CellAddress {
-                            row: *row,
-                            column: *col,
-                        },
-                        visual: visual.clone(),
-                    });
+                    if let Some(params) = title_params {
+                        visual.title_params = params.clone();
+                    }
+                    updates.push(cell_update(*row, *col, visual.clone()));
                 }
             }
             BrokerEvent::SetState { context, state } => {
-                if let Some((row, col)) = self.cell_by_context.get(context) {
+                if let Some((_surface_id, row, col)) = self.cell_by_context.get(context) {
                     let visual = visuals.entry((*row, *col)).or_default();
                     visual.state_index = *state;
-                    updates.push(CellUpdate {
-                        address: CellAddress { row: *row, column: *col },
-                        visual: visual.clone(),
-                    });
+                    updates.push(cell_update(*row, *col, visual.clone()));
                 }
             }
             BrokerEvent::SettingsChanged { context, settings: _ } => {
@@ -151,6 +155,13 @@ impl SdSurfaceBridge {
         instance_id: &str,
     ) -> String {
         format!("{plugin_uuid}.{action_uuid}.{instance_id}")
+    }
+}
+
+fn cell_update(row: u32, col: u32, visual: VisualState) -> CellUpdate {
+    CellUpdate {
+        address: CellAddress { row, column: col },
+        visual,
     }
 }
 
@@ -209,5 +220,37 @@ impl CapabilityNegotiation {
             }
             _ => CapabilityNegotiation::ok(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ideck_core::ActionInstanceId;
+
+    #[test]
+    fn key_down_resolves_context_for_surface_and_cell() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        let ctx = SdSurfaceBridge::build_context_id("p", "a", &ActionInstanceId::new().0);
+        bridge.register_cell(surface, 1, 2, ctx.clone());
+
+        let ev = bridge.surface_input_to_sd_event(
+            surface,
+            &SurfaceInput::KeyDown {
+                address: CellAddress { row: 1, column: 2 },
+            },
+        );
+        assert_eq!(ev, Some((ctx, "keyDown")));
+
+        let other_surface = SurfaceId::new();
+        assert!(bridge
+            .surface_input_to_sd_event(
+                other_surface,
+                &SurfaceInput::KeyDown {
+                    address: CellAddress { row: 1, column: 2 },
+                },
+            )
+            .is_none());
     }
 }

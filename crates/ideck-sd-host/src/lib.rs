@@ -6,6 +6,7 @@ mod manifest;
 mod messages;
 mod plugin;
 mod restart;
+mod scan;
 mod supervisor;
 
 pub use broker::*;
@@ -14,4 +15,5 @@ pub use manifest::*;
 pub use messages::*;
 pub use plugin::*;
 pub use restart::*;
+pub use scan::*;
 pub use supervisor::*;

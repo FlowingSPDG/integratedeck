@@ -60,7 +60,7 @@ pub fn friendly_message(raw: &str) -> String {
         return friendly_manifest_json_error(err);
     }
 
-    if lower.contains("unsupported code path") {
+    if lower.contains("unsupported code path") || lower.contains("no supported entry found") {
         return "このプラグインの実行ファイル形式にはまだ対応していません。".into();
     }
 
@@ -89,6 +89,10 @@ pub fn friendly_manifest_err(err: &ManifestError) -> String {
         ManifestError::MissingField(field) => {
             friendly_message(&format!("manifest missing required field: {field}"))
         }
+        ManifestError::Encrypted => "このプラグインの manifest.json は Elgato 公式形式で暗号化されています。\
+            en.json / ja.json からプラグイン情報を読み込めなかった場合、Elgato Stream Deck 上で \
+            プラグイン名を確認してください。"
+            .into(),
         ManifestError::Json(e) => friendly_manifest_json_error(&e.to_string()),
         ManifestError::Io(e) => friendly_error(e),
     }

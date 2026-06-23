@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { installNativeFeel } from "./native-feel";
+
+installNativeFeel();
 
 interface AppGlobalSettings {
   language: string;
@@ -20,7 +23,7 @@ interface SettingsDeviceEntry {
   columns: number;
 }
 
-type TabId = "general" | "devices" | "presets";
+type TabId = "general" | "devices" | "presets" | "companion";
 
 const I18N = {
   ja: {
@@ -56,6 +59,18 @@ const I18N = {
     exported: "プリセットを書き出しました",
     imported: "プリセットを読み込みました",
     copied: "クリップボードにコピーしました",
+    companion: "Companion",
+    companionModules: "モジュール",
+    companionConnections: "接続",
+    moduleId: "モジュール ID",
+    connectionLabel: "接続名",
+    addConnection: "接続を追加",
+    removeConnection: "削除",
+    openModulesFolder: "モジュールフォルダを開く",
+    noModules: "companion-module-* フォルダがありません",
+    noConnections: "接続がありません",
+    hostRunning: "ホスト稼働中",
+    hostStopped: "ホスト停止",
   },
   en: {
     title: "Settings",
@@ -90,6 +105,18 @@ const I18N = {
     exported: "Preset exported",
     imported: "Preset imported",
     copied: "Copied to clipboard",
+    companion: "Companion",
+    companionModules: "Modules",
+    companionConnections: "Connections",
+    moduleId: "Module ID",
+    connectionLabel: "Connection label",
+    addConnection: "Add connection",
+    removeConnection: "Remove",
+    openModulesFolder: "Open modules folder",
+    noModules: "No companion-module-* folders found",
+    noConnections: "No connections",
+    hostRunning: "Host running",
+    hostStopped: "Host stopped",
   },
 } as const;
 
@@ -146,11 +173,13 @@ function renderShell() {
       <button type="button" class="tab-btn ${activeTab === "general" ? "active" : ""}" data-tab="general">${s.general}</button>
       <button type="button" class="tab-btn ${activeTab === "devices" ? "active" : ""}" data-tab="devices">${s.devices}</button>
       <button type="button" class="tab-btn ${activeTab === "presets" ? "active" : ""}" data-tab="presets">${s.presets}</button>
+      <button type="button" class="tab-btn ${activeTab === "companion" ? "active" : ""}" data-tab="companion">${s.companion}</button>
     </nav>
     <div class="settings-content">
       <div class="tab-panel ${activeTab === "general" ? "active" : ""}" id="panel-general"></div>
       <div class="tab-panel ${activeTab === "devices" ? "active" : ""}" id="panel-devices"></div>
       <div class="tab-panel ${activeTab === "presets" ? "active" : ""}" id="panel-presets"></div>
+      <div class="tab-panel ${activeTab === "companion" ? "active" : ""}" id="panel-companion"></div>
       <div class="status-line" id="status-line"></div>
     </div>
   `;
@@ -173,7 +202,8 @@ function renderShell() {
 function renderActivePanel() {
   if (activeTab === "general") void renderGeneralPanel();
   else if (activeTab === "devices") void renderDevicesPanel();
-  else void renderPresetsPanel();
+  else if (activeTab === "presets") void renderPresetsPanel();
+  else void renderCompanionPanel();
 }
 
 async function renderGeneralPanel() {
@@ -311,10 +341,11 @@ async function renderDevicesPanel() {
     const label = (document.getElementById("device-label") as HTMLInputElement).value;
     const value = Number((document.getElementById("device-brightness") as HTMLInputElement).value);
     try {
-      await invoke("set_device_label", { deviceKey: selectedDeviceKey, label });
+      await invoke("set_device_label", {
+        args: { deviceKey: selectedDeviceKey, label },
+      });
       await invoke("set_device_brightness", {
-        deviceKey: selectedDeviceKey,
-        brightness: value,
+        args: { deviceKey: selectedDeviceKey, brightness: value },
       });
       setStatus(strings().saved, "success");
       await renderDevicesPanel();
@@ -399,8 +430,7 @@ async function renderPresetsPanel() {
     const textarea = document.getElementById("preset-json") as HTMLTextAreaElement;
     try {
       await invoke("import_device_preset", {
-        deviceKey: selectedDeviceKey,
-        json: textarea.value,
+        args: { deviceKey: selectedDeviceKey, json: textarea.value },
       });
       setStatus(strings().imported, "success");
     } catch (err) {
@@ -413,6 +443,115 @@ async function renderPresetsPanel() {
     if (!textarea?.value) return;
     await navigator.clipboard.writeText(textarea.value);
     setStatus(strings().copied, "success");
+  });
+}
+
+interface ScanResult {
+  companion: { path: string; name: string; bundleName: string }[];
+}
+
+interface ConnectionRecord {
+  id: string;
+  moduleId: string;
+  label: string;
+  enabled: boolean;
+}
+
+async function renderCompanionPanel() {
+  const s = strings();
+  const scan = await invoke<ScanResult>("scan_plugins");
+  const connections = await invoke<ConnectionRecord[]>("list_connections");
+  const status = await invoke<{ companion: { companionHostRunning: boolean } }>("get_runtime_status");
+
+  const moduleOptions = scan.companion.length
+    ? scan.companion
+        .map(
+          (m) =>
+            `<option value="${m.name.replace(/"/g, "&quot;")}">${m.name}</option>`,
+        )
+        .join("")
+    : "";
+
+  const connectionRows = connections.length
+    ? connections
+        .map(
+          (c) => `
+        <tr>
+          <td>${c.label}</td>
+          <td><code>${c.moduleId}</code></td>
+          <td>${c.enabled ? "✓" : "—"}</td>
+          <td><button type="button" class="btn-remove-conn" data-id="${c.id}">${s.removeConnection}</button></td>
+        </tr>`,
+        )
+        .join("")
+    : `<tr><td colspan="4">${s.noConnections}</td></tr>`;
+
+  const panel = document.getElementById("panel-companion")!;
+  panel.innerHTML = `
+    <h2 class="section-title">${s.companion}</h2>
+    <p class="meta-line">${status.companion.companionHostRunning ? s.hostRunning : s.hostStopped}</p>
+    <div class="actions">
+      <button type="button" id="btn-open-companion-folder">${s.openModulesFolder}</button>
+    </div>
+    <h3 class="section-subtitle">${s.companionConnections}</h3>
+    <table class="simple-table">
+      <thead><tr><th>${s.connectionLabel}</th><th>${s.moduleId}</th><th></th><th></th></tr></thead>
+      <tbody>${connectionRows}</tbody>
+    </table>
+    <div class="field">
+      <label for="companion-module-select">${s.companionModules}</label>
+      <select id="companion-module-select">
+        ${scan.companion.length ? moduleOptions : `<option value="">${s.noModules}</option>`}
+      </select>
+    </div>
+    <div class="field">
+      <label for="companion-label">${s.connectionLabel}</label>
+      <input type="text" id="companion-label" placeholder="My connection" />
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="btn-add-connection" ${scan.companion.length ? "" : "disabled"}>${s.addConnection}</button>
+    </div>
+  `;
+
+  document.getElementById("btn-open-companion-folder")?.addEventListener("click", async () => {
+    try {
+      await invoke("open_companion_modules_folder");
+    } catch (err) {
+      setStatus(formatUserError(err), "error");
+    }
+  });
+
+  document.getElementById("btn-add-connection")?.addEventListener("click", async () => {
+    const moduleId = (document.getElementById("companion-module-select") as HTMLSelectElement).value;
+    const label = (document.getElementById("companion-label") as HTMLInputElement).value.trim();
+    if (!moduleId) return;
+    try {
+      await invoke("add_connection", {
+        args: {
+          moduleId,
+          label: label || moduleId,
+          config: {},
+        },
+      });
+      setStatus(strings().saved, "success");
+      await renderCompanionPanel();
+    } catch (err) {
+      setStatus(formatUserError(err), "error");
+    }
+  });
+
+  panel.querySelectorAll(".btn-remove-conn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = (btn as HTMLElement).dataset.id;
+      if (!id) return;
+      try {
+        await invoke("remove_connection", { connectionId: id });
+        setStatus(strings().saved, "success");
+        await renderCompanionPanel();
+      } catch (err) {
+        setStatus(formatUserError(err), "error");
+      }
+    });
   });
 }
 

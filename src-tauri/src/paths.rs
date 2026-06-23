@@ -75,72 +75,8 @@ pub fn sd_plugin_scan_roots() -> Vec<PathBuf> {
     roots
 }
 
-pub fn companion_host_script() -> PathBuf {
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../companion-host/dist/index.js");
-    if dev.exists() {
-        return dev;
-    }
-    PathBuf::from("companion-host/dist/index.js")
-}
-
-pub fn node_binary() -> PathBuf {
-    which_node().unwrap_or_else(|| PathBuf::from("node"))
-}
-
-pub fn validate_node_version() -> Result<(), String> {
-    let node = node_binary();
-    let output = std::process::Command::new(&node)
-        .arg("-v")
-        .output()
-        .map_err(|e| format!("Node.js not found: {e}"))?;
-    if !output.status.success() {
-        return Err("Node.js version check failed".into());
-    }
-    let version = String::from_utf8_lossy(&output.stdout);
-    let version = version.trim().trim_start_matches('v');
-    let major: u32 = version
-        .split('.')
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    if major < 18 {
-        return Err(format!(
-            "Node.js 18+ required for Companion modules (found {version})"
-        ));
-    }
-    Ok(())
-}
-
-fn which_node() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        std::process::Command::new("where")
-            .arg("node")
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .lines()
-                    .next()
-                    .map(|s| s.trim().to_string())
-            })
-            .map(PathBuf::from)
-    }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("which")
-            .arg("node")
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .to_string()
-            })
-            .map(PathBuf::from)
-    }
+pub fn cache_dir() -> PathBuf {
+    data_dir().join("cache")
 }
 
 pub fn ensure_dirs() -> std::io::Result<()> {
@@ -149,5 +85,6 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     std::fs::create_dir_all(companion_modules_dir())?;
     std::fs::create_dir_all(global_settings_dir())?;
     std::fs::create_dir_all(device_presets_dir())?;
+    std::fs::create_dir_all(cache_dir())?;
     Ok(())
 }

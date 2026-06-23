@@ -115,11 +115,21 @@ impl SurfaceManager {
 
     pub async fn register_physical(&self, surface: Arc<dyn PhysicalSurface>) {
         let id = surface.surface_id();
-        self.physical.write().await.insert(id, surface.clone());
-        self.surfaces
+        self.attach_physical(id, surface).await;
+    }
+
+    /// Attach a physical device at an existing surface id (replaces mock if present).
+    pub async fn attach_physical(&self, surface_id: SurfaceId, surface: Arc<dyn PhysicalSurface>) {
+        debug_assert_eq!(surface.surface_id(), surface_id);
+        self.mock_inputs.write().await.remove(&surface_id);
+        self.physical
             .write()
             .await
-            .insert(id, Arc::new(ErasedPhysicalSurface(surface)));
+            .insert(surface_id, surface.clone());
+        self.surfaces.write().await.insert(
+            surface_id,
+            Arc::new(ErasedPhysicalSurface(surface)),
+        );
     }
 
     pub fn physical(&self, id: SurfaceId) -> Option<Arc<dyn PhysicalSurface>> {

@@ -52,6 +52,10 @@ impl PluginSupervisor {
         self.meta.values().cloned().collect()
     }
 
+    pub fn plugin_uuids(&self) -> Vec<String> {
+        self.plugins.keys().cloned().collect()
+    }
+
     pub fn insert(
         &mut self,
         meta: LoadedSdPlugin,

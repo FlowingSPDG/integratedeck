@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use ideck_js_runtime::JsEngine;
 use serde_json::Value;
 use thiserror::Error;
 use tokio::process::Child;
+use tracing::error;
 
 use crate::launch::{
-    build_registration_info, spawn_html_host, spawn_native, spawn_node, HtmlPluginHandle,
-    PluginLaunchStrategy,
+    build_registration_info, spawn_embedded_plugin, spawn_native, PluginLaunchStrategy,
+    SdEntryMode,
 };
 use crate::StreamDeckManifest;
 
@@ -22,21 +24,23 @@ pub enum PluginLaunchError {
     Other(String),
 }
 
+enum PluginRuntime {
+    Native(Child),
+    Embedded(JsEngine),
+}
+
 pub struct PluginProcess {
     pub plugin_uuid: String,
     pub plugin_dir: PathBuf,
-    pub child: Child,
     pub port: u16,
-    _html: Option<HtmlPluginHandle>,
+    runtime: PluginRuntime,
 }
 
 impl PluginProcess {
     pub async fn spawn(
         plugin_dir: &Path,
         port: u16,
-        node_binary: &Path,
         devices: Value,
-        html_host_script: Option<&Path>,
     ) -> Result<Self, PluginLaunchError> {
         let manifest = StreamDeckManifest::load(plugin_dir)?;
         let strategy = PluginLaunchStrategy::detect(&manifest, plugin_dir)?;
@@ -45,23 +49,25 @@ impl PluginProcess {
         let register_event = "registerPlugin";
 
         match strategy {
-            PluginLaunchStrategy::NodeProcess { script } => {
-                let child = spawn_node(
-                    &script,
+            PluginLaunchStrategy::JsPlugin { script } => {
+                let engine = spawn_embedded_plugin(
                     plugin_dir,
+                    &script,
+                    SdEntryMode::Script,
                     port,
                     &manifest.uuid,
                     register_event,
                     &info,
-                    node_binary,
                 )
-                .await?;
+                .map_err(|e| {
+                    error!("embedded SD plugin failed to start: {e:#}");
+                    PluginLaunchError::Other(format!("embedded plugin start failed: {e:#}"))
+                })?;
                 Ok(Self {
                     plugin_uuid: manifest.uuid,
                     plugin_dir: plugin_dir.to_path_buf(),
-                    child,
                     port,
-                    _html: None,
+                    runtime: PluginRuntime::Embedded(engine),
                 })
             }
             PluginLaunchStrategy::NativeBinary { exe } => {
@@ -77,32 +83,29 @@ impl PluginProcess {
                 Ok(Self {
                     plugin_uuid: manifest.uuid,
                     plugin_dir: plugin_dir.to_path_buf(),
-                    child,
                     port,
-                    _html: None,
+                    runtime: PluginRuntime::Native(child),
                 })
             }
             PluginLaunchStrategy::HtmlWebView { html } => {
-                let host_script = html_host_script.ok_or_else(|| {
-                    PluginLaunchError::Other("html host script path required".into())
-                })?;
-                let handle = spawn_html_host(
-                    &html,
+                let engine = spawn_embedded_plugin(
                     plugin_dir,
+                    &html,
+                    SdEntryMode::Html,
                     port,
                     &manifest.uuid,
+                    register_event,
                     &info,
-                    node_binary,
-                    host_script,
                 )
-                .await?;
-                let HtmlPluginHandle { child } = handle;
+                .map_err(|e| {
+                    error!("embedded SD HTML plugin failed to start: {e:#}");
+                    PluginLaunchError::Other(format!("embedded html plugin start failed: {e:#}"))
+                })?;
                 Ok(Self {
                     plugin_uuid: manifest.uuid,
                     plugin_dir: plugin_dir.to_path_buf(),
-                    child,
                     port,
-                    _html: None,
+                    runtime: PluginRuntime::Embedded(engine),
                 })
             }
         }

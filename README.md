@@ -5,8 +5,8 @@ Cross-platform desktop app bridging **Elgato Stream Deck plugins** and **Bitfocu
 ## Architecture
 
 - **Rust / Tauri 2** — Orchestrator hub, Stream Deck WebSocket broker, profiles, surface drivers
-- **Orchestrator-managed Node host** — Companion module runtime (`companion-host/`, stdio IPC)
-- **Crates** — `ideck-core`, `ideck-surface`, `ideck-sd-host`, `ideck-comp-host`, `ideck-bridge`
+- **Embedded Boa** — `ideck-js-runtime` runs Companion modules and Stream Deck JS/HTML plugins in-process (no Node.js)
+- **Crates** — `ideck-core`, `ideck-surface`, `ideck-js-runtime`, `ideck-sd-host`, `ideck-comp-host`, `ideck-bridge`
 
 All routing flows: **physical device ↔ Orchestrator ↔ plugin system**. No independent sidecar process.
 
@@ -14,8 +14,6 @@ All routing flows: **physical device ↔ Orchestrator ↔ plugin system**. No in
 
 ```bash
 npm install
-cd companion-host && npm install && cd ..
-npm run companion-host:build
 npm run tauri dev
 ```
 

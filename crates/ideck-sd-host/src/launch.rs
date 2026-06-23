@@ -1,8 +1,7 @@
 //! Plugin launch strategy detection and process spawning.
 
-mod html;
+mod embedded;
 mod native;
-mod node;
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +12,7 @@ use crate::StreamDeckManifest;
 
 #[derive(Debug, Clone)]
 pub enum PluginLaunchStrategy {
-    NodeProcess { script: PathBuf },
+    JsPlugin { script: PathBuf },
     NativeBinary { exe: PathBuf },
     HtmlWebView { html: PathBuf },
 }
@@ -28,7 +27,12 @@ pub enum LaunchStrategyError {
 
 impl PluginLaunchStrategy {
     pub fn detect(manifest: &StreamDeckManifest, plugin_dir: &Path) -> Result<Self, LaunchStrategyError> {
-        let code_path = manifest.code_path_for_platform(plugin_dir);
+        let code_path = manifest.resolve_code_path(plugin_dir).ok_or_else(|| {
+            LaunchStrategyError::Unsupported(format!(
+                "no supported entry found in {}",
+                plugin_dir.display()
+            ))
+        })?;
         let ext = code_path
             .extension()
             .and_then(|e| e.to_str())
@@ -39,8 +43,8 @@ impl PluginLaunchStrategy {
             return Ok(Self::HtmlWebView { html: code_path });
         }
 
-        if ext == "js" || manifest.nodejs.is_some() {
-            return Ok(Self::NodeProcess { script: code_path });
+        if matches!(ext.as_str(), "js" | "mjs" | "cjs") || manifest.nodejs.is_some() {
+            return Ok(Self::JsPlugin { script: code_path });
         }
 
         if code_path.is_file() {
@@ -56,19 +60,31 @@ pub fn build_registration_info(
     version: &str,
     devices: Value,
 ) -> Value {
+    let platform = if cfg!(target_os = "macos") {
+        "mac"
+    } else {
+        "windows"
+    };
     serde_json::json!({
         "application": {
             "font": "Arial",
             "language": "en",
-            "platform": std::env::consts::OS,
-            "platformVersion": "1.0",
+            "platform": platform,
+            "platformVersion": "10.0",
             "version": "7.0.0"
         },
         "plugin": { "uuid": plugin_uuid, "version": version },
-        "devices": devices
+        "devicePixelRatio": 1,
+        "devices": devices,
+        "colors": {
+            "buttonMouseOverBackgroundColor": "#464646FF",
+            "buttonPressedBackgroundColor": "#303030FF",
+            "buttonPressedBorderColor": "#000000FF",
+            "buttonPressedTextColor": "#FFFFFFFF",
+            "highlightColor": "#0078FFFF"
+        }
     })
 }
 
-pub use html::{spawn_html_host, HtmlPluginHandle};
+pub use embedded::{spawn_embedded_plugin, SdEntryMode};
 pub use native::spawn_native;
-pub use node::spawn_node;
