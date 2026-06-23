@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 use boa_engine::{Context, JsValue, Source, js_string};
 use boa_runtime::extensions::{ConsoleExtension, MicrotaskExtension, TimeoutExtension};
@@ -80,7 +81,7 @@ fn run_worker(
         .build()?;
 
     rt.block_on(async move {
-        let ws_callbacks = Arc::new(Mutex::new(std::collections::HashMap::<
+        let ws_callbacks = Rc::new(RefCell::new(std::collections::HashMap::<
             u64,
             crate::ws::WsCallbacks,
         >::new()));

@@ -25,7 +25,7 @@ pub enum PluginLaunchError {
 }
 
 enum PluginRuntime {
-    Native(Child),
+    Native(Box<Child>),
     Embedded(JsEngine),
 }
 
@@ -34,6 +34,19 @@ pub struct PluginProcess {
     pub plugin_dir: PathBuf,
     pub port: u16,
     runtime: PluginRuntime,
+}
+
+impl Drop for PluginProcess {
+    fn drop(&mut self) {
+        match &mut self.runtime {
+            PluginRuntime::Native(child) => {
+                let _ = child.start_kill();
+            }
+            PluginRuntime::Embedded(engine) => {
+                let _ = engine;
+            }
+        }
+    }
 }
 
 impl PluginProcess {
@@ -84,7 +97,7 @@ impl PluginProcess {
                     plugin_uuid: manifest.uuid,
                     plugin_dir: plugin_dir.to_path_buf(),
                     port,
-                    runtime: PluginRuntime::Native(child),
+                    runtime: PluginRuntime::Native(Box::new(child)),
                 })
             }
             PluginLaunchStrategy::HtmlWebView { html } => {

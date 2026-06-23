@@ -32,6 +32,12 @@ impl SurfaceId {
     }
 }
 
+impl Default for SurfaceId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Stream Deck action instance identifier (per key/context).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -40,6 +46,12 @@ pub struct ActionInstanceId(pub String);
 impl ActionInstanceId {
     pub fn new() -> Self {
         Self(Uuid::new_v4().to_string())
+    }
+}
+
+impl Default for ActionInstanceId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -62,6 +74,12 @@ impl PageId {
     }
 }
 
+impl Default for PageId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProfileId(pub Uuid);
@@ -69,6 +87,12 @@ pub struct ProfileId(pub Uuid);
 impl ProfileId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
+    }
+}
+
+impl Default for ProfileId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

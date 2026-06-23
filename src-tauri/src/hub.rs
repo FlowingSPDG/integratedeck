@@ -10,13 +10,7 @@ use tokio::sync::broadcast;
 
 /// All surface input events flow through this bus before routing.
 pub struct DeviceEventBus {
-    tx: broadcast::Sender<DeviceEvent>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DeviceEvent {
-    pub surface_id: SurfaceId,
-    pub input: SurfaceInput,
+    tx: broadcast::Sender<(SurfaceId, SurfaceInput)>,
 }
 
 impl DeviceEventBus {
@@ -26,11 +20,7 @@ impl DeviceEventBus {
     }
 
     pub fn publish(&self, surface_id: SurfaceId, input: SurfaceInput) {
-        let _ = self.tx.send(DeviceEvent { surface_id, input });
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<DeviceEvent> {
-        self.tx.subscribe()
+        let _ = self.tx.send((surface_id, input));
     }
 }
 
@@ -45,6 +35,7 @@ impl Default for DeviceEventBus {
 pub struct RoutingTable {
     pub slot_to_context: HashMap<SlotId, String>,
     pub cell_to_context: HashMap<(SurfaceId, u32, u32), String>,
+    pub cell_to_plugin: HashMap<(SurfaceId, u32, u32), String>,
     pub context_to_cell: HashMap<String, (SurfaceId, u32, u32)>,
     pub slot_to_companion: HashMap<SlotId, (String, String)>,
 }
@@ -56,9 +47,13 @@ impl RoutingTable {
         row: u32,
         col: u32,
         context: String,
+        plugin_uuid: impl Into<String>,
     ) {
+        let plugin_uuid = plugin_uuid.into();
         self.cell_to_context
             .insert((surface_id, row, col), context.clone());
+        self.cell_to_plugin
+            .insert((surface_id, row, col), plugin_uuid);
         self.context_to_cell.insert(context, (surface_id, row, col));
     }
 
@@ -92,7 +87,7 @@ mod tests {
         let mut table = RoutingTable::default();
         let slot = SlotId::new();
         let surface = SurfaceId::new();
-        table.register_sd_cell(surface, 0, 0, "ctx-1".into());
+        table.register_sd_cell(surface, 0, 0, "ctx-1".into(), "plugin-1");
         table.register_sd_slot(slot, "ctx-1".into());
         table.register_companion_slot(slot, "conn".into(), "act".into());
         assert_eq!(table.slot_to_context.get(&slot).unwrap(), "ctx-1");

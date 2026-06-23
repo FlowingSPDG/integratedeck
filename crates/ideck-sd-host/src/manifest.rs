@@ -154,7 +154,7 @@ impl StreamDeckManifest {
 
         override_path
             .filter(|p| !p.is_empty())
-            .or_else(|| {
+            .or({
                 if self.code_path.is_empty() {
                     None
                 } else {
@@ -438,12 +438,10 @@ fn actions_from_localization(value: &Value) -> Vec<ManifestAction> {
     let mut actions: Vec<ManifestAction> = obj
         .iter()
         .filter(|(key, value)| looks_like_action_uuid(key) && value.is_object())
-        .filter_map(|(key, value)| {
-            Some(ManifestAction {
-                uuid: Some(key.clone()),
-                name: pick_string(value, &["Name", "name"]),
-                property_inspector: pick_string(value, &["PropertyInspectorPath", "propertyInspectorPath"]),
-            })
+        .map(|(key, value)| ManifestAction {
+            uuid: Some(key.clone()),
+            name: pick_string(value, &["Name", "name"]),
+            property_inspector: pick_string(value, &["PropertyInspectorPath", "propertyInspectorPath"]),
         })
         .collect();
     actions.sort_by(|a, b| {
@@ -501,7 +499,7 @@ fn discover_native_binary(plugin_dir: &Path) -> Option<PathBuf> {
                 .reverse()
                 .then_with(|| a.file_name().cmp(&b.file_name()))
         });
-        return exes.into_iter().next();
+        exes.into_iter().next()
     }
 
     #[cfg(target_os = "macos")]

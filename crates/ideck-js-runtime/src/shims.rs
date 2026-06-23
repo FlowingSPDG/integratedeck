@@ -9,15 +9,17 @@ use boa_engine::{Context, JsArgs, JsObject, JsResult, JsString, JsValue, js_stri
 use crate::loader::IdeckModuleLoader;
 use crate::resolver::normalize_specifier;
 
+type EventEmitter = Arc<dyn Fn(String, String) + Send + Sync>;
+
 thread_local! {
-    static EVENT_EMITTER: RefCell<Option<Arc<dyn Fn(String, String) + Send + Sync>>> =
+    static EVENT_EMITTER: RefCell<Option<EventEmitter>> =
         const { RefCell::new(None) };
     static MODULE_LOADER: RefCell<Option<Rc<IdeckModuleLoader>>> = const { RefCell::new(None) };
 }
 
 pub fn install_globals(
     context: &mut Context,
-    event_emitter: Option<Arc<dyn Fn(String, String) + Send + Sync>>,
+    event_emitter: Option<EventEmitter>,
 ) -> JsResult<()> {
     EVENT_EMITTER.with(|slot| {
         *slot.borrow_mut() = event_emitter;

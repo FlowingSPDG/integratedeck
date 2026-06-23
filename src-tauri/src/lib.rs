@@ -16,8 +16,6 @@ use tracing_subscriber::EnvFilter;
 
 pub use orchestrator::Orchestrator;
 
-type OrchState = Arc<RwLock<Orchestrator>>;
-
 fn start_orchestrator(app: &App) -> Result<(), String> {
     let handle = app.handle().clone();
     let orch =
@@ -70,6 +68,7 @@ pub fn run() {
             commands::add_multi_action_step,
             commands::unbind_slot,
             commands::trigger_slot,
+            commands::simulate_slot_key,
             commands::list_connections,
             commands::add_connection,
             commands::remove_connection,

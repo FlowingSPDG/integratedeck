@@ -43,11 +43,11 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
     )
 }
 
-/// Pre-create the settings popup during `setup`.
+/// Pre-create the settings popup during `setup` on the main thread.
 ///
-/// On Windows, creating a webview window inside a **synchronous** IPC command deadlocks
-/// WebView2 (blank window, close button unresponsive). Windows must be created on the
-/// main thread during setup, then shown/hidden via `show_settings_window`.
+/// On Windows, creating a webview inside a **synchronous** IPC command deadlocks WebView2
+/// (close button unresponsive). Lazy creation via `run_on_main_thread` from IPC has the
+/// same issue. Create during `setup`, then keep it hidden with `skip_taskbar` + `hide()`.
 pub fn ensure_settings_window(app: &App) -> Result<(), String> {
     if app.get_webview_window(SETTINGS_WINDOW_LABEL).is_some() {
         return Ok(());
@@ -56,6 +56,7 @@ pub fn ensure_settings_window(app: &App) -> Result<(), String> {
     let config = window_config(app, SETTINGS_WINDOW_LABEL)?;
     let window = build_window(app.handle(), &config, true)?;
     attach_hide_on_close(&window);
+    window.hide().map_err(|e| e.to_string())?;
     info!("settings window created (hidden)");
     Ok(())
 }
@@ -68,6 +69,7 @@ pub fn show_settings_window(app: &AppHandle) -> Result<(), String> {
             "設定ウィンドウが初期化されていません。アプリを再起動してください。".to_string()
         })?;
 
+    window.set_skip_taskbar(false).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     window.unminimize().ok();
     window.set_focus().map_err(|e| e.to_string())?;
@@ -75,6 +77,13 @@ pub fn show_settings_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn window_config(app: &App, label: &str) -> Result<tauri::utils::config::WindowConfig, String> {
+    window_config_from_handle(app.handle(), label)
+}
+
+fn window_config_from_handle(
+    app: &AppHandle,
+    label: &str,
+) -> Result<tauri::utils::config::WindowConfig, String> {
     app.config()
         .app
         .windows
@@ -93,7 +102,7 @@ fn build_window(
         WebviewWindowBuilder::from_config(app, config).map_err(|e| e.to_string())?;
 
     if start_hidden {
-        builder = builder.visible(false);
+        builder = builder.visible(false).skip_taskbar(true);
     }
 
     #[cfg(debug_assertions)]
@@ -109,6 +118,7 @@ fn attach_hide_on_close(window: &WebviewWindow) {
     window.clone().on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
+            let _ = hide_target.set_skip_taskbar(true);
             let _ = hide_target.hide();
         }
     });
@@ -121,7 +131,8 @@ fn attach_hide_on_close(window: &WebviewWindow) {
 fn attach_exit_on_close(window: &WebviewWindow) {
     let app = window.app_handle().clone();
     window.clone().on_window_event(move |event| {
-        if matches!(event, WindowEvent::CloseRequested { .. }) {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
             app.exit(0);
         }
     });

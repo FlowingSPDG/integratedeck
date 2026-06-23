@@ -12,6 +12,7 @@ function isTextInput(target: EventTarget | null | undefined): boolean {
 /** Suppress macOS WebView beep on keydown outside text fields. */
 function installBeepWorkaround(): void {
   window.addEventListener("keydown", (event) => {
+    if (event.altKey && event.key === "F4") return;
     const target = event.composedPath()[0];
     if (!isTextInput(target) && !event.defaultPrevented) {
       event.preventDefault();

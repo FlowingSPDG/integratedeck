@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::sync::Arc;
 
 use boa_engine::native_function::NativeFunction;
 use boa_engine::property::Attribute;
@@ -135,8 +136,8 @@ pub struct WsCallbacks {
 
 struct WsInstallState {
     bridge: Arc<WsBridge>,
-    callbacks: Arc<Mutex<HashMap<u64, WsCallbacks>>>,
-    next_id: Mutex<u64>,
+    callbacks: Rc<RefCell<HashMap<u64, WsCallbacks>>>,
+    next_id: RefCell<u64>,
 }
 
 thread_local! {
@@ -146,13 +147,13 @@ thread_local! {
 pub fn install_websocket(
     context: &mut Context,
     bridge: Arc<WsBridge>,
-    callbacks: Arc<Mutex<HashMap<u64, WsCallbacks>>>,
+    callbacks: Rc<RefCell<HashMap<u64, WsCallbacks>>>,
 ) -> JsResult<()> {
     WS_STATE.with(|slot| {
         *slot.borrow_mut() = Some(WsInstallState {
             bridge,
             callbacks,
-            next_id: Mutex::new(0),
+            next_id: RefCell::new(0),
         });
     });
 
@@ -221,12 +222,12 @@ fn ws_create(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsVal
             .into();
 
         let id = {
-            let mut guard = state.next_id.lock().unwrap();
+            let mut guard = state.next_id.borrow_mut();
             *guard += 1;
             *guard
         };
 
-        state.callbacks.lock().unwrap().insert(
+        state.callbacks.borrow_mut().insert(
             id,
             WsCallbacks {
                 on_open,
@@ -390,7 +391,7 @@ const WEBSOCKET_INSTALL: &str = r#"
 
 pub fn dispatch_ws_event(
     context: &mut Context,
-    callbacks: &Arc<Mutex<HashMap<u64, WsCallbacks>>>,
+    callbacks: &Rc<RefCell<HashMap<u64, WsCallbacks>>>,
     event: WsJsEvent,
 ) {
     let (id, data) = match &event {
@@ -400,7 +401,7 @@ pub fn dispatch_ws_event(
         WsJsEvent::Close { id, data } => (*id, data.clone()),
     };
 
-    let guard = callbacks.lock().unwrap();
+    let guard = callbacks.borrow();
     let Some(cbs) = guard.get(&id) else {
         return;
     };

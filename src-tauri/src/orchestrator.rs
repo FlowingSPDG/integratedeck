@@ -9,7 +9,7 @@ use ideck_comp_host::{
 };
 use ideck_core::{
     ActionInstanceId, Binding, BindingKind, FolderSettings, MultiActionStep, Page, PageId,
-    Profile, Slot, SlotAppearance, SlotId, SurfaceId, SwitchPageSettings, VisualState,
+    Profile, Slot, SlotAppearance, SlotId, SlotLocator, SurfaceId, SwitchPageSettings, VisualState,
     BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
     action_display_name, image_from_base64, merge_visual, solid_key_png,
 };
@@ -31,6 +31,12 @@ use crate::hub::{HubEvents, PluginStatusPayload, SettingsChangedPayload, VisualU
 use crate::paths;
 use crate::settings_store::{self, AppGlobalSettings, DeviceRecord};
 use crate::state::AppStateInner;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulateKeyPhase {
+    KeyDown,
+    KeyUp,
+}
 
 pub struct Orchestrator {
     app: AppHandle,
@@ -198,13 +204,57 @@ impl Orchestrator {
 
         let forward = tokio::spawn(async move {
             while let Ok(input) = input_rx.recv().await {
-                let mut o = state_clone.write().await;
-                o.apply_surface_input(surface_id, input).await.ok();
+                let state = state_clone.clone();
+                tokio::spawn(async move {
+                    Self::dispatch_surface_input(state, surface_id, input).await;
+                });
             }
         });
 
         let mut o = state.write().await;
         o.store_hid_tasks(surface_id, vec![reader, forward]);
+    }
+
+    /// Process one input event without blocking the HID receive loop.
+    async fn dispatch_surface_input(
+        state: Arc<RwLock<Self>>,
+        surface_id: SurfaceId,
+        input: SurfaceInput,
+    ) {
+        let sd_address = match &input {
+            SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => {
+                Some(*address)
+            }
+            _ => None,
+        };
+
+        if let Some(address) = sd_address {
+            let slot_id = {
+                let o = state.read().await;
+                o.sd_slot_id_at(surface_id, &address)
+            };
+            if let Some(slot_id) = slot_id {
+                let mut o = state.write().await;
+                if let Err(e) = o
+                    .prepare_sd_slot_for_input_from_slot_id(slot_id, Some(state.clone()))
+                    .await
+                {
+                    warn!("prepare SD slot for HID input: {e}");
+                }
+            }
+        }
+
+        {
+            let o = state.read().await;
+            o.inner.device_bus.publish(surface_id, input.clone());
+            crate::state::forward_sd_input(&o.inner, surface_id, &input).await;
+        }
+        if let SurfaceInput::KeyDown { address } = input {
+            let mut o = state.write().await;
+            if let Err(e) = o.trigger_keydown_bindings(surface_id, address).await {
+                warn!("keydown binding: {e}");
+            }
+        }
     }
 
     pub async fn new_core(app: &AppHandle) -> anyhow::Result<Self> {
@@ -308,7 +358,7 @@ impl Orchestrator {
                             .inner
                             .profile
                             .active_page_id
-                            .unwrap_or_else(PageId::new);
+                            .unwrap_or_default();
                         let surface_id =
                             self.surface_id_for_cell(update.address.row, update.address.column);
                         self.inner.cell_visuals.insert(
@@ -322,7 +372,7 @@ impl Orchestrator {
                         );
                         self.inner
                             .surfaces
-                            .render(surface_id, &[update.clone()])
+                            .render(surface_id, std::slice::from_ref(&update))
                             .await
                             .ok();
                         HubEvents::emit_visual(
@@ -511,6 +561,7 @@ impl Orchestrator {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn restore_sd_binding(
         &mut self,
         slot_id: SlotId,
@@ -530,21 +581,124 @@ impl Orchestrator {
         }
         self.inner
             .routing
-            .register_sd_cell(surface_id, row, col, context.clone());
+            .register_sd_cell(surface_id, row, col, context.clone(), plugin_uuid);
         self.inner
             .routing
             .register_sd_slot(slot_id, context.clone());
 
         if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
             broker
-                .register_context(ActionContext {
+                .ensure_action_context(ActionContext {
                     context: context.clone(),
                     action_uuid: action_uuid.to_string(),
                     settings,
                     coordinates: (col, row),
                 })
-                .await;
-            broker.will_appear(&context).await?;
+                .await?;
+        }
+        Ok(())
+    }
+
+    fn resolve_loaded_plugin_uuid(&self, plugin_uuid: &str) -> String {
+        let loaded = self.inner.sd_supervisor.plugin_uuids();
+        if loaded.iter().any(|u| u == plugin_uuid) {
+            return plugin_uuid.to_string();
+        }
+        loaded
+            .iter()
+            .filter(|u| u.starts_with(plugin_uuid) || plugin_uuid.starts_with(u.as_str()))
+            .max_by_key(|u| u.len())
+            .cloned()
+            .unwrap_or_else(|| plugin_uuid.to_string())
+    }
+
+    /// Ensure SD plugin, routing, broker context, and willAppear before keyDown/keyUp.
+    async fn prepare_sd_slot_for_input(
+        &mut self,
+        slot_id: SlotId,
+        locator: &SlotLocator,
+        plugin_uuid: &str,
+        action_uuid: &str,
+        instance_id: &ActionInstanceId,
+        settings: &serde_json::Value,
+        orch: Option<Arc<RwLock<Self>>>,
+    ) -> anyhow::Result<String> {
+        let plugin_uuid = self.resolve_loaded_plugin_uuid(plugin_uuid);
+
+        if self.inner.sd_supervisor.get(&plugin_uuid).is_none() {
+            if let Some(orch) = orch {
+                if let Some(path) = self.find_sd_plugin_path(&plugin_uuid) {
+                    self.load_sd_plugin(path, orch).await?;
+                }
+            }
+        }
+
+        let surface_id = locator.surface_id;
+        let row = locator.row;
+        let col = locator.column;
+        let context = self
+            .inner
+            .routing
+            .slot_to_context
+            .get(&slot_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                SdSurfaceBridge::build_context_id(&plugin_uuid, action_uuid, &instance_id.0)
+            });
+
+        self.inner
+            .routing
+            .register_sd_cell(surface_id, row, col, context.clone(), &plugin_uuid);
+        self.inner
+            .routing
+            .register_sd_slot(slot_id, context.clone());
+
+        if self.inner.bridges.get(&plugin_uuid).is_none() {
+            if self.inner.sd_supervisor.get(&plugin_uuid).is_some() {
+                let caps = self.primary_capabilities().await;
+                self.inner.bridges.insert(
+                    plugin_uuid.clone(),
+                    SdSurfaceBridge::new(&plugin_uuid, caps),
+                );
+            }
+        }
+        if let Some(bridge) = self.inner.bridges.get_mut(&plugin_uuid) {
+            bridge.register_cell(surface_id, row, col, context.clone());
+        }
+
+        let broker = self
+            .inner
+            .sd_supervisor
+            .get(&plugin_uuid)
+            .ok_or_else(|| anyhow::anyhow!("SD plugin not loaded: {plugin_uuid}"))?;
+
+        broker
+            .ensure_action_context(ActionContext {
+                context: context.clone(),
+                action_uuid: action_uuid.to_string(),
+                settings: settings.clone(),
+                coordinates: (col, row),
+            })
+            .await?;
+
+        Ok(context)
+    }
+
+    async fn send_sd_key(
+        &self,
+        plugin_uuid: &str,
+        context: &str,
+        phase: SimulateKeyPhase,
+    ) -> anyhow::Result<()> {
+        let plugin_uuid = self.resolve_loaded_plugin_uuid(plugin_uuid);
+        let broker = self
+            .inner
+            .sd_supervisor
+            .get(&plugin_uuid)
+            .ok_or_else(|| anyhow::anyhow!("SD plugin not loaded: {plugin_uuid}"))?;
+        match phase {
+            SimulateKeyPhase::KeyDown => broker.key_down(context).await?,
+            SimulateKeyPhase::KeyUp => broker.key_up(context).await?,
         }
         Ok(())
     }
@@ -778,18 +932,19 @@ impl Orchestrator {
                 slot.locator.row,
                 slot.locator.column,
                 context.clone(),
+                plugin_uuid,
             );
             self.inner.routing.register_sd_slot(slot.id, context.clone());
             if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
                 broker
-                    .register_context(ActionContext {
+                    .ensure_action_context(ActionContext {
                         context: context.clone(),
                         action_uuid: action_uuid.clone(),
                         settings: settings.clone(),
                         coordinates: (slot.locator.column, slot.locator.row),
                     })
-                    .await;
-                broker.will_appear(&context).await.ok();
+                    .await
+                    .ok();
             }
         }
     }
@@ -1047,13 +1202,13 @@ impl Orchestrator {
                     .get(plugin_uuid)
                     .ok_or_else(|| anyhow::anyhow!("SD plugin not loaded: {plugin_uuid}"))?;
                 broker
-                    .register_context(ActionContext {
+                    .ensure_action_context(ActionContext {
                         context: context.clone(),
                         action_uuid: action_uuid.clone(),
                         settings: settings.clone(),
                         coordinates: (0, 0),
                     })
-                    .await;
+                    .await?;
                 broker.key_down(&context).await?;
                 broker.key_up(&context).await?;
                 Ok(())
@@ -1188,11 +1343,41 @@ impl Orchestrator {
     }
 
     fn slot_id_for_context(&self, context: &str) -> Option<SlotId> {
-        self.inner
+        if let Some(slot_id) = self
+            .inner
             .routing
             .slot_to_context
             .iter()
             .find_map(|(slot_id, ctx)| (ctx.as_str() == context).then_some(*slot_id))
+        {
+            return Some(slot_id);
+        }
+
+        for page in &self.inner.profile.pages {
+            for (slot_id, slot) in &page.slots {
+                let Some(Binding {
+                    kind:
+                        BindingKind::StreamDeck {
+                            plugin_uuid,
+                            action_uuid,
+                            instance_id,
+                            ..
+                        },
+                }) = &slot.binding
+                else {
+                    continue;
+                };
+                let derived = SdSurfaceBridge::build_context_id(
+                    plugin_uuid,
+                    action_uuid,
+                    &instance_id.0,
+                );
+                if derived == context {
+                    return Some(*slot_id);
+                }
+            }
+        }
+        None
     }
 
     async fn apply_settings_from_context(
@@ -1203,6 +1388,47 @@ impl Orchestrator {
         let slot_id = self
             .slot_id_for_context(context)
             .ok_or_else(|| anyhow::anyhow!("no slot for context {context}"))?;
+
+        if !self
+            .inner
+            .routing
+            .slot_to_context
+            .contains_key(&slot_id)
+        {
+            let page_id = self
+                .page_id_for_slot(slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            let plugin_uuid = slot
+                .binding
+                .as_ref()
+                .and_then(|b| match &b.kind {
+                    BindingKind::StreamDeck { plugin_uuid, .. } => Some(plugin_uuid.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            self.inner.routing.register_sd_cell(
+                slot.locator.surface_id,
+                slot.locator.row,
+                slot.locator.column,
+                context.to_string(),
+                plugin_uuid,
+            );
+            self.inner
+                .routing
+                .register_sd_slot(slot_id, context.to_string());
+        }
+
         self.update_slot_settings(slot_id, settings).await
     }
 
@@ -1430,7 +1656,7 @@ impl Orchestrator {
             .and_then(|id| uuid::Uuid::parse_str(id).ok())
             .map(SurfaceId)
             .filter(|id| self.inner.profile.surfaces.iter().any(|s| s.surface_id == *id))
-            .unwrap_or_else(SurfaceId::new);
+            .unwrap_or_default();
 
         let surface = self
             .inner
@@ -1976,7 +2202,7 @@ impl Orchestrator {
             surfaces.push(SurfaceRuntimeEntry {
                 surface_id: desc.id.0.to_string(),
                 label: desc.name,
-                backend: backend.into(),
+                backend,
                 status: status.into(),
                 rows: desc.capabilities.rows,
                 columns: desc.capabilities.columns,
@@ -2085,7 +2311,7 @@ impl Orchestrator {
         }
         self.inner
             .routing
-            .register_sd_cell(surface_id, row, col, context.clone());
+            .register_sd_cell(surface_id, row, col, context.clone(), &plugin_uuid);
         self.inner
             .routing
             .register_sd_slot(slot_id, context.clone());
@@ -2097,14 +2323,13 @@ impl Orchestrator {
             .ok_or_else(|| anyhow::anyhow!("SD plugin not loaded: {plugin_uuid}"))?;
 
         broker
-            .register_context(ActionContext {
+            .ensure_action_context(ActionContext {
                 context: context.clone(),
                 action_uuid: action_uuid.clone(),
                 settings: serde_json::json!({}),
                 coordinates: (col, row),
             })
-            .await;
-        broker.will_appear(&context).await?;
+            .await?;
 
         if let Some(page) = self.inner.profile.pages.iter_mut().find(|p| p.id == page_id) {
             if let Some(slot) = page.slots.get_mut(&slot_id) {
@@ -2388,6 +2613,7 @@ impl Orchestrator {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn transfer_slot_cell(
         &mut self,
         surface_id: SurfaceId,
@@ -2873,63 +3099,122 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub async fn trigger_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
-        let binding = {
-            let page_id = self
-                .inner
-                .profile
-                .active_page_id
-                .ok_or_else(|| anyhow::anyhow!("no active page"))?;
-            let page = self
-                .inner
-                .profile
-                .pages
-                .iter()
-                .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
-            page.slots.get(&slot_id).and_then(|s| s.binding.clone())
-        };
+    pub async fn trigger_slot(
+        &mut self,
+        slot_id: SlotId,
+        orch: Option<Arc<RwLock<Self>>>,
+    ) -> anyhow::Result<()> {
+        self.simulate_slot_key(slot_id, SimulateKeyPhase::KeyDown, orch.clone())
+            .await?;
+        self.simulate_slot_key(slot_id, SimulateKeyPhase::KeyUp, orch)
+            .await
+    }
 
+    /// Emulate a physical key press for editor testing (keyDown / keyUp).
+    pub async fn simulate_slot_key(
+        &mut self,
+        slot_id: SlotId,
+        phase: SimulateKeyPhase,
+        orch: Option<Arc<RwLock<Self>>>,
+    ) -> anyhow::Result<()> {
+        let Some((binding, locator)) = self.slot_binding_and_locator(slot_id) else {
+            anyhow::bail!("slot not found");
+        };
         let Some(binding) = binding else {
             return Ok(());
         };
 
-        match &binding.kind {
-            BindingKind::StreamDeck { plugin_uuid, .. } => {
+        match (&binding.kind, phase) {
+            (
+                BindingKind::StreamDeck {
+                    plugin_uuid,
+                    action_uuid,
+                    instance_id,
+                    settings,
+                },
+                phase @ (SimulateKeyPhase::KeyDown | SimulateKeyPhase::KeyUp),
+            ) => {
                 let context = self
-                    .inner
-                    .routing
-                    .slot_to_context
-                    .get(&slot_id)
-                    .cloned()
-                    .or_else(|| {
-                        self.inner.bridges.values().find_map(|b| {
-                            let page_id = self.inner.profile.active_page_id?;
-                            let page = self.inner.profile.pages.iter().find(|p| p.id == page_id)?;
-                            let slot = page.slots.get(&slot_id)?;
-                            b.context_by_cell
-                                .get(&(
-                                    slot.locator.surface_id,
-                                    slot.locator.row,
-                                    slot.locator.column,
-                                ))
-                                .cloned()
-                        })
-                    })
-                    .ok_or_else(|| anyhow::anyhow!("no context for slot"))?;
-
-                let broker = self
-                    .inner
-                    .sd_supervisor
-                    .get(plugin_uuid)
-                    .ok_or_else(|| anyhow::anyhow!("SD plugin not loaded: {plugin_uuid}"))?;
-                broker.key_down(&context).await?;
-                broker.key_up(&context).await?;
+                    .prepare_sd_slot_for_input(
+                        slot_id,
+                        &locator,
+                        plugin_uuid,
+                        action_uuid,
+                        instance_id,
+                        settings,
+                        orch,
+                    )
+                    .await?;
+                self.send_sd_key(plugin_uuid, &context, phase).await?;
             }
-            _ => {
-                self.trigger_binding_kind(&binding.kind).await?;
+            (_, SimulateKeyPhase::KeyDown) => {
+                match &binding.kind {
+                    BindingKind::BuiltIn { action_id, settings } => {
+                        self.trigger_builtin(action_id, settings, Some(locator.surface_id))
+                            .await?;
+                    }
+                    other => self.trigger_binding_kind(other).await?,
+                }
             }
+            (_, SimulateKeyPhase::KeyUp) => {}
         }
+        Ok(())
+    }
+
+    fn slot_binding_and_locator(&self, slot_id: SlotId) -> Option<(Option<Binding>, SlotLocator)> {
+        let page_id = self.page_id_for_slot(slot_id)?;
+        let page = self.inner.profile.pages.iter().find(|p| p.id == page_id)?;
+        let slot = page.slots.get(&slot_id)?;
+        Some((slot.binding.clone(), slot.locator.clone()))
+    }
+
+    fn sd_slot_id_at(&self, surface_id: SurfaceId, address: &CellAddress) -> Option<SlotId> {
+        let page_id = self
+            .inner
+            .page_for_surface(surface_id)
+            .or(self.inner.profile.active_page_id)?;
+        let page = self.inner.profile.pages.iter().find(|p| p.id == page_id)?;
+        page.slots.values().find_map(|slot| {
+            if slot.locator.surface_id != surface_id {
+                return None;
+            }
+            if slot.locator.row != address.row || slot.locator.column != address.column {
+                return None;
+            }
+            match slot.binding.as_ref().map(|b| &b.kind) {
+                Some(BindingKind::StreamDeck { .. }) => Some(slot.id),
+                _ => None,
+            }
+        })
+    }
+
+    async fn prepare_sd_slot_for_input_from_slot_id(
+        &mut self,
+        slot_id: SlotId,
+        orch: Option<Arc<RwLock<Self>>>,
+    ) -> anyhow::Result<()> {
+        let Some((Some(binding), locator)) = self.slot_binding_and_locator(slot_id) else {
+            return Ok(());
+        };
+        let BindingKind::StreamDeck {
+            plugin_uuid,
+            action_uuid,
+            instance_id,
+            settings,
+        } = binding.kind
+        else {
+            return Ok(());
+        };
+        self.prepare_sd_slot_for_input(
+            slot_id,
+            &locator,
+            &plugin_uuid,
+            &action_uuid,
+            &instance_id,
+            &settings,
+            orch,
+        )
+        .await?;
         Ok(())
     }
 
@@ -2938,78 +3223,61 @@ impl Orchestrator {
         surface_id: SurfaceId,
         input: SurfaceInput,
     ) -> anyhow::Result<()> {
+        if let SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } = &input {
+            if let Some(slot_id) = self.sd_slot_id_at(surface_id, address) {
+                self.prepare_sd_slot_for_input_from_slot_id(slot_id, None)
+                    .await
+                    .ok();
+            }
+        }
         self.inner.device_bus.publish(surface_id, input.clone());
-
-        for (plugin_uuid, bridge) in &self.inner.bridges {
-            if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
-                match bridge.surface_input_to_sd_event(surface_id, &input) {
-                    Some((context, "keyDown")) => {
-                        if let Err(e) = broker.key_down(&context).await {
-                            warn!("SD keyDown ({context}): {e}");
-                        }
-                    }
-                    Some((context, "keyUp")) => {
-                        if let Err(e) = broker.key_up(&context).await {
-                            warn!("SD keyUp ({context}): {e}");
-                        }
-                    }
-                    Some((context, "dialRotate")) => {
-                        if let SurfaceInput::EncoderRotate { ticks, pressed, .. } = &input {
-                            if let Err(e) = broker.dial_rotate(&context, *ticks, *pressed).await {
-                                warn!("SD dialRotate ({context}): {e}");
-                            }
-                        }
-                    }
-                    Some((context, "dialPress")) => {
-                        if broker.key_down(&context).await.is_ok() {
-                            let _ = broker.key_up(&context).await;
-                        }
-                    }
-                    _ => {}
-                }
-            }
+        crate::state::forward_sd_input(&self.inner, surface_id, &input).await;
+        if let SurfaceInput::KeyDown { address } = input {
+            self.trigger_keydown_bindings(surface_id, address).await?;
         }
+        Ok(())
+    }
 
-        if let SurfaceInput::KeyDown { address } = &input {
-            self.inner.ensure_surface_page(surface_id);
-            let page_id = self
-                .inner
-                .page_for_surface(surface_id)
-                .or(self.inner.profile.active_page_id);
-            let mut to_trigger: Vec<BindingKind> = Vec::new();
-            if let Some(page_id) = page_id {
-                if let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) {
-                    for slot in page.slots.values() {
-                        if slot.locator.surface_id != surface_id {
-                            continue;
-                        }
-                        if slot.locator.row != address.row
-                            || slot.locator.column != address.column
-                        {
-                            continue;
-                        }
-                        if let Some(binding) = &slot.binding {
-                            match &binding.kind {
-                                BindingKind::StreamDeck { .. } => {}
-                                other => to_trigger.push(other.clone()),
-                            }
-                        }
+    async fn trigger_keydown_bindings(
+        &mut self,
+        surface_id: SurfaceId,
+        address: CellAddress,
+    ) -> anyhow::Result<()> {
+        self.inner.ensure_surface_page(surface_id);
+        let page_id = self
+            .inner
+            .page_for_surface(surface_id)
+            .or(self.inner.profile.active_page_id);
+        let mut to_trigger: Vec<BindingKind> = Vec::new();
+        if let Some(page_id) = page_id {
+            if let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) {
+                for slot in page.slots.values() {
+                    if slot.locator.surface_id != surface_id {
+                        continue;
                     }
-                }
-            }
-            for kind in to_trigger {
-                match &kind {
-                    BindingKind::BuiltIn { action_id, settings } => {
-                        self.trigger_builtin(action_id, settings, Some(surface_id))
-                            .await?;
+                    if slot.locator.row != address.row || slot.locator.column != address.column {
+                        continue;
                     }
-                    _ => {
-                        self.trigger_binding_kind(&kind).await?;
+                    if let Some(binding) = &slot.binding {
+                        match &binding.kind {
+                            BindingKind::StreamDeck { .. } => {}
+                            other => to_trigger.push(other.clone()),
+                        }
                     }
                 }
             }
         }
-
+        for kind in to_trigger {
+            match &kind {
+                BindingKind::BuiltIn { action_id, settings } => {
+                    self.trigger_builtin(action_id, settings, Some(surface_id))
+                        .await?;
+                }
+                _ => {
+                    self.trigger_binding_kind(&kind).await?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -3107,7 +3375,7 @@ impl Orchestrator {
                     let page_id = self
                         .page_id_for_context(ctx)
                         .or(self.inner.profile.active_page_id)
-                        .unwrap_or_else(PageId::new);
+                        .unwrap_or_default();
                     (
                         loc.map(|(s, _, _)| s).unwrap_or_else(|| {
                             self.surface_id_for_cell(update.address.row, update.address.column)
@@ -3120,7 +3388,7 @@ impl Orchestrator {
                         self.inner
                             .profile
                             .active_page_id
-                            .unwrap_or_else(PageId::new),
+                            .unwrap_or_default(),
                     )
                 };
                 let cell_key = (
@@ -3220,7 +3488,7 @@ impl Orchestrator {
             .inner
             .page_for_surface(surface_id)
             .or(self.inner.profile.active_page_id)
-            .unwrap_or_else(PageId::new);
+            .unwrap_or_default();
         let restored = self
             .inner
             .cell_visuals
@@ -3245,7 +3513,7 @@ impl Orchestrator {
             .surfaces
             .first()
             .map(|s| s.surface_id)
-            .unwrap_or_else(SurfaceId::new)
+            .unwrap_or_default()
     }
 
     pub async fn get_cell_visuals(
@@ -3296,36 +3564,42 @@ impl Orchestrator {
     }
 
     pub fn get_pi_context(&self, slot_id: SlotId) -> Option<PiContextDto> {
-        let context = self.inner.routing.slot_to_context.get(&slot_id)?.clone();
         let page_id = self.page_id_for_slot(slot_id)?;
         let page = self.inner.profile.pages.iter().find(|p| p.id == page_id)?;
         let slot = page.slots.get(&slot_id)?;
-        let (plugin_uuid, action_uuid) = match &slot.binding {
+        let (plugin_uuid, action_uuid, instance_id, settings) = match &slot.binding {
             Some(Binding {
                 kind:
                     BindingKind::StreamDeck {
                         plugin_uuid,
                         action_uuid,
-                        ..
+                        instance_id,
+                        settings,
                     },
-            }) => (plugin_uuid.clone(), action_uuid.clone()),
+            }) => (
+                plugin_uuid.clone(),
+                action_uuid.clone(),
+                instance_id.clone(),
+                settings.clone(),
+            ),
             _ => return None,
         };
+        let context = self
+            .inner
+            .routing
+            .slot_to_context
+            .get(&slot_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                SdSurfaceBridge::build_context_id(&plugin_uuid, &action_uuid, &instance_id.0)
+            });
         let meta = self.inner.sd_supervisor.meta(&plugin_uuid)?;
-        let settings = slot
-            .binding
-            .as_ref()
-            .and_then(|b| match &b.kind {
-                BindingKind::StreamDeck { settings, .. } => Some(settings.clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| json!({}));
         Some(PiContextDto {
             port: meta.port,
             context,
             action_uuid,
-            plugin_uuid: plugin_uuid.clone(),
             device_id: format!("integratedeck-virtual-{}", plugin_uuid.replace('.', "-")),
+            plugin_uuid,
             settings,
         })
     }
@@ -3339,45 +3613,66 @@ impl Orchestrator {
             }
         }
         if let Some(slot_id) = slot_id {
-            if let Some(ctx) = self.inner.routing.slot_to_context.get(&slot_id).cloned() {
-                let page_id = self
-                    .page_id_for_slot(slot_id)
-                    .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
-                let page = self
+            let page_id = self
+                .page_id_for_slot(slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            if let Some(Binding {
+                kind:
+                    BindingKind::StreamDeck {
+                        plugin_uuid,
+                        action_uuid,
+                        instance_id,
+                        settings,
+                    },
+            }) = &slot.binding
+            {
+                let context = self
                     .inner
-                    .profile
-                    .pages
-                    .iter()
-                    .find(|p| p.id == page_id)
-                    .ok_or_else(|| anyhow::anyhow!("page not found"))?;
-                let slot = page
-                    .slots
+                    .routing
+                    .slot_to_context
                     .get(&slot_id)
-                    .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
-                if let Some(Binding {
-                    kind:
-                        BindingKind::StreamDeck {
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        SdSurfaceBridge::build_context_id(
                             plugin_uuid,
                             action_uuid,
-                            settings,
-                            ..
-                        },
-                }) = &slot.binding
-                {
-                    if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
-                        broker
-                            .register_context(ActionContext {
-                                context: ctx.clone(),
-                                action_uuid: action_uuid.clone(),
-                                settings: settings.clone(),
-                                coordinates: (slot.locator.column, slot.locator.row),
-                            })
-                            .await;
-                        broker.property_inspector_did_appear(&ctx).await?;
-                    }
-                    self.last_pi_plugin_uuid = Some(plugin_uuid.clone());
+                            &instance_id.0,
+                        )
+                    });
+                let surface_id = slot.locator.surface_id;
+                let row = slot.locator.row;
+                let col = slot.locator.column;
+                if !self.inner.routing.slot_to_context.contains_key(&slot_id) {
+                    self.inner
+                        .routing
+                        .register_sd_cell(surface_id, row, col, context.clone(), plugin_uuid);
+                    self.inner.routing.register_sd_slot(slot_id, context.clone());
                 }
-                self.last_pi_context = Some(ctx);
+                if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
+                    broker
+                        .ensure_action_context(ActionContext {
+                            context: context.clone(),
+                            action_uuid: action_uuid.clone(),
+                            settings: settings.clone(),
+                            coordinates: (col, row),
+                        })
+                        .await
+                        .ok();
+                    broker.property_inspector_did_appear(&context).await.ok();
+                }
+                self.last_pi_plugin_uuid = Some(plugin_uuid.clone());
+                self.last_pi_context = Some(context);
             }
         }
         Ok(())

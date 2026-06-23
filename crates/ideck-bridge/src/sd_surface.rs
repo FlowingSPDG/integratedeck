@@ -156,37 +156,26 @@ impl SdSurfaceBridge {
     ) -> String {
         format!("{plugin_uuid}.{action_uuid}.{instance_id}")
     }
+
+    /// Resolve which loaded plugin UUID owns a full action context id.
+    ///
+    /// Context ids are `{plugin_uuid}.{action_uuid}.{instance_id}` where both
+    /// plugin and action UUIDs may contain dots, so splitting on `.` is invalid.
+    pub fn plugin_uuid_for_context(context: &str, loaded_uuids: &[String]) -> Option<String> {
+        loaded_uuids
+            .iter()
+            .filter(|id| {
+                !id.is_empty() && (context.starts_with(&format!("{id}.")) || context == **id)
+            })
+            .max_by_key(|id| id.len())
+            .cloned()
+    }
 }
 
 fn cell_update(row: u32, col: u32, visual: VisualState) -> CellUpdate {
     CellUpdate {
         address: CellAddress { row, column: col },
         visual,
-    }
-}
-
-fn scale_image_for_cell(data: &[u8], width: u32, height: u32) -> Vec<u8> {
-    use image::ImageReader;
-    let Ok(img) = ImageReader::new(std::io::Cursor::new(data)).with_guessed_format() else {
-        return data.to_vec();
-    };
-    let Ok(img) = img.decode() else {
-        return data.to_vec();
-    };
-    let resized = image::imageops::resize(
-        &img,
-        width,
-        height,
-        image::imageops::FilterType::Lanczos3,
-    );
-    let mut buf = std::io::Cursor::new(Vec::new());
-    if resized
-        .write_to(&mut buf, image::ImageFormat::Png)
-        .is_ok()
-    {
-        buf.into_inner()
-    } else {
-        data.to_vec()
     }
 }
 
@@ -252,5 +241,32 @@ mod tests {
                 },
             )
             .is_none());
+    }
+
+    #[test]
+    fn plugin_uuid_for_context_supports_dotted_uuids() {
+        let loaded = vec![
+            "com.elgato.streamdeck.timer".to_string(),
+            "dev.flowing.testplugin".to_string(),
+        ];
+        let ctx = SdSurfaceBridge::build_context_id(
+            "com.elgato.streamdeck.timer",
+            "com.elgato.streamdeck.timer.action",
+            &ActionInstanceId::new().0,
+        );
+        assert_eq!(
+            SdSurfaceBridge::plugin_uuid_for_context(&ctx, &loaded).as_deref(),
+            Some("com.elgato.streamdeck.timer")
+        );
+
+        let dev_ctx = SdSurfaceBridge::build_context_id(
+            "dev.flowing.testplugin",
+            "dev.flowing.testplugin.action",
+            &ActionInstanceId::new().0,
+        );
+        assert_eq!(
+            SdSurfaceBridge::plugin_uuid_for_context(&dev_ctx, &loaded).as_deref(),
+            Some("dev.flowing.testplugin")
+        );
     }
 }

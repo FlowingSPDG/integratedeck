@@ -72,7 +72,8 @@ impl PhysicalSurface for StreamDeckHidSurface {
 
     fn spawn_input_loop(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            StreamDeckHidSurface::run_input_loop(self, 30.0).await;
+            // 1000 Hz polling: ~1 ms worst-case detection latency (30 Hz was ~33 ms).
+            StreamDeckHidSurface::run_input_loop(self, 1000.0).await;
         })
     }
 

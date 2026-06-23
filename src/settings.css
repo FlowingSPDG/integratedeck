@@ -57,7 +57,7 @@ select,
   cursor: pointer;
 }
 
-#settings-app {
+#root {
   display: flex;
   flex-direction: column;
   height: 100vh;

@@ -25,6 +25,7 @@ commands.allow = [
   "add_multi_action_step",
   "unbind_slot",
   "trigger_slot",
+  "simulate_slot_key",
   "list_connections",
   "add_connection",
   "remove_connection",

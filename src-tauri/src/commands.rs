@@ -373,8 +373,39 @@ pub async fn unbind_slot(state: State<'_, OrchState>, slot_id: String) -> Result
 #[tauri::command]
 pub async fn trigger_slot(state: State<'_, OrchState>, slot_id: String) -> Result<(), String> {
     let slot_id = parse_slot_id(&slot_id)?;
+    let state_clone = state.inner().clone();
     let mut o = state.write().await;
-    o.trigger_slot(slot_id).await.map_err(|e| e.to_string())
+    o.trigger_slot(slot_id, Some(state_clone))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimulateSlotKeyArgs {
+    pub slot_id: String,
+    /// `"key_down"` or `"key_up"`
+    pub phase: String,
+}
+
+#[tauri::command]
+pub async fn simulate_slot_key(
+    state: State<'_, OrchState>,
+    args: SimulateSlotKeyArgs,
+) -> Result<(), String> {
+    use crate::orchestrator::SimulateKeyPhase;
+
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let phase = match args.phase.as_str() {
+        "key_down" => SimulateKeyPhase::KeyDown,
+        "key_up" => SimulateKeyPhase::KeyUp,
+        other => return Err(format!("invalid phase: {other}")),
+    };
+    let state_clone = state.inner().clone();
+    let mut o = state.write().await;
+    o.simulate_slot_key(slot_id, phase, Some(state_clone))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -31,9 +31,7 @@ pub fn merge_visual(
     } else if patch.title.is_some() {
         out.title = patch.title.clone();
     }
-    if replace_image {
-        out.image = patch.image.clone();
-    } else if patch.image.is_some() {
+    if replace_image || patch.image.is_some() {
         out.image = patch.image.clone();
     }
     if update_state {

@@ -12,6 +12,12 @@ impl SlotId {
     }
 }
 
+impl Default for SlotId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A single control cell on a page (button, encoder, etc.).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Slot {

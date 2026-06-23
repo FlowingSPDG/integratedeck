@@ -86,14 +86,20 @@ function buildPiQueryString(ctx: PiContext): string {
   }).toString();
 }
 
-/** Inject &lt;base&gt; so sdpi.css / sdtools.common.js resolve inside the .sdPlugin folder. */
-function injectPiDocumentPreamble(html: string, baseHref: string, queryString: string): string {
+/** Inject &lt;base&gt; and PI WebSocket bridge before plugin scripts in &lt;head&gt;. */
+function injectPiDocumentPreamble(
+  html: string,
+  baseHref: string,
+  queryString: string,
+): string {
   const escapedQs = queryString.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const bridge = buildPiBridgeScript();
   const preamble =
     `<base href="${baseHref}">` +
     `<script>(function(){var s='?${escapedQs}';` +
     `try{Object.defineProperty(window.location,'search',{configurable:true,get:function(){return s;}});}` +
-    `catch(e){}})();</script>`;
+    `catch(e){}})();</script>` +
+    `<script data-integratedeck-pi-bridge="1">${bridge}</script>`;
 
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + preamble);
@@ -104,42 +110,93 @@ function injectPiDocumentPreamble(html: string, baseHref: string, queryString: s
   return `<head>${preamble}</head>${html}`;
 }
 
-export function buildPiBridgeScript(ctx: PiContext): string {
-  const infoJson = JSON.stringify(buildPiInfo(ctx));
-  const actionInfoJson = JSON.stringify(buildActionInfo(ctx));
+export function buildPiBridgeScript(): string {
   return `
 (function() {
-  if (window.__integratedeckPiConnected || window.__sdpiWs || (window.$SD && window.$SD.api)) return;
-  window.__integratedeckPiConnected = true;
-  if (typeof connectElgatoStreamDeckSocket === 'function') {
-    connectElgatoStreamDeckSocket(
-      ${ctx.port},
-      ${JSON.stringify(ctx.context)},
-      'registerPropertyInspector',
-      ${JSON.stringify(infoJson)},
-      ${JSON.stringify(actionInfoJson)}
-    );
-    return;
-  }
-  var ws = new WebSocket('ws://127.0.0.1:${ctx.port}');
-  ws.onopen = function() {
-    ws.send(JSON.stringify({ event: 'registerPropertyInspector', uuid: ${JSON.stringify(ctx.context)} }));
+  if (window.connectElgatoStreamDeckSocket) return;
+  window.connectElgatoStreamDeckSocket = function(inPort, inPropertyInspectorUUID, inRegisterEvent) {
+    if (window.__sdpiWs) return;
+    var ws = new WebSocket('ws://127.0.0.1:' + inPort);
+    ws.onopen = function() {
+      ws.send(JSON.stringify({ event: inRegisterEvent, uuid: inPropertyInspectorUUID }));
+    };
+    ws.onmessage = function(ev) {
+      try {
+        var raw = ev.data;
+        var msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (msg.event === 'sendToPropertyInspector') {
+          document.dispatchEvent(new CustomEvent('sendToPropertyInspector', { detail: msg.payload }));
+        }
+        if (msg.event === 'didReceiveSettings') {
+          document.dispatchEvent(new CustomEvent('didReceiveSettings', { detail: msg }));
+        }
+      } catch (e) {}
+    };
+    window.__sdpiWs = ws;
   };
-  ws.onmessage = function(ev) {
-    try {
-      var raw = ev.data;
-      var msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (msg.event === 'sendToPropertyInspector') {
-        document.dispatchEvent(new CustomEvent('sendToPropertyInspector', { detail: msg.payload }));
-      }
-      if (msg.event === 'didReceiveSettings') {
-        document.dispatchEvent(new CustomEvent('didReceiveSettings', { detail: msg }));
-      }
-    } catch (e) {}
-  };
-  window.__sdpiWs = ws;
 })();
 `;
+}
+
+function ensurePiWebSocketConnected(win: Window, ctx: PiContext): void {
+  type PiWindow = Window & {
+    __sdpiWs?: WebSocket;
+    connectElgatoStreamDeckSocket?: (
+      port: number,
+      uuid: string,
+      registerEvent: string,
+      info: string,
+      actionInfo: string,
+    ) => void;
+  };
+  const piWin = win as PiWindow;
+  if (piWin.__sdpiWs) return;
+  const connect = piWin.connectElgatoStreamDeckSocket;
+  if (typeof connect !== "function") return;
+  const infoJson = JSON.stringify(buildPiInfo(ctx));
+  const actionInfoJson = JSON.stringify(buildActionInfo(ctx));
+  connect.call(
+    piWin,
+    ctx.port,
+    ctx.context,
+    "registerPropertyInspector",
+    infoJson,
+    actionInfoJson,
+  );
+}
+
+function attachPiContextMenuGuard(doc: Document): void {
+  doc.addEventListener(
+    "contextmenu",
+    (event) => {
+      const target = event.target;
+      if (
+        !(target instanceof HTMLInputElement) &&
+        !(target instanceof HTMLTextAreaElement) &&
+        !(target instanceof HTMLSelectElement) &&
+        !(target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        event.preventDefault();
+      }
+    },
+    true,
+  );
+}
+
+/** Forward plugin → PI messages emitted by the Rust host. */
+export function dispatchPiMessage(
+  iframe: HTMLIFrameElement,
+  payload: unknown,
+): void {
+  try {
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    doc.dispatchEvent(
+      new CustomEvent("sendToPropertyInspector", { detail: payload }),
+    );
+  } catch {
+    /* iframe may be empty or cross-origin during load */
+  }
 }
 
 let piLoadGeneration = 0;
@@ -189,28 +246,10 @@ export async function loadPiInFrame(
 
   try {
     const doc = iframe.contentDocument;
-    if (!doc) return;
-    if (doc.querySelector("script[data-integratedeck-pi-bridge]")) return;
-    const script = doc.createElement("script");
-    script.setAttribute("data-integratedeck-pi-bridge", "1");
-    script.textContent = buildPiBridgeScript(ctx);
-    (doc.head || doc.documentElement).appendChild(script);
-
-    doc.addEventListener(
-      "contextmenu",
-      (event) => {
-        const target = event.target;
-        if (
-          !(target instanceof HTMLInputElement) &&
-          !(target instanceof HTMLTextAreaElement) &&
-          !(target instanceof HTMLSelectElement) &&
-          !(target instanceof HTMLElement && target.isContentEditable)
-        ) {
-          event.preventDefault();
-        }
-      },
-      true,
-    );
+    const win = iframe.contentWindow;
+    if (!doc || !win) return;
+    attachPiContextMenuGuard(doc);
+    ensurePiWebSocketConnected(win, ctx);
   } catch {
     /* srcdoc iframe is same-origin with parent */
   }

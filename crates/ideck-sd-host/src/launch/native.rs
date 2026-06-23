@@ -3,6 +3,9 @@ use std::process::Stdio;
 
 use tokio::process::{Child, Command};
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 pub async fn spawn_native(
     exe: &Path,
     plugin_dir: &Path,
@@ -11,8 +14,8 @@ pub async fn spawn_native(
     register_event: &str,
     info: &str,
 ) -> std::io::Result<Child> {
-    Command::new(exe)
-        .arg("-port")
+    let mut cmd = Command::new(exe);
+    cmd.arg("-port")
         .arg(port.to_string())
         .arg("-pluginUUID")
         .arg(plugin_uuid)
@@ -23,6 +26,10 @@ pub async fn spawn_native(
         .current_dir(plugin_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    cmd.spawn()
 }

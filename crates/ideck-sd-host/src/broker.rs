@@ -160,6 +160,21 @@ impl StreamDeckBroker {
             .insert(ctx.context.clone(), ctx);
     }
 
+    pub async fn has_context(&self, context: &str) -> bool {
+        self.contexts.read().await.contains_key(context)
+    }
+
+    /// Register context and send `willAppear` the first time this context is seen.
+    pub async fn ensure_action_context(&self, ctx: ActionContext) -> anyhow::Result<()> {
+        let context = ctx.context.clone();
+        let is_new = !self.has_context(&context).await;
+        self.register_context(ctx).await;
+        if is_new {
+            self.will_appear(&context).await?;
+        }
+        Ok(())
+    }
+
     pub async fn key_down(&self, context: &str) -> anyhow::Result<()> {
         self.send_key_event(context, "keyDown").await
     }
@@ -310,7 +325,7 @@ impl StreamDeckBroker {
                     Some(v) if v.is_null() => ImageSetResult::Cleared,
                     Some(v) => match v.as_str() {
                         None => ImageSetResult::Unchanged,
-                        Some(s) if s.is_empty() => ImageSetResult::Cleared,
+                        Some("") => ImageSetResult::Cleared,
                         Some(s) => match image_from_plugin_payload(s, Some(&self.plugin_dir)) {
                             Some(payload) => ImageSetResult::Set(payload),
                             None => {
@@ -559,7 +574,7 @@ async fn handle_connection(
                 .to_string();
             broker.on_register_pi(&uuid, sink).await;
             while let Some(Ok(Message::Text(t))) = stream.next().await {
-                handle_pi_message(&broker, &t).await;
+                handle_pi_message(&broker, &uuid, &t).await;
             }
         }
         _ => warn!("unknown registration event: {}", msg.event),
@@ -567,12 +582,16 @@ async fn handle_connection(
     Ok(())
 }
 
-async fn handle_pi_message(broker: &StreamDeckBroker, text: &str) {
+async fn handle_pi_message(broker: &StreamDeckBroker, default_context: &str, text: &str) {
     let Ok(msg) = serde_json::from_str::<Value>(text) else {
         return;
     };
     let event = msg.get("event").and_then(|v| v.as_str()).unwrap_or("");
-    let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+    let context = msg
+        .get("context")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(default_context);
 
     match event {
         "setSettings" => {
