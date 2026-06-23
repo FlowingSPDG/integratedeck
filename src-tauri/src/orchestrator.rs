@@ -9,7 +9,7 @@ use ideck_comp_host::{
 };
 use ideck_core::{
     ActionInstanceId, Binding, BindingKind, FolderSettings, MultiActionStep, Page, PageId,
-    Profile, Slot, SlotId, SurfaceId, SwitchPageSettings, VisualState,
+    Profile, Slot, SlotAppearance, SlotId, SurfaceId, SwitchPageSettings, VisualState,
     BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
     action_display_name, image_from_base64, merge_visual, solid_key_png,
 };
@@ -2250,6 +2250,93 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub async fn apply_slot_snapshot(
+        &mut self,
+        slot_id: SlotId,
+        binding: Option<serde_json::Value>,
+        appearance: SlotAppearance,
+        orch: Arc<RwLock<Self>>,
+    ) -> anyhow::Result<()> {
+        self.unbind_slot(slot_id).await?;
+
+        let page_id = self
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+        let (surface_id, row, col) = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            (
+                slot.locator.surface_id,
+                slot.locator.row,
+                slot.locator.column,
+            )
+        };
+
+        if let Some(binding_value) = binding {
+            let kind = fresh_binding_kind(&parse_binding_kind(binding_value)?);
+            match &kind {
+                BindingKind::StreamDeck {
+                    plugin_uuid,
+                    action_uuid,
+                    instance_id,
+                    settings,
+                } => {
+                    if self.inner.sd_supervisor.get(plugin_uuid).is_none() {
+                        if let Some(path) = self.find_sd_plugin_path(plugin_uuid) {
+                            self.load_sd_plugin(path, orch).await?;
+                        } else {
+                            anyhow::bail!("SD plugin not loaded: {plugin_uuid}");
+                        }
+                    }
+                    self.restore_sd_binding(
+                        slot_id,
+                        plugin_uuid,
+                        action_uuid,
+                        instance_id.clone(),
+                        settings.clone(),
+                        surface_id,
+                        row,
+                        col,
+                    )
+                    .await?;
+                }
+                BindingKind::Companion {
+                    connection_id,
+                    action_id,
+                    ..
+                } => {
+                    self.restore_companion_binding(slot_id, connection_id, action_id, row, col);
+                }
+                BindingKind::BuiltIn { .. } | BindingKind::MultiAction { .. } => {}
+            }
+
+            if let Some(page) = self.inner.profile.pages.iter_mut().find(|p| p.id == page_id) {
+                if let Some(slot) = page.slots.get_mut(&slot_id) {
+                    slot.binding = Some(Binding { kind });
+                }
+            }
+        }
+
+        if let Some(page) = self.inner.profile.pages.iter_mut().find(|p| p.id == page_id) {
+            if let Some(slot) = page.slots.get_mut(&slot_id) {
+                slot.appearance = appearance;
+            }
+        }
+
+        self.persist_slot_changes(surface_id).await?;
+        self.refresh_page_visuals(page_id, surface_id).await;
+        Ok(())
+    }
+
     pub async fn update_slot_settings(
         &mut self,
         slot_id: SlotId,
@@ -3395,4 +3482,43 @@ pub struct CompanionRuntimeStatus {
     pub companion_host_running: bool,
     pub connections: Vec<ConnectionRecord>,
     pub modules: Vec<PluginScanEntry>,
+}
+
+fn parse_binding_kind(value: serde_json::Value) -> anyhow::Result<BindingKind> {
+    if let Ok(kind) = serde_json::from_value::<BindingKind>(value.clone()) {
+        return Ok(kind);
+    }
+    if let Some(inner) = value.get("kind") {
+        if let Ok(kind) = serde_json::from_value::<BindingKind>(inner.clone()) {
+            return Ok(kind);
+        }
+    }
+    anyhow::bail!("invalid binding")
+}
+
+fn fresh_binding_kind(kind: &BindingKind) -> BindingKind {
+    match kind {
+        BindingKind::StreamDeck {
+            plugin_uuid,
+            action_uuid,
+            settings,
+            ..
+        } => BindingKind::StreamDeck {
+            plugin_uuid: plugin_uuid.clone(),
+            action_uuid: action_uuid.clone(),
+            instance_id: ActionInstanceId::new(),
+            settings: settings.clone(),
+        },
+        BindingKind::Companion { .. } | BindingKind::BuiltIn { .. } => kind.clone(),
+        BindingKind::MultiAction { steps, delay_ms } => BindingKind::MultiAction {
+            steps: steps
+                .iter()
+                .map(|s| MultiActionStep {
+                    binding: fresh_binding_kind(&s.binding),
+                    delay_before_ms: s.delay_before_ms,
+                })
+                .collect(),
+            delay_ms: *delay_ms,
+        },
+    }
 }

@@ -19,13 +19,13 @@ function installBeepWorkaround(): void {
   });
 }
 
-/** Block context menu outside text fields (native app feel). */
+/** Block context menu outside text fields and slot buttons (native app feel). */
 function installContextMenuBlock(): void {
   window.addEventListener("contextmenu", (event) => {
     const target = event.composedPath()[0];
-    if (!isTextInput(target)) {
-      event.preventDefault();
-    }
+    if (isTextInput(target)) return;
+    if (target instanceof HTMLElement && target.closest(".slot")) return;
+    event.preventDefault();
   });
 }
 

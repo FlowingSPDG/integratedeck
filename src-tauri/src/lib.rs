@@ -87,6 +87,7 @@ pub fn run() {
             commands::register_mock_surface,
             commands::create_slot,
             commands::delete_slot,
+            commands::apply_slot_snapshot,
             commands::export_profile,
             commands::import_profile,
             commands::apply_surface_input,

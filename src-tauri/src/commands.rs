@@ -677,6 +677,29 @@ pub async fn delete_slot(state: State<'_, OrchState>, slot_id: String) -> Result
     o.delete_slot(slot_id).await.map_err(|e| e.to_string())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplySlotSnapshotArgs {
+    pub slot_id: String,
+    #[serde(default)]
+    pub binding: Option<serde_json::Value>,
+    #[serde(default)]
+    pub appearance: ideck_core::SlotAppearance,
+}
+
+#[tauri::command]
+pub async fn apply_slot_snapshot(
+    state: State<'_, OrchState>,
+    args: ApplySlotSnapshotArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let state_clone = state.inner().clone();
+    let mut o = state.write().await;
+    o.apply_slot_snapshot(slot_id, args.binding, args.appearance, state_clone)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 fn parse_slot_id(s: &str) -> Result<SlotId, String> {
     Ok(SlotId(
         uuid::Uuid::parse_str(s).map_err(|e| e.to_string())?,

@@ -247,6 +247,15 @@ const DRAG_THRESHOLD_PX = 6;
 let dragGhost: HTMLElement | null = null;
 let activeDragPayload: DragActionPayload | null = null;
 
+interface SlotClipboard {
+  binding?: Record<string, unknown>;
+  appearance?: SlotAppearance;
+}
+
+let slotClipboard: SlotClipboard | null = null;
+let slotContextMenuEl: HTMLElement | null = null;
+let slotContextMenuCleanup: (() => void) | null = null;
+
 app.innerHTML = `
   <header class="toolbar">
     <span class="toolbar-brand">integratedeck</span>
@@ -600,6 +609,175 @@ function findSlot(page: Page, row: number, col: number, surfaceId: string): Slot
   );
 }
 
+function isSlotConfigured(slot?: Slot): boolean {
+  if (!slot) return false;
+  if (slot.binding) return true;
+  if (slot.appearance?.title?.trim()) return true;
+  if (slot.appearance?.default_image?.data) return true;
+  return false;
+}
+
+function hideSlotContextMenu() {
+  slotContextMenuCleanup?.();
+  slotContextMenuCleanup = null;
+  slotContextMenuEl?.remove();
+  slotContextMenuEl = null;
+}
+
+function positionSlotContextMenu(menu: HTMLElement, x: number, y: number) {
+  const pad = 8;
+  menu.style.visibility = "hidden";
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  let left = x;
+  let top = y;
+  if (left + rect.width > window.innerWidth - pad) {
+    left = window.innerWidth - rect.width - pad;
+  }
+  if (top + rect.height > window.innerHeight - pad) {
+    top = window.innerHeight - rect.height - pad;
+  }
+  menu.style.left = `${Math.max(pad, left)}px`;
+  menu.style.top = `${Math.max(pad, top)}px`;
+  menu.style.visibility = "";
+}
+
+function showSlotContextMenu(
+  x: number,
+  y: number,
+  page: Page,
+  row: number,
+  col: number,
+  slot?: Slot,
+) {
+  hideSlotContextMenu();
+
+  const configured = isSlotConfigured(slot);
+  const canPaste = !configured && slotClipboard !== null;
+  if (!configured && !canPaste) return;
+
+  const menu = document.createElement("div");
+  menu.className = "slot-context-menu";
+  menu.setAttribute("role", "menu");
+
+  const addItem = (label: string, action: () => void, danger = false) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "slot-context-menu-item" + (danger ? " danger" : "");
+    item.textContent = label;
+    item.setAttribute("role", "menuitem");
+    item.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      hideSlotContextMenu();
+      action();
+    });
+    menu.appendChild(item);
+  };
+
+  if (configured && slot) {
+    addItem("Copy", () => copySlot(slot));
+    addItem("Delete", () => void deleteSlotContent(slot), true);
+  } else if (canPaste) {
+    addItem("Paste", () => void pasteSlot(page, row, col, slot));
+  }
+
+  positionSlotContextMenu(menu, x, y);
+  slotContextMenuEl = menu;
+
+  const onKeyDown = (ev: KeyboardEvent) => {
+    if (ev.key === "Escape") hideSlotContextMenu();
+  };
+  const onDismiss = () => hideSlotContextMenu();
+
+  slotContextMenuCleanup = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("click", onDismiss);
+    document.removeEventListener("contextmenu", onDismiss);
+    window.removeEventListener("scroll", onDismiss, true);
+    window.removeEventListener("resize", onDismiss);
+  };
+
+  setTimeout(() => {
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("click", onDismiss);
+    document.addEventListener("contextmenu", onDismiss);
+    window.addEventListener("scroll", onDismiss, true);
+    window.addEventListener("resize", onDismiss);
+  }, 0);
+}
+
+function copySlot(slot: Slot) {
+  slotClipboard = {
+    binding: slot.binding ? structuredClone(slot.binding) : undefined,
+    appearance: slot.appearance ? structuredClone(slot.appearance) : undefined,
+  };
+  statusEl.textContent = "コピーしました";
+}
+
+async function deleteSlotContent(slot: Slot) {
+  try {
+    if (slot.binding) {
+      await invoke("unbind_slot", { slotId: slot.id });
+    }
+    await invoke("update_slot_appearance", {
+      args: {
+        slotId: slot.id,
+        title: "",
+        clearImage: true,
+      },
+    });
+    if (selectedSlotId === slot.id) {
+      selectedSlotId = null;
+      await updatePropertyInspector(undefined);
+    }
+    await refresh();
+    statusEl.textContent = "削除しました";
+  } catch (err) {
+    statusEl.textContent = `削除に失敗: ${formatUserError(err)}`;
+  }
+}
+
+async function pasteSlot(page: Page, row: number, col: number, existing?: Slot) {
+  if (!slotClipboard || !selectedSurfaceId || !activePageId) return;
+
+  try {
+    let slot = existing;
+    if (!slot) {
+      slot = await invoke<Slot>("create_slot", {
+        args: {
+          surfaceId: selectedSurfaceId,
+          pageId: activePageId,
+          row,
+          column: col,
+        },
+      });
+    }
+
+    await invoke("apply_slot_snapshot", {
+      args: {
+        slotId: slot.id,
+        binding: slotClipboard.binding ?? null,
+        appearance: slotClipboard.appearance ?? {},
+      },
+    });
+
+    selectedSlotId = slot.id;
+    await pollCellVisuals();
+    const profile = await invoke<Profile>("get_profile");
+    const updatedSlot = findSlot(
+      profile.pages.find((p) => p.id === activePageId) ?? page,
+      row,
+      col,
+      selectedSurfaceId,
+    );
+    renderGrid(profile);
+    await updatePropertyInspector(updatedSlot);
+    statusEl.textContent = "貼り付けました";
+  } catch (err) {
+    statusEl.textContent = `貼り付けに失敗: ${formatUserError(err)}`;
+  }
+}
+
 function renderGrid(profile: Profile) {
   gridEl.innerHTML = "";
   updateGridCss();
@@ -619,6 +797,11 @@ function renderGrid(profile: Profile) {
       renderSlotContent(el, row, col, slot);
 
       el.addEventListener("click", () => void onSlotClick(page, row, col, slot));
+      el.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        showSlotContextMenu(ev.clientX, ev.clientY, page, row, col, slot);
+      });
       el.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();

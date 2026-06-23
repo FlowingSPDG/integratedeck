@@ -42,6 +42,7 @@ commands.allow = [
   "register_mock_surface",
   "create_slot",
   "delete_slot",
+  "apply_slot_snapshot",
   "export_profile",
   "import_profile",
   "apply_surface_input",
