@@ -191,6 +191,10 @@ export default function SettingsApp() {
       columns: number;
     }>
   >([]);
+  const [vsdRows, setVsdRows] = useState(3);
+  const [vsdCols, setVsdCols] = useState(5);
+  const [vsdPort, setVsdPort] = useState(28198);
+  const [vsdStatus, setVsdStatus] = useState<string | null>(null);
 
   const s = I18N[language];
 
@@ -212,6 +216,11 @@ export default function SettingsApp() {
       setSurfaceDevices(await invoke("scan_surface_devices"));
     } catch {
       setSurfaceDevices([]);
+    }
+    try {
+      setVsdStatus(await invoke<string | null>("get_vsd_status"));
+    } catch {
+      setVsdStatus(null);
     }
     let key = selectedDeviceKey;
     if (!key && list.length > 0) key = list[0].deviceKey;
@@ -491,10 +500,78 @@ export default function SettingsApp() {
               )}
             </div>
             <div className="field">
+              <label>VSD2 ソフトウェアサーフェス</label>
+              <div className="actions">
+                <label>
+                  行
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={vsdRows}
+                    onChange={(e) => setVsdRows(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  列
+                  <input
+                    type="number"
+                    min={1}
+                    max={32}
+                    value={vsdCols}
+                    onChange={(e) => setVsdCols(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  ポート
+                  <input
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={vsdPort}
+                    onChange={(e) => setVsdPort(Number(e.target.value))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const status = await invoke<string>("start_vsd_server", {
+                        rows: vsdRows,
+                        columns: vsdCols,
+                        port: vsdPort,
+                      });
+                      setVsdStatus(status);
+                      setStatusLine(`VSD: ${status}`, "success");
+                    } catch (err) {
+                      setStatusLine(formatUserError(err), "error");
+                    }
+                  }}
+                >
+                  起動
+                </button>
+                <button
+                  type="button"
+                  disabled={!vsdStatus}
+                  onClick={async () => {
+                    try {
+                      await invoke("stop_vsd_server");
+                      setVsdStatus(null);
+                      setStatusLine("VSDを停止しました", "success");
+                    } catch (err) {
+                      setStatusLine(formatUserError(err), "error");
+                    }
+                  }}
+                >
+                  停止
+                </button>
+                <span className="muted">{vsdStatus ?? "停止中"}</span>
+              </div>
+            </div>
+            <div className="field">
               <label htmlFor="device-select">{s.device}</label>
               <select
-                id="device-select"
-                value={selectedDeviceKey ?? ""}
+                id="device-select"                value={selectedDeviceKey ?? ""}
                 onChange={async (e) => {
                   const key = e.target.value || null;
                   setSelectedDeviceKey(key);
