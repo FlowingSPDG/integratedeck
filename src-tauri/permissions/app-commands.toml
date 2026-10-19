@@ -18,6 +18,7 @@ commands.allow = [
   "get_runtime_status",
   "unload_sd_plugin",
   "list_action_library",
+  "list_companion_feedbacks",
   "disconnect_hid_device",
   "load_sd_plugin",
   "bind_slot_sd",

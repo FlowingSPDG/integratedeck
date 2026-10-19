@@ -4,6 +4,15 @@ export interface Profile {
   pages: Page[];
   active_page_id?: string;
   surfaces: { surface_id: string; label: string }[];
+  companion_feedbacks?: Record<
+    string,
+    {
+      connection_id: string;
+      feedback_id: string;
+      action_id?: string;
+      options?: unknown;
+    }
+  >;
 }
 
 export interface Page {

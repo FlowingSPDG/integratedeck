@@ -805,6 +805,17 @@ pub async fn get_property_inspector_url(
     )
 }
 
+#[tauri::command]
+pub async fn list_companion_feedbacks(
+    state: State<'_, OrchState>,
+    connection_id: String,
+) -> Result<Vec<PluginActionInfo>, String> {
+    let o = state.read().await;
+    o.list_companion_feedbacks(&connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListPluginActionsArgs {

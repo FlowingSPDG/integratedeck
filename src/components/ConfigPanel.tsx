@@ -7,7 +7,7 @@ import {
   folderChildPageId,
   normalizeBinding,
 } from "../lib/binding";
-import type { Slot } from "../lib/types";
+import type { Profile, Slot } from "../lib/types";
 import { SettingsEditor } from "./SettingsEditor";
 
 function imagePreviewUrl(image?: { format: string; data: string }): string | null {
@@ -29,6 +29,7 @@ export const ConfigPanel = memo(function ConfigPanel() {
     setActivePage,
     piNativeSettingsVisible,
     piSettingsJson,
+    refresh,
   } = useDeck();
 
   const hasSlot = Boolean(selectedSlotId && selectedSlot);
@@ -83,6 +84,8 @@ export const ConfigPanel = memo(function ConfigPanel() {
         onSettingsChange={saveNativeSettings}
         nativeSettingsVisible={piNativeSettingsVisible}
         settingsJson={piSettingsJson}
+        profile={profile}
+        onRefresh={refresh}
       />
     </div>
   );
@@ -289,6 +292,8 @@ function PropertyInspectorSection({
   onSettingsChange,
   nativeSettingsVisible,
   settingsJson,
+  profile,
+  onRefresh,
 }: {
   hidden: boolean;
   binding: ReturnType<typeof normalizeBinding> | undefined;
@@ -297,8 +302,36 @@ function PropertyInspectorSection({
   onSettingsChange: (json: string) => void;
   nativeSettingsVisible: boolean;
   settingsJson: string;
+  profile: Profile | null;
+  onRefresh: (opts?: { surfaceId?: string | null }) => Promise<void>;
 }) {
   const isCompanion = binding?.type === "companion";
+  const [feedbacks, setFeedbacks] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (!isCompanion || binding?.type !== "companion") {
+      setFeedbacks([]);
+      return;
+    }
+    let cancelled = false;
+    void invoke<Array<{ id: string; name: string }>>("list_companion_feedbacks", {
+      connectionId: binding.connectionId,
+    })
+      .then((list) => {
+        if (!cancelled) setFeedbacks(list);
+      })
+      .catch(() => {
+        if (!cancelled) setFeedbacks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCompanion, binding]);
+
+  const currentFeedback =
+    slotId && profile?.companion_feedbacks
+      ? profile.companion_feedbacks[slotId]
+      : undefined;
 
   return (
     <div className={hidden ? "hidden" : undefined}>
@@ -314,6 +347,30 @@ function PropertyInspectorSection({
       </p>
       {isCompanion && slotId ? (
         <div className="companion-options">
+          <label>
+            フィードバック
+            <select
+              value={currentFeedback?.feedback_id ?? ""}
+              onChange={async (event) => {
+                const value = event.target.value;
+                if (value) {
+                  await invoke("set_slot_companion_feedback", {
+                    args: { slotId, feedbackId: value, options: {} },
+                  });
+                } else {
+                  await invoke("clear_slot_companion_feedback", { slotId });
+                }
+                await onRefresh();
+              }}
+            >
+              <option value="">なし</option>
+              {feedbacks.map((feedback) => (
+                <option key={feedback.id} value={feedback.id}>
+                  {feedback.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <SettingsEditor
             slotId={slotId}
             settingsJson={JSON.stringify(

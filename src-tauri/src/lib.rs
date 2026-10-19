@@ -66,6 +66,7 @@ pub fn run() {
             commands::get_runtime_status,
             commands::unload_sd_plugin,
             commands::list_action_library,
+            commands::list_companion_feedbacks,
             commands::disconnect_hid_device,
             commands::load_sd_plugin,
             commands::bind_slot_sd,

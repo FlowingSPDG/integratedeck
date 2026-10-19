@@ -3828,6 +3828,50 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub async fn list_companion_feedbacks(
+        &self,
+        connection_id: &str,
+    ) -> anyhow::Result<Vec<PluginActionInfo>> {
+        let runtime = self
+            .inner
+            .comp_runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("companion module engine not running"))?;
+        let resp = runtime
+            .request(
+                "connection.getDefinitions",
+                json!({ "connectionId": connection_id }),
+            )
+            .await?;
+        if !resp.ok {
+            anyhow::bail!(resp.error.unwrap_or_else(|| "getDefinitions failed".into()));
+        }
+        let feedbacks = resp
+            .result
+            .as_ref()
+            .and_then(|r| r.get("feedbacks"))
+            .and_then(|f| f.as_array())
+            .cloned()
+            .unwrap_or_default();
+        Ok(feedbacks
+            .into_iter()
+            .filter_map(|feedback| {
+                let id = feedback.get("id")?.as_str()?.to_string();
+                let name = feedback
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&id)
+                    .to_string();
+                Some(PluginActionInfo {
+                    id,
+                    name,
+                    source: "companion".into(),
+                    icon: None,
+                })
+            })
+            .collect())
+    }
+
     pub async fn list_plugin_actions(
         &self,
         connection_id: Option<String>,
