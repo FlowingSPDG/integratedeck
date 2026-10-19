@@ -161,6 +161,7 @@ export default function SettingsApp() {
   const [hostRunning, setHostRunning] = useState(false);
   const [newConnLabel, setNewConnLabel] = useState("");
   const [newConnModule, setNewConnModule] = useState("");
+  const [studioAddr, setStudioAddr] = useState("192.168.3.48:5343");
 
   const s = I18N[language];
 
@@ -337,6 +338,39 @@ export default function SettingsApp() {
         {activeTab === "devices" ? (
           <div className="tab-panel active" id="panel-devices">
             <h2 className="section-title">{s.devices}</h2>
+            <div className="field">
+              <label htmlFor="studio-lan-addr">Studio LAN</label>
+              <div className="actions">
+                <input
+                  id="studio-lan-addr"
+                  value={studioAddr}
+                  onChange={(e) => setStudioAddr(e.target.value)}
+                  placeholder="192.168.3.48:5343"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await invoke("connect_surface_device", {
+                        driverId: "studio-lan",
+                        deviceId: studioAddr,
+                      });
+                      setStatusLine(
+                        language === "ja"
+                          ? "Studio LANに接続しました"
+                          : "Connected Studio LAN",
+                        "success",
+                      );
+                      await loadDevices();
+                    } catch (err) {
+                      setStatusLine(formatUserError(err), "error");
+                    }
+                  }}
+                >
+                  {s.connect}
+                </button>
+              </div>
+            </div>
             <div className="field">
               <label htmlFor="device-select">{s.device}</label>
               <select
