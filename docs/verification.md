@@ -83,6 +83,12 @@ npm run build
 npm run tauri build -- --no-bundle
 ```
 
+2026-10-20 時点のローカル実行:
+- `cargo test --workspace` 全通過
+- `cargo clippy --workspace --all-targets -- -D warnings` パス
+- `npx tsc --noEmit` パス
+- `npm run build` パス
+
 モック:
 ```bash
 cargo test -p ideck-surface --test studio_lan
