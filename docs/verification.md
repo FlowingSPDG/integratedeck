@@ -34,10 +34,12 @@
 | 項目 | 種別 | 状態 | 根拠 |
 |---|---|---|---|
 | LAN 接続 / keepalive / 明るさ | 実機 | [x] | 192.168.3.48:5343 |
+| LAN 自動再接続 | モック | [x] | `reconnects_after_server_close` |
 | LAN キー画像（02 07） | 実機 | [x] | 実機がフレーム受理 |
 | LAN キー / エンコーダ入力 | モック | [x] | `studio_lan.rs` integration test |
 | LAN NFC（01 04） | ユニット | [x] | `studio_protocol` test |
 | USB HID 列挙（0fd9:00aa） | ユニット | [x] | `studio_usb` ドライバ |
+| USB 自動再接続 | 実装 | [x] | 5秒間隔で再列挙 |
 | USB キー画像 / 入力 / LED | 実機 | [ ] | Studio USB 未接続 |
 | USB/LAN 重複排除 | ユニット | [x] | `scan_all` |
 | LCD パネル画像（02 0c） | ユニット | [x] | `lcd_image_packets` + `set_studio_lcd` |
