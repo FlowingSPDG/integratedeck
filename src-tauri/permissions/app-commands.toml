@@ -39,6 +39,8 @@ commands.allow = [
   "simulate_slot_key",
   "list_connections",
   "add_connection",
+  "get_connection_config_fields",
+  "update_connection_config",
   "remove_connection",
   "execute_companion_action",
   "companion_ping",

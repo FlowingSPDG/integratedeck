@@ -11,6 +11,8 @@ pub struct ConnectionRecord {
     pub label: String,
     #[serde(default)]
     pub config: Value,
+    #[serde(default)]
+    pub secrets: Value,
     pub enabled: bool,
 }
 
@@ -26,6 +28,10 @@ impl ConnectionRegistry {
 
     pub fn remove(&mut self, id: &str) -> Option<ConnectionRecord> {
         self.records.remove(id)
+    }
+
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut ConnectionRecord> {
+        self.records.get_mut(id)
     }
 
     pub fn list(&self) -> Vec<ConnectionRecord> {

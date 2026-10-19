@@ -4470,6 +4470,7 @@ impl Orchestrator {
         let id = record.id.clone();
         let module_id = record.module_id.clone();
         let config = record.config.clone();
+        let secrets = record.secrets.clone();
         let label = record.label.clone();
         self.inner.connections.add(record);
         let _ = self.save_connections();
@@ -4481,7 +4482,8 @@ impl Orchestrator {
                         "id": id,
                         "moduleId": module_id,
                         "label": label,
-                        "config": config
+                        "config": config,
+                        "secrets": secrets
                     }),
                 )
                 .await?;
@@ -4492,8 +4494,64 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub async fn remove_connection(&mut self, connection_id: String) -> anyhow::Result<()> {
-        self.inner.connections.remove(&connection_id);
+    pub async fn connection_config_fields(
+        &self,
+        connection_id: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let runtime = self
+            .inner
+            .comp_runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("companion module engine not running"))?;
+        let resp = runtime
+            .request(
+                "connection.getConfigFields",
+                json!({ "connectionId": connection_id }),
+            )
+            .await?;
+        if !resp.ok {
+            anyhow::bail!(resp
+                .error
+                .unwrap_or_else(|| "connection.getConfigFields failed".into()));
+        }
+        Ok(resp.result.unwrap_or_else(|| json!({ "fields": [] })))
+    }
+
+    pub async fn update_connection_config(
+        &mut self,
+        connection_id: String,
+        config: serde_json::Value,
+        secrets: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let record = self
+            .inner
+            .connections
+            .get_mut(&connection_id)
+            .ok_or_else(|| anyhow::anyhow!("connection not found"))?;
+        record.config = config.clone();
+        record.secrets = secrets.clone();
+        let _ = self.save_connections();
+        if let Some(runtime) = &self.inner.comp_runtime {
+            let resp = runtime
+                .request(
+                    "connection.updateConfig",
+                    json!({
+                        "connectionId": connection_id,
+                        "config": config,
+                        "secrets": secrets
+                    }),
+                )
+                .await?;
+            if !resp.ok {
+                anyhow::bail!(resp
+                    .error
+                    .unwrap_or_else(|| "connection.updateConfig failed".into()));
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn remove_connection(&mut self, connection_id: String) -> anyhow::Result<()> {        self.inner.connections.remove(&connection_id);
         let _ = self.save_connections();
         if let Some(runtime) = &self.inner.comp_runtime {
             let resp = runtime

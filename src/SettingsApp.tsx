@@ -33,6 +33,18 @@ interface ConnectionRecord {
   moduleId: string;
   label: string;
   enabled: boolean;
+  config?: Record<string, unknown>;
+  secrets?: Record<string, unknown>;
+}
+
+interface CompanionConfigField {
+  id: string;
+  type: string;
+  label?: string;
+  default?: unknown;
+  choices?: Array<{ id: string | number; label: string }>;
+  min?: number;
+  max?: number;
 }
 
 const I18N = {
@@ -161,6 +173,10 @@ export default function SettingsApp() {
   const [hostRunning, setHostRunning] = useState(false);
   const [newConnLabel, setNewConnLabel] = useState("");
   const [newConnModule, setNewConnModule] = useState("");
+  const [configConnectionId, setConfigConnectionId] = useState<string | null>(null);
+  const [configFields, setConfigFields] = useState<CompanionConfigField[]>([]);
+  const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
+  const [secretValues, setSecretValues] = useState<Record<string, unknown>>({});
   const [studioAddr, setStudioAddr] = useState("192.168.3.48:5343");
   const [surfaceDevices, setSurfaceDevices] = useState<
     Array<{
@@ -230,6 +246,42 @@ export default function SettingsApp() {
     setHostRunning(runtime.companion.companionHostRunning);
     if (scan.companion[0]) setNewConnModule(scan.companion[0].name);
   }, []);
+
+  const loadConnectionConfig = useCallback(
+    async (record: ConnectionRecord) => {
+      try {
+        const result = await invoke<
+          { fields?: CompanionConfigField[] } | CompanionConfigField[]
+        >("get_connection_config_fields", { connectionId: record.id });
+        const fields = Array.isArray(result) ? result : (result.fields ?? []);
+        setConfigConnectionId(record.id);
+        setConfigFields(fields);
+        setConfigValues({ ...(record.config ?? {}) });
+        setSecretValues({ ...(record.secrets ?? {}) });
+      } catch (err) {
+        setStatusLine(formatUserError(err), "error");
+      }
+    },
+    [setStatusLine],
+  );
+
+  const saveConnectionConfig = async () => {
+    if (!configConnectionId) return;
+    try {
+      await invoke("update_connection_config", {
+        args: {
+          connectionId: configConnectionId,
+          config: configValues,
+          secrets: secretValues,
+        },
+      });
+      setStatusLine(s.saved, "success");
+      setConfigConnectionId(null);
+      await loadCompanion();
+    } catch (err) {
+      setStatusLine(formatUserError(err), "error");
+    }
+  };
 
   useEffect(() => {
     void invoke<AppGlobalSettings>("get_global_settings")
@@ -630,6 +682,13 @@ export default function SettingsApp() {
                       <td>
                         <button
                           type="button"
+                          className="page-btn"
+                          onClick={() => void loadConnectionConfig(c)}
+                        >
+                          設定
+                        </button>{" "}
+                        <button
+                          type="button"
                           className="btn-remove-conn"
                           onClick={async () => {
                             try {
@@ -685,16 +744,18 @@ export default function SettingsApp() {
                 onClick={async () => {
                   if (!newConnModule) return;
                   try {
-                    await invoke("add_connection", {
+                    const record = await invoke<ConnectionRecord>("add_connection", {
                       args: {
                         moduleId: newConnModule,
                         label: newConnLabel.trim() || newConnModule,
                         config: {},
+                        secrets: {},
                       },
                     });
                     setStatusLine(s.saved, "success");
                     setNewConnLabel("");
                     await loadCompanion();
+                    await loadConnectionConfig(record);
                   } catch (err) {
                     setStatusLine(formatUserError(err), "error");
                   }
@@ -703,6 +764,104 @@ export default function SettingsApp() {
                 {s.addConnection}
               </button>
             </div>
+            {configConnectionId ? (
+              <div className="field">
+                <label>接続設定</label>
+                {configFields.map((field) => {
+                  const label = field.label ?? field.id;
+                  const value = configValues[field.id];
+                  if (field.type === "static-text") {
+                    return (
+                      <p className="muted" key={field.id}>
+                        {String(field.default ?? "")}
+                      </p>
+                    );
+                  }
+                  if (field.type === "checkbox") {
+                    return (
+                      <label key={field.id}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value ?? field.default ?? false)}
+                          onChange={(e) =>
+                            setConfigValues((current) => ({
+                              ...current,
+                              [field.id]: e.target.checked,
+                            }))
+                          }
+                        />{" "}
+                        {label}
+                      </label>
+                    );
+                  }
+                  if (field.type === "dropdown") {
+                    return (
+                      <label key={field.id}>
+                        {label}
+                        <select
+                          value={String(value ?? field.default ?? "")}
+                          onChange={(e) =>
+                            setConfigValues((current) => ({
+                              ...current,
+                              [field.id]: e.target.value,
+                            }))
+                          }
+                        >
+                          {field.choices?.map((choice) => (
+                            <option key={String(choice.id)} value={String(choice.id)}>
+                              {choice.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  }
+                  if (field.type === "secret") {
+                    return (
+                      <label key={field.id}>
+                        {label}
+                        <input
+                          type="password"
+                          value={String(secretValues[field.id] ?? "")}
+                          onChange={(e) =>
+                            setSecretValues((current) => ({
+                              ...current,
+                              [field.id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    );
+                  }
+                  return (
+                    <label key={field.id}>
+                      {label}
+                      <input
+                        type={field.type === "number" ? "number" : "text"}
+                        value={String(value ?? field.default ?? "")}
+                        onChange={(e) =>
+                          setConfigValues((current) => ({
+                            ...current,
+                            [field.id]:
+                              field.type === "number"
+                                ? Number(e.target.value)
+                                : e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  );
+                })}
+                <div className="actions">
+                  <button type="button" className="primary" onClick={() => void saveConnectionConfig()}>
+                    {s.save}
+                  </button>
+                  <button type="button" onClick={() => setConfigConnectionId(null)}>
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -87,6 +87,8 @@ pub fn run() {
             commands::simulate_slot_key,
             commands::list_connections,
             commands::add_connection,
+            commands::get_connection_config_fields,
+            commands::update_connection_config,
             commands::remove_connection,
             commands::execute_companion_action,
             commands::companion_ping,

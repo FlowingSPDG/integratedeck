@@ -603,6 +603,8 @@ pub struct AddConnectionArgs {
     pub module_id: String,
     pub label: String,
     pub config: serde_json::Value,
+    #[serde(default)]
+    pub secrets: serde_json::Value,
 }
 
 #[tauri::command]
@@ -615,6 +617,7 @@ pub async fn add_connection(
         module_id: args.module_id,
         label: args.label,
         config: args.config,
+        secrets: args.secrets,
         enabled: true,
     };
     let mut o = state.write().await;
@@ -622,6 +625,37 @@ pub async fn add_connection(
         .await
         .map_err(|e| e.to_string())?;
     Ok(record)
+}
+
+#[tauri::command]
+pub async fn get_connection_config_fields(
+    state: State<'_, OrchState>,
+    connection_id: String,
+) -> Result<serde_json::Value, String> {
+    let o = state.read().await;
+    o.connection_config_fields(&connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateConnectionConfigArgs {
+    pub connection_id: String,
+    pub config: serde_json::Value,
+    #[serde(default)]
+    pub secrets: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn update_connection_config(
+    state: State<'_, OrchState>,
+    args: UpdateConnectionConfigArgs,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.update_connection_config(args.connection_id, args.config, args.secrets)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
