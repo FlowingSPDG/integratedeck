@@ -764,6 +764,8 @@ async fn handle_pi_message(broker: &StreamDeckBroker, default_context: &str, tex
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or(default_context);
+    let known = broker.contexts.read().await.contains_key(context);
+    let context = if known { context } else { default_context };
 
     match event {
         "setSettings" => {
