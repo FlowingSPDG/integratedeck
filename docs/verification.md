@@ -88,6 +88,8 @@ npm run tauri build -- --no-bundle
 - `cargo clippy --workspace --all-targets -- -D warnings` パス
 - `npx tsc --noEmit` パス
 - `npm run build` パス
+- `npm run tauri build -- --no-bundle` 成功
+- `target/release/integratedeck.exe` 起動確認（main / settings / tutorial WebView）
 
 モック:
 ```bash
