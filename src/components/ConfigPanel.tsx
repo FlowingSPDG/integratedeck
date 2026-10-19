@@ -371,6 +371,27 @@ function PropertyInspectorSection({
               ))}
             </select>
           </label>
+          {currentFeedback ? (
+            <SettingsEditor
+              key={`${slotId}:${currentFeedback.feedback_id}`}
+              slotId={`${slotId}:feedback`}
+              settingsJson={JSON.stringify(currentFeedback.options ?? {}, null, 2)}
+              onSave={(json) => {
+                try {
+                  const options = JSON.parse(json) as unknown;
+                  void invoke("set_slot_companion_feedback", {
+                    args: {
+                      slotId,
+                      feedbackId: currentFeedback.feedback_id,
+                      options,
+                    },
+                  }).then(() => onRefresh());
+                } catch {
+                  // SettingsEditor already reports JSON errors.
+                }
+              }}
+            />
+          ) : null}
           <SettingsEditor
             slotId={slotId}
             settingsJson={JSON.stringify(
