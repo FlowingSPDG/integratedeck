@@ -15,8 +15,8 @@
 //!    contract the Elgato Stream Deck app uses) or installs a fallback bridge that
 //!    registers the plugin and forwards incoming events.
 //!
-//! Only one HTML plugin can be hosted at a time; loading a second one fails with a
-//! clear error until the first one is unloaded.
+//! Multiple HTML plugins can be hosted at once from a small pre-created pool of
+//! hidden windows (WebView2 cannot be created safely from an IPC command).
 
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +28,15 @@ use tauri::{
 use tracing::info;
 
 pub const PLUGIN_HOST_WINDOW_LABEL: &str = "plugin-host";
+const PLUGIN_HOST_WINDOW_COUNT: usize = 4;
+
+pub fn plugin_host_window_label(index: usize) -> String {
+    if index == 0 {
+        PLUGIN_HOST_WINDOW_LABEL.to_string()
+    } else {
+        format!("{PLUGIN_HOST_WINDOW_LABEL}-{index}")
+    }
+}
 
 const SHIM: &str = include_str!("../assets/plugin_host_shim.js");
 const DEFAULT_WIDTH: f64 = 960.0;
@@ -36,15 +45,16 @@ const MIN_WIDTH: f64 = 320.0;
 const MIN_HEIGHT: f64 = 240.0;
 const CONFIG_QUERY_KEY: &str = "__ideckSd";
 
-/// Creates the reusable hidden plugin window during `setup`.
+/// Creates the reusable hidden plugin window pool during `setup`.
 pub fn ensure_plugin_host_window(app: &App) -> Result<(), String> {
-    if app.get_webview_window(PLUGIN_HOST_WINDOW_LABEL).is_some() {
-        return Ok(());
-    }
+    for index in 0..PLUGIN_HOST_WINDOW_COUNT {
+        let label = plugin_host_window_label(index);
+        if app.get_webview_window(&label).is_some() {
+            continue;
+        }
 
-    let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
-    let mut builder =
-        WebviewWindowBuilder::new(app, PLUGIN_HOST_WINDOW_LABEL, WebviewUrl::External(blank))
+        let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
+        let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(blank))
             .title("integratedeck plugin")
             .inner_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
             .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
@@ -52,16 +62,17 @@ pub fn ensure_plugin_host_window(app: &App) -> Result<(), String> {
             .skip_taskbar(true)
             .initialization_script(SHIM);
 
-    #[cfg(debug_assertions)]
-    {
-        builder = builder.devtools(true);
-    }
+        #[cfg(debug_assertions)]
+        {
+            builder = builder.devtools(true);
+        }
 
-    let window = builder
-        .build()
-        .map_err(|e| format!("failed to create plugin host window: {e}"))?;
-    attach_hide_on_close(&window);
-    info!("plugin host window created (hidden)");
+        let window = builder
+            .build()
+            .map_err(|e| format!("failed to create plugin host window {label}: {e}"))?;
+        attach_hide_on_close(&window);
+    }
+    info!("plugin host window pool created (hidden)");
     Ok(())
 }
 
@@ -69,7 +80,7 @@ pub fn ensure_plugin_host_window(app: &App) -> Result<(), String> {
 pub fn install(app: &AppHandle) -> Result<Arc<PluginHost>, String> {
     let host = Arc::new(PluginHost {
         app: app.clone(),
-        active: Mutex::new(None),
+        active: Mutex::new(vec![None; PLUGIN_HOST_WINDOW_COUNT]),
     });
     ideck_sd_host::install_webview_plugin_host(host.clone())?;
     Ok(host)
@@ -78,28 +89,28 @@ pub fn install(app: &AppHandle) -> Result<Arc<PluginHost>, String> {
 /// Tauri implementation of [`WebviewPluginHost`].
 pub struct PluginHost {
     app: AppHandle,
-    /// Plugin UUID currently shown in the shared window.
-    active: Mutex<Option<String>>,
+    /// Plugin UUID per pool window, or `None` when the window is free.
+    active: Mutex<Vec<Option<String>>>,
 }
 
 impl PluginHost {
     fn open_impl(&self, request: WebviewPluginRequest) -> anyhow::Result<()> {
-        let window = self.window()?;
         let mut active = self
             .active
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        // There is one shared window; refuse rather than silently replacing a plugin
-        // that is still loaded and connected.
-        if let Some(current) = active.as_deref() {
-            if current != request.plugin_uuid.as_str() {
-                anyhow::bail!(
-                    "plugin host window is already hosting {current}; unload it before loading {}",
-                    request.plugin_uuid
-                );
-            }
-        }
+        let slot = active
+            .iter()
+            .position(|slot| slot.as_deref() == Some(request.plugin_uuid.as_str()))
+            .or_else(|| active.iter().position(|slot| slot.is_none()))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "plugin host window pool is full ({} windows); unload an HTML plugin",
+                    PLUGIN_HOST_WINDOW_COUNT
+                )
+            })?;
+        let window = self.window_for(slot)?;
 
         // Plugins can live outside the configured asset scope (e.g. a dev checkout);
         // allow their bundle directory for the asset protocol before navigating.
@@ -131,9 +142,10 @@ impl PluginHost {
             window.hide()?;
         }
 
-        *active = Some(request.plugin_uuid.clone());
+        active[slot] = Some(request.plugin_uuid.clone());
         info!(
             plugin = %request.plugin_uuid,
+            slot,
             port = request.port,
             html = %request.html_path.display(),
             "plugin host window opened"
@@ -146,18 +158,24 @@ impl PluginHost {
             .active
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if active.as_deref() != Some(plugin_uuid) {
+        let Some(slot) = active
+            .iter()
+            .position(|slot| slot.as_deref() == Some(plugin_uuid))
+        else {
             return Ok(());
-        }
+        };
 
-        if let Some(window) = self.app.get_webview_window(PLUGIN_HOST_WINDOW_LABEL) {
+        if let Some(window) = self
+            .app
+            .get_webview_window(&plugin_host_window_label(slot))
+        {
             let _ = window.set_skip_taskbar(true);
             let _ = window.hide();
             // Drop the page (and its WebSocket/timers) until the next HTML plugin.
             let _ = window.navigate(Url::parse("about:blank")?);
         }
-        *active = None;
-        info!(plugin = plugin_uuid, "plugin host window closed");
+        active[slot] = None;
+        info!(plugin = plugin_uuid, slot, "plugin host window closed");
         Ok(())
     }
 
@@ -168,14 +186,17 @@ impl PluginHost {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        let Some(current) = active else {
+        let slot = match plugin_uuid {
+            Some(wanted) => active
+                .iter()
+                .position(|slot| slot.as_deref() == Some(wanted)),
+            None => active.iter().position(|slot| slot.is_some()),
+        };
+        let Some(slot) = slot else {
             return Ok(false);
         };
-        if plugin_uuid.is_some_and(|wanted| wanted != current) {
-            return Ok(false);
-        }
 
-        let window = self.window().map_err(|e| e.to_string())?;
+        let window = self.window_for(slot).map_err(|e| e.to_string())?;
         window.set_skip_taskbar(false).map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
         window.unminimize().ok();
@@ -183,10 +204,10 @@ impl PluginHost {
         Ok(true)
     }
 
-    fn window(&self) -> anyhow::Result<WebviewWindow> {
+    fn window_for(&self, slot: usize) -> anyhow::Result<WebviewWindow> {
         self.app
-            .get_webview_window(PLUGIN_HOST_WINDOW_LABEL)
-            .ok_or_else(|| anyhow::anyhow!("plugin host window is not initialized"))
+            .get_webview_window(&plugin_host_window_label(slot))
+            .ok_or_else(|| anyhow::anyhow!("plugin host window {slot} is not initialized"))
     }
 }
 
