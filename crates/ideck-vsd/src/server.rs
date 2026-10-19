@@ -12,7 +12,7 @@ use crypto_box::PublicKey;
 use futures::{SinkExt, StreamExt};
 use prost::Message;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::{accept_async, WebSocketStream};
 
@@ -48,6 +48,23 @@ pub struct VsdServer {
     listener: TcpListener,
     config: VsdServerConfig,
     devices: Arc<Mutex<Vec<VirtualDevice>>>,
+    events: broadcast::Sender<VsdServerEvent>,
+}
+
+/// Server-side notifications for the application layer.
+#[derive(Debug, Clone)]
+pub enum VsdServerEvent {
+    DeviceOpened {
+        device_id: String,
+        name: String,
+        rows: u32,
+        columns: u32,
+    },
+    KeyEvent {
+        device_id: String,
+        index: u32,
+        pressed: bool,
+    },
 }
 
 impl VsdServer {
@@ -57,11 +74,17 @@ impl VsdServer {
             id: "integratedeck-primary".into(),
             name: format!("integratedeck {}x{}", config.rows, config.columns),
         }]));
+        let (events, _) = broadcast::channel(64);
         Ok(Self {
             listener,
             config,
             devices,
+            events,
         })
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<VsdServerEvent> {
+        self.events.subscribe()
     }
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
@@ -74,8 +97,10 @@ impl VsdServer {
                 Ok((stream, _)) => {
                     let config = self.config.clone();
                     let devices = self.devices.clone();
+                    let events = self.events.clone();
                     tokio::spawn(async move {
-                        if let Err(error) = handle_connection(stream, config, devices).await {
+                        if let Err(error) = handle_connection(stream, config, devices, events).await
+                        {
                             tracing::debug!("vsd connection ended: {error:#}");
                         }
                     });
@@ -93,6 +118,7 @@ async fn handle_connection(
     stream: TcpStream,
     config: VsdServerConfig,
     devices: Arc<Mutex<Vec<VirtualDevice>>>,
+    events: broadcast::Sender<VsdServerEvent>,
 ) -> anyhow::Result<()> {
     let websocket = accept_async(stream).await?;
     let (mut sink, mut stream) = websocket.split();
@@ -139,6 +165,7 @@ async fn handle_connection(
     )
     .await?;
 
+    let mut opened_device_id: Option<String> = None;
     while let Some(frame) = next_binary(&mut stream).await? {
         let plaintext = crypto
             .decrypt(&frame)
@@ -150,10 +177,12 @@ async fn handle_connection(
             }
             Some(client_message::Msg::CreateVirtualDevice(create)) => {
                 let id = format!("ideck-{}", uuid_like(devices.lock().await.len() + 1));
+                let name = create.name.clone();
                 devices.lock().await.push(VirtualDevice {
-                    id,
-                    name: create.name,
+                    id: id.clone(),
+                    name: name.clone(),
                 });
+                opened_device_id = Some(id.clone());
                 send_ok(&mut sink, &crypto).await?;
                 send_encrypted(
                     &mut sink,
@@ -165,11 +194,31 @@ async fn handle_connection(
                     },
                 )
                 .await?;
+                let _ = events.send(VsdServerEvent::DeviceOpened {
+                    device_id: id,
+                    name,
+                    rows: config.rows,
+                    columns: config.columns,
+                });
             }
-            Some(client_message::Msg::OpenVirtualDevice(_)) => {
+            Some(client_message::Msg::OpenVirtualDevice(open)) => {
+                opened_device_id = Some(open.device_id.clone());
                 send_ok(&mut sink, &crypto).await?;
+                let _ = events.send(VsdServerEvent::DeviceOpened {
+                    device_id: open.device_id,
+                    name: "virtual device".into(),
+                    rows: config.rows,
+                    columns: config.columns,
+                });
             }
             Some(client_message::Msg::KeyEvent(event)) => {
+                if let Some(device_id) = &opened_device_id {
+                    let _ = events.send(VsdServerEvent::KeyEvent {
+                        device_id: device_id.clone(),
+                        index: event.index,
+                        pressed: event.pressed,
+                    });
+                }
                 tracing::debug!(index = event.index, pressed = event.pressed, "vsd key event");
             }
             _ => {}

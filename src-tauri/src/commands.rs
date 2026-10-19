@@ -640,7 +640,13 @@ pub async fn start_vsd_server(
     port: u16,
 ) -> Result<String, String> {
     let mut o = state.write().await;
-    o.start_vsd_server(rows, columns, port).await
+    let (addr, events) = o.start_vsd_server(rows, columns, port).await?;
+    drop(o);
+    let state_clone = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        Orchestrator::run_vsd_event_loop(state_clone, events).await;
+    });
+    Ok(addr)
 }
 
 #[tauri::command]
@@ -654,6 +660,20 @@ pub async fn stop_vsd_server(state: State<'_, OrchState>) -> Result<(), String> 
 pub async fn get_vsd_status(state: State<'_, OrchState>) -> Result<Option<String>, String> {
     let o = state.read().await;
     Ok(o.vsd_status())
+}
+
+#[tauri::command]
+pub async fn unregister_surface(
+    state: State<'_, OrchState>,
+    surface_id: String,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .unregister_surface(surface_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

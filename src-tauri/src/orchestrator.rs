@@ -4718,7 +4718,8 @@ impl Orchestrator {
         rows: u32,
         columns: u32,
         port: u16,
-    ) -> Result<String, String> {
+    ) -> Result<(String, tokio::sync::broadcast::Receiver<ideck_vsd::server::VsdServerEvent>), String>
+    {
         self.stop_vsd_server();
         let config = ideck_vsd::server::VsdServerConfig {
             rows,
@@ -4729,10 +4730,85 @@ impl Orchestrator {
             .await
             .map_err(|error| error.to_string())?;
         let addr = server.local_addr().map_err(|error| error.to_string())?;
+        let events = server.subscribe();
         let handle = tokio::spawn(server.run());
         self.vsd_server = Some(handle);
         self.vsd_addr = Some(addr);
-        Ok(addr.to_string())
+        Ok((addr.to_string(), events))
+    }
+
+    /// Register an app-local mock surface for a VSD virtual device so the main
+    /// UI can act as the software deck.
+    pub async fn register_vsd_surface(
+        &mut self,
+        name: String,
+        rows: u32,
+        columns: u32,
+    ) -> SurfaceId {
+        let id = SurfaceId::new();
+        let mock = MockSurface::with_grid(id, name.clone(), rows.max(1), columns.max(1));
+        self.inner.surfaces.register_mock(mock).await;
+        self.inner
+            .profile
+            .surfaces
+            .push(ideck_core::SurfaceAssignment {
+                surface_id: id,
+                label: name,
+                emulation_profile: Some("custom".into()),
+            });
+        let _ = self.save_profile().await;
+        HubEvents::emit_surfaces_changed(&self.app, Some(id.0.to_string()));
+        id
+    }
+
+    pub async fn run_vsd_event_loop(
+        state: Arc<RwLock<Self>>,
+        mut events: tokio::sync::broadcast::Receiver<ideck_vsd::server::VsdServerEvent>,
+    ) {
+        use ideck_vsd::server::VsdServerEvent;
+        use std::collections::HashMap;
+        let mut surfaces: HashMap<String, (SurfaceId, u32)> = HashMap::new();
+        loop {
+            let event = match events.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            };
+            match event {
+                VsdServerEvent::DeviceOpened {
+                    device_id,
+                    name,
+                    rows,
+                    columns,
+                } => {
+                    let mut orchestrator = state.write().await;
+                    let surface_id = orchestrator
+                        .register_vsd_surface(name, rows, columns)
+                        .await;
+                    surfaces.insert(device_id, (surface_id, columns.max(1)));
+                }
+                VsdServerEvent::KeyEvent {
+                    device_id,
+                    index,
+                    pressed,
+                } => {
+                    let Some((surface_id, columns)) = surfaces.get(&device_id).copied() else {
+                        continue;
+                    };
+                    let address = CellAddress {
+                        row: index / columns,
+                        column: index % columns,
+                    };
+                    let input = if pressed {
+                        SurfaceInput::KeyDown { address }
+                    } else {
+                        SurfaceInput::KeyUp { address }
+                    };
+                    let mut orchestrator = state.write().await;
+                    let _ = orchestrator.apply_surface_input(surface_id, input).await;
+                }
+            }
+        }
     }
 
     pub fn stop_vsd_server(&mut self) {
@@ -4744,6 +4820,22 @@ impl Orchestrator {
 
     pub fn vsd_status(&self) -> Option<String> {
         self.vsd_addr.map(|addr| addr.to_string())
+    }
+
+    /// Remove a registered (mock) surface and its profile assignment/slots.
+    pub async fn unregister_surface(&mut self, surface_id: SurfaceId) -> anyhow::Result<()> {
+        self.inner.surfaces.unregister(surface_id).await;
+        self.inner
+            .profile
+            .surfaces
+            .retain(|surface| surface.surface_id != surface_id);
+        for page in &mut self.inner.profile.pages {
+            page.slots
+                .retain(|_, slot| slot.locator.surface_id != surface_id);
+        }
+        self.save_profile().await?;
+        HubEvents::emit_surfaces_changed(&self.app, Some(surface_id.0.to_string()));
+        Ok(())
     }
 
     pub async fn add_connection(&mut self, record: ConnectionRecord) -> anyhow::Result<()> {

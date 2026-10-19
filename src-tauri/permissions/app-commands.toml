@@ -47,6 +47,7 @@ commands.allow = [
   "start_vsd_server",
   "stop_vsd_server",
   "get_vsd_status",
+  "unregister_surface",
   "add_connection",
   "get_connection_config_fields",
   "update_connection_config",

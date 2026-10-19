@@ -40,6 +40,14 @@ impl MockSurface {
         Self::with_capabilities(id, name, SurfaceCapabilities::mock_3x5())
     }
 
+    /// Mock surface with an explicit grid, used by VSD software devices.
+    pub fn with_grid(id: SurfaceId, name: impl Into<String>, rows: u32, columns: u32) -> Arc<Self> {
+        let mut caps = SurfaceCapabilities::mock_3x5();
+        caps.rows = rows;
+        caps.columns = columns;
+        Self::with_capabilities(id, name, caps)
+    }
+
     /// Mock surface with physical encoders, for dial UI/backend tests.
     pub fn with_encoders(
         id: SurfaceId,

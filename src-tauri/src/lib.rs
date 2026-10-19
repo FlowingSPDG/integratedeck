@@ -109,6 +109,7 @@ pub fn run() {
             commands::start_vsd_server,
             commands::stop_vsd_server,
             commands::get_vsd_status,
+            commands::unregister_surface,
             commands::add_connection,
             commands::get_connection_config_fields,
             commands::update_connection_config,

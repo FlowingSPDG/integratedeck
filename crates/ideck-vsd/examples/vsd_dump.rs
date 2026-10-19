@@ -33,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
         hello.service_endpoints
     );
 
+    let mut created = false;
     for index in 0..12 {
         match tokio::time::timeout(Duration::from_secs(30), client.recv_raw()).await {
             Ok(Ok(Some(bytes))) => {
@@ -40,21 +41,22 @@ async fn main() -> anyhow::Result<()> {
                 match ideck_vsd::ServerMessage::decode(bytes.as_slice()) {
                     Ok(message) => {
                         println!("  decoded={message:?}");
-                        if let Some(ideck_vsd::server_message::Msg::VirtualDevices(list)) =
-                            &message.msg
+                        if !created
+                            && matches!(
+                                message.msg,
+                                Some(ideck_vsd::server_message::Msg::KeypadConfig(_))
+                            )
                         {
-                            if let Some(device) = list.devices.first() {
-                                println!("  creating a new virtual device (seen {})", device.id);
-                                let create = ideck_vsd::ClientMessage {
-                                    msg: Some(ideck_vsd::client_message::Msg::CreateVirtualDevice(
-                                        ideck_vsd::CreateVirtualDevice {
-                                            name: "integratedeck".into(),
-                                        },
-                                    )),
-                                };
-                                if let Err(error) = client.send(&create).await {
-                                    eprintln!("  create failed: {error}");
-                                }
+                            created = true;
+                            let create = ideck_vsd::ClientMessage {
+                                msg: Some(ideck_vsd::client_message::Msg::CreateVirtualDevice(
+                                    ideck_vsd::CreateVirtualDevice {
+                                        name: "integratedeck".into(),
+                                    },
+                                )),
+                            };
+                            if let Err(error) = client.send(&create).await {
+                                eprintln!("  create failed: {error}");
                             }
                         }
                     }
