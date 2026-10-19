@@ -11,7 +11,7 @@
 |---|---|---|---|
 | ネイティブプラグイン起動 | 実機 | [x] | ATEM プラグインで registerPlugin / keyDown |
 | HTML プラグイン WebView | 実機 | [x] | tutorial / Advanced HTTP を読み込み |
-| HTML 複数同時ホスト | ユニット | [x] | `plugin-host*` プール 4 面 |
+| HTML 複数同時ホスト | 実機 | [x] | tutorial slot=0 + tomato slot=1 を同時接続 |
 | Property Inspector 表示 | 実機 | [x] | Advanced HTTP の PI フィールド描画 |
 | PI setSettings 永続化 | 実機 | [x] | `url_press` がスロット設定へ保存 |
 | Node SDK プラグイン起動 | ユニット | [x] | `PluginLaunchStrategy::NodeScript` |
@@ -27,6 +27,8 @@
 | action options | ユニット | [x] | `options` が callback へ到達 |
 | feedback instance（control 単位） | ユニット | [x] | `connection.setFeedback` |
 | feedback options UI | ユニット | [x] | ConfigPanel の SettingsEditor |
+| module saveConfig 永続化 | ユニット | [x] | `connection.config` で config+secrets 保存 |
+| 接続状態表示 | 実機 | [x] | `list_companion_status` |
 | 実 vMix 接続・実行 | 実機 | [ ] | vMix 本体が必要 |
 
 ## Studio
@@ -50,6 +52,7 @@
 | 項目 | 種別 | 状態 | 根拠 |
 |---|---|---|---|
 | XL HID 画像 / 入力 | 実機 | [x] | CL18I1A02341 |
+| サーフェス検出UI | 実機 | [x] | `scan_surface_devices` が XL + Studio LAN を返す |
 | ダイヤル SD / Companion / Built-in | モック | [x] | bind + rotate/press |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
 | Plus / Neo | 実機 | [ ] | 未接続 |
