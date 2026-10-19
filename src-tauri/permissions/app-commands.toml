@@ -11,6 +11,7 @@ commands.allow = [
   "list_surface_drivers",
   "connect_hid_device",
   "connect_surface_device",
+  "ensure_surface_slots",
   "open_plugins_folder",
   "get_runtime_status",
   "unload_sd_plugin",

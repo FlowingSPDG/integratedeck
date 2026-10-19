@@ -112,17 +112,17 @@ impl StudioLanSurface {
     }
 
     fn send_image(&self, key: u8, jpeg: &[u8]) {        const CHUNK: usize = 1016;
-        let size = jpeg.len().min(u16::MAX as usize) as u16;
         let mut offset = 0;
         let mut sequence = 0u16;
         while offset < jpeg.len() {
             let end = (offset + CHUNK).min(jpeg.len());
+            let chunk_len = (end - offset) as u16;
             let mut packet = vec![0u8; 1024];
             packet[0] = 0x02;
             packet[1] = 0x07;
             packet[2] = key;
             packet[3] = u8::from(end == jpeg.len());
-            packet[4..6].copy_from_slice(&size.to_le_bytes());
+            packet[4..6].copy_from_slice(&chunk_len.to_le_bytes());
             packet[6..8].copy_from_slice(&sequence.to_le_bytes());
             packet[8..8 + (end - offset)].copy_from_slice(&jpeg[offset..end]);
             self.send(packet);

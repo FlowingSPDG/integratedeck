@@ -797,6 +797,20 @@ pub async fn connect_surface_device(
 }
 
 #[tauri::command]
+pub async fn ensure_surface_slots(
+    state: State<'_, OrchState>,
+    surface_id: String,
+) -> Result<usize, String> {
+    let surface_id = ideck_core::SurfaceId(
+        uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?,
+    );
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .ensure_surface_slots(surface_id)
+        .await
+}
+
+#[tauri::command]
 pub async fn register_mock_surface(
     state: State<'_, OrchState>,
     name: String,

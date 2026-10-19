@@ -2073,6 +2073,46 @@ impl Orchestrator {
         })
     }
 
+    pub async fn ensure_surface_slots(&mut self, surface_id: SurfaceId) -> Result<usize, String> {
+        let caps = self
+            .inner
+            .surfaces
+            .get(surface_id)
+            .await
+            .map(|surface| surface.descriptor().capabilities.clone())
+            .ok_or_else(|| "surface not registered".to_string())?;
+        let page_id = self
+            .inner
+            .profile
+            .active_page_id
+            .ok_or_else(|| "no active page".to_string())?;
+        let mut count = 0;
+        for row in 0..caps.rows {
+            for column in 0..caps.columns {
+                let slot_id = self
+                    .ensure_slot_at(surface_id, page_id, row, column)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if let Some(page) = self
+                    .inner
+                    .profile
+                    .pages
+                    .iter_mut()
+                    .find(|page| page.id == page_id)
+                {
+                    if let Some(slot) = page.slots.get_mut(&slot_id) {
+                        slot.appearance.default_image =
+                            Some(solid_key_png(144, 112, 28, 32, 42));
+                    }
+                }
+                count += 1;
+            }
+        }
+        self.save_profile().await.map_err(|e| e.to_string())?;
+        self.refresh_page_visuals(page_id, surface_id).await;
+        Ok(count)
+    }
+
     pub fn store_hid_tasks(
         &mut self,
         surface_id: SurfaceId,

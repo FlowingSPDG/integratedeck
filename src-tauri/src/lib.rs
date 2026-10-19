@@ -60,6 +60,7 @@ pub fn run() {
             commands::list_surface_drivers,
             commands::connect_hid_device,
             commands::connect_surface_device,
+            commands::ensure_surface_slots,
             commands::get_runtime_status,
             commands::unload_sd_plugin,
             commands::list_action_library,
