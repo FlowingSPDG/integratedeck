@@ -359,6 +359,82 @@ pub async fn add_multi_action_step(
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindEncoderCompanionArgs {
+    pub surface_id: String,
+    pub index: u32,
+    pub connection_id: String,
+    pub action_id: String,
+    #[serde(default)]
+    pub options: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn bind_encoder_companion(
+    state: State<'_, OrchState>,
+    args: BindEncoderCompanionArgs,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .bind_encoder_companion(
+            surface_id,
+            args.index,
+            args.connection_id,
+            args.action_id,
+            args.options,
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimulateEncoderArgs {
+    pub surface_id: String,
+    pub index: u32,
+    pub pressed: bool,
+}
+
+#[tauri::command]
+pub async fn simulate_encoder(
+    state: State<'_, OrchState>,
+    args: SimulateEncoderArgs,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let index = args.index;
+    let pressed = args.pressed;
+    let state_clone = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        Orchestrator::dispatch_simulate_encoder(state_clone, surface_id, index, pressed).await;
+    });
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnbindEncoderArgs {
+    pub surface_id: String,
+    pub index: u32,
+}
+
+#[tauri::command]
+pub async fn unbind_encoder(
+    state: State<'_, OrchState>,
+    args: UnbindEncoderArgs,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .unbind_encoder(surface_id, args.index)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn unbind_slot(state: State<'_, OrchState>, slot_id: String) -> Result<(), String> {
     let slot_id = parse_slot_id(&slot_id)?;

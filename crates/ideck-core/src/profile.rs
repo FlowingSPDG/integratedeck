@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{PageId, ProfileId, Slot, SlotId, SurfaceId};
+use crate::{Binding, PageId, ProfileId, Slot, SlotId, SurfaceId};
 
 /// User-facing profile: pages, surface assignment, slots.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +32,9 @@ pub struct Page {
     /// Parent page when this page is a folder child.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_page_id: Option<PageId>,
+    /// Encoder/dial bindings keyed by the physical encoder index.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub encoders: HashMap<u32, Binding>,
 }
 
 impl Profile {
@@ -41,6 +44,7 @@ impl Profile {
             name: "Page 1".into(),
             slots: HashMap::new(),
             parent_page_id: None,
+            encoders: HashMap::new(),
         };
         let active = page.id;
         Self {

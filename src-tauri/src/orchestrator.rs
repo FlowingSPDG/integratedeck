@@ -6,11 +6,10 @@ use ideck_bridge::CompSurfaceBridge;
 use ideck_bridge::SdSurfaceBridge;
 use ideck_comp_host::{scan_module_dirs, CompModuleRuntime, ConnectionRecord, HostEvent};
 use ideck_core::{
-    action_display_name, image_from_base64, image_from_data_url,
-    merge_visual, solid_key_png, ActionInstanceId, Binding,
-    BindingKind, FolderSettings, MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance,
-    SlotId, SlotLocator, SurfaceId, SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION,
-    OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
+    action_display_name, image_from_base64, image_from_data_url, merge_visual, solid_key_png,
+    ActionInstanceId, Binding, BindingKind, FolderSettings, MultiActionStep, Page, PageId, Profile,
+    Slot, SlotAppearance, SlotId, SlotLocator, SurfaceId, SwitchPageSettings, VisualState,
+    BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
 };
 use ideck_sd_host::{
     action_icon_data_url, effective_plugin_uuid, scan_sd_plugins_roots, ActionContext, BrokerEvent,
@@ -266,6 +265,52 @@ impl Orchestrator {
                 warn!("keydown binding: {e}");
             }
         }
+
+        if let SurfaceInput::EncoderPress { index, pressed } = &input {
+            if *pressed {
+                let binding = {
+                    let o = state.read().await;
+                    o.inner
+                        .profile
+                        .active_page_id
+                        .and_then(|page_id| {
+                            o.inner.profile.pages.iter().find(|page| page.id == page_id)
+                        })
+                        .and_then(|page| page.encoders.get(index))
+                        .cloned()
+                };
+                if let Some(binding) = binding {
+                    if let BindingKind::Companion {
+                        connection_id,
+                        action_id,
+                        options,
+                    } = binding.kind
+                    {
+                        let o = state.write().await;
+                        if let Err(e) = o
+                            .execute_companion_action(&connection_id, &action_id, options)
+                            .await
+                        {
+                            warn!("encoder companion action: {e}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn dispatch_simulate_encoder(
+        state: Arc<RwLock<Self>>,
+        surface_id: SurfaceId,
+        index: u32,
+        pressed: bool,
+    ) {
+        Self::dispatch_surface_input(
+            state,
+            surface_id,
+            SurfaceInput::EncoderPress { index, pressed },
+        )
+        .await;
     }
 
     pub async fn new_core(app: &AppHandle) -> anyhow::Result<Self> {
@@ -1112,6 +1157,7 @@ impl Orchestrator {
             name,
             slots: Default::default(),
             parent_page_id: Some(parent_page_id),
+            encoders: Default::default(),
         });
         child_id
     }
@@ -1688,6 +1734,7 @@ impl Orchestrator {
                     name: preset_page.name.clone(),
                     slots,
                     parent_page_id: None,
+                    encoders: Default::default(),
                 });
             }
         }
@@ -2618,6 +2665,56 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub async fn bind_encoder_companion(
+        &mut self,
+        surface_id: SurfaceId,
+        index: u32,
+        connection_id: String,
+        action_id: String,
+        options: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .inner
+            .profile
+            .active_page_id
+            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        page.encoders
+            .insert(index, Binding::companion(connection_id, action_id, options));
+        self.inner.surface_pages.insert(surface_id, page_id);
+        self.save_profile().await?;
+        Ok(())
+    }
+
+    pub async fn unbind_encoder(
+        &mut self,
+        surface_id: SurfaceId,
+        index: u32,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .inner
+            .profile
+            .active_page_id
+            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        page.encoders.remove(&index);
+        self.inner.surface_pages.insert(surface_id, page_id);
+        self.save_profile().await?;
+        Ok(())
+    }
+
     pub async fn unbind_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
@@ -3300,6 +3397,7 @@ impl Orchestrator {
             name,
             slots: Default::default(),
             parent_page_id,
+            encoders: Default::default(),
         });
         self.save_profile().await?;
         Ok(page_id)
@@ -4465,4 +4563,3 @@ fn is_slot_configured(slot: &Slot) -> bool {
             .is_some_and(|t| !t.trim().is_empty())
         || slot.appearance.default_image.is_some()
 }
-
