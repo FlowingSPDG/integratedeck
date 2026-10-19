@@ -62,3 +62,57 @@ experimenting with different `KeypadConfig` values.
   and server → key images/feedback.
 - Keep separate from Cora: VSD2 is desktop-app ↔ mobile/software surface over
   IP; Cora is host ↔ Stream Deck hardware.
+
+## Captured handshake (mobile app 2.4.2, 2026-10-20)
+
+Transport is **WebSocket** on TCP 28198 (not raw protobuf). The server
+responds `101 Switching Protocols` with `Server: VSD2 Server`. Binary
+WebSocket frames carry protobuf.
+
+### Client -> server (first binary frame)
+
+Outer message field **1** (length-delimited) contains:
+
+```
+field 1: bytes[32]                 # client id / nonce
+field 2: ClientInformation {
+  1: "iPhone"
+  2: "Stream Deck/2.4.2"
+  3: 2                             # device class?
+  4: "iPhone15,4"
+  5: "iOS"
+  6: "26.6.1"
+}
+```
+
+### Server -> client (first binary frame)
+
+Outer message field **10** (HelloFromServer):
+
+```
+1: "P6vj3ekvOMbJUWPXRuVIIQ"        # workstationID
+2: "DESKTOP-BUIITN0"               # hostname
+3: "7.6.0.23012"                   # app version
+4: 3                               # os type
+5: bytes[32]                       # host id / nonce
+7: "windows"
+8: "11"
+9: ServiceEndpoints {
+  1: "192.168.3.44"
+  1: "100.106.174.39"
+  1: "172.24.16.1"
+  1: "172.19.176.1"
+  2: 28198
+}
+```
+
+The oneof field numbers for the remaining messages (`VirtualDeviceList`,
+`CreateVirtualDevice`, `KeypadConfig`, `Context`, `Image`, ...) still need a
+capture while the mobile app opens a virtual device.
+
+### Button count
+
+`KeypadConfig` is a field of the virtual-device messages, so the grid is
+software-defined. The mobile UI may impose practical limits; capture the
+`CreateVirtualDevice` / `KeypadConfig` exchange to confirm the maximum rows and
+columns.
