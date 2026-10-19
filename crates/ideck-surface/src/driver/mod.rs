@@ -6,10 +6,14 @@
 mod registry;
 pub mod streamdeck;
 pub mod studio_lan;
+pub mod studio_protocol;
+pub mod studio_usb;
 
 pub use registry::*;
 pub use streamdeck::*;
 pub use studio_lan::*;
+pub use studio_protocol::*;
+pub use studio_usb::*;
 
 use std::sync::Arc;
 

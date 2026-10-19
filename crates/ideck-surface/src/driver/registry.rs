@@ -22,6 +22,7 @@ impl SurfaceDriverRegistry {
             drivers: vec![
                 Arc::new(super::StreamDeckHidDriver),
                 Arc::new(super::StudioLanDriver),
+                Arc::new(super::studio_usb::StudioUsbDriver),
             ],
         }
     }

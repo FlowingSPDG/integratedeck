@@ -28,4 +28,7 @@ pub enum SurfaceInput {
     PageChange {
         page_index: u32,
     },
+    Nfc {
+        uid: Vec<u8>,
+    },
 }
