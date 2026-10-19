@@ -4,7 +4,7 @@ use prost::Message;
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ClientMessage {
-    #[prost(oneof = "client_message::Msg", tags = "1, 2, 3, 4")]
+    #[prost(oneof = "client_message::Msg", tags = "1, 2, 3, 4, 5")]
     pub msg: Option<client_message::Msg>,
 }
 
@@ -19,7 +19,37 @@ pub mod client_message {
         CreateVirtualDevice(super::CreateVirtualDevice),
         #[prost(message, tag = "4")]
         OpenVirtualDevice(super::OpenVirtualDevice),
+        /// integratedeck extension: key press/release from a software surface.
+        #[prost(message, tag = "5")]
+        KeyEvent(super::KeyEvent),
     }
+}
+
+/// integratedeck extension: logical key event for a virtual device.
+#[derive(Clone, PartialEq, Message)]
+pub struct KeyEvent {
+    #[prost(uint32, tag = "1")]
+    pub index: u32,
+    #[prost(bool, tag = "2")]
+    pub pressed: bool,
+}
+
+/// integratedeck extension: key grid for a virtual device.
+#[derive(Clone, PartialEq, Message)]
+pub struct KeypadConfig {
+    #[prost(uint32, tag = "1")]
+    pub rows: u32,
+    #[prost(uint32, tag = "2")]
+    pub columns: u32,
+}
+
+/// integratedeck extension: JPEG for one virtual key.
+#[derive(Clone, PartialEq, Message)]
+pub struct ButtonImage {
+    #[prost(uint32, tag = "1")]
+    pub index: u32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub jpeg: Vec<u8>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -66,7 +96,7 @@ pub struct Authenticate {
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Msg", tags = "1, 2, 10, 20")]
+    #[prost(oneof = "server_message::Msg", tags = "1, 2, 10, 20, 21, 22")]
     pub msg: Option<server_message::Msg>,
 }
 
@@ -81,6 +111,12 @@ pub mod server_message {
         Hello(super::HelloFromServer),
         #[prost(message, tag = "20")]
         VirtualDevices(super::VirtualDeviceList),
+        /// integratedeck extension: grid to render for the opened device.
+        #[prost(message, tag = "21")]
+        KeypadConfig(super::KeypadConfig),
+        /// integratedeck extension: JPEG for one key.
+        #[prost(message, tag = "22")]
+        ButtonImage(super::ButtonImage),
     }
 }
 

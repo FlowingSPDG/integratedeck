@@ -17,8 +17,8 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::{accept_async, WebSocketStream};
 
 use crate::messages::{
-    client_message, server_message::Msg as ServerMsg, ClientMessage, Ok, ServerMessage,
-    VirtualDevice, VirtualDeviceList,
+    client_message, server_message::Msg as ServerMsg, ClientMessage, KeypadConfig, Ok,
+    ServerMessage, VirtualDevice, VirtualDeviceList,
 };
 use crate::VsdCrypto;
 
@@ -127,6 +127,17 @@ async fn handle_connection(
         },
     )
     .await?;
+    send_encrypted(
+        &mut sink,
+        &crypto,
+        &ServerMessage {
+            msg: Some(ServerMsg::KeypadConfig(KeypadConfig {
+                rows: config.rows,
+                columns: config.columns,
+            })),
+        },
+    )
+    .await?;
 
     while let Some(frame) = next_binary(&mut stream).await? {
         let plaintext = crypto
@@ -157,6 +168,9 @@ async fn handle_connection(
             }
             Some(client_message::Msg::OpenVirtualDevice(_)) => {
                 send_ok(&mut sink, &crypto).await?;
+            }
+            Some(client_message::Msg::KeyEvent(event)) => {
+                tracing::debug!(index = event.index, pressed = event.pressed, "vsd key event");
             }
             _ => {}
         }

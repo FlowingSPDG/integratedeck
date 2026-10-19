@@ -29,6 +29,15 @@ async fn server_accepts_client_and_creates_virtual_device() {
     .expect("connect");
     assert!(!hello.client_needs_authentication);
 
+    let keypad = client.recv().await.expect("recv keypad").expect("some");
+    match keypad.msg {
+        Some(server_message::Msg::KeypadConfig(config)) => {
+            assert_eq!(config.rows, 3);
+            assert_eq!(config.columns, 5);
+        }
+        other => panic!("unexpected message: {other:?}"),
+    }
+
     let ok = client.recv().await.expect("recv ok").expect("some");
     assert!(matches!(ok.msg, Some(server_message::Msg::Ok(_))));
 
@@ -43,6 +52,16 @@ async fn server_accepts_client_and_creates_virtual_device() {
 
     let created = client.recv().await.expect("recv ok").expect("some");
     assert!(matches!(created.msg, Some(server_message::Msg::Ok(_))));
+
+    client
+        .send(&ClientMessage {
+            msg: Some(client_message::Msg::KeyEvent(ideck_vsd::messages::KeyEvent {
+                index: 0,
+                pressed: true,
+            })),
+        })
+        .await
+        .expect("key event");
 
     let list = client.recv().await.expect("recv list").expect("some");
     match list.msg {
