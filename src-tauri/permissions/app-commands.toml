@@ -43,6 +43,7 @@ commands.allow = [
   "trigger_slot",
   "simulate_slot_key",
   "list_connections",
+  "list_companion_status",
   "add_connection",
   "get_connection_config_fields",
   "update_connection_config",

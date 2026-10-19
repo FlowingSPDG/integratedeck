@@ -625,6 +625,14 @@ pub async fn simulate_slot_key(
 }
 
 #[tauri::command]
+pub async fn list_companion_status(
+    state: State<'_, OrchState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let o = state.read().await;
+    Ok(o.companion_statuses())
+}
+
+#[tauri::command]
 pub async fn list_connections(
     state: State<'_, OrchState>,
 ) -> Result<Vec<ConnectionRecord>, String> {

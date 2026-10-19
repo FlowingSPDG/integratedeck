@@ -91,6 +91,7 @@ pub fn run() {
             commands::trigger_slot,
             commands::simulate_slot_key,
             commands::list_connections,
+            commands::list_companion_status,
             commands::add_connection,
             commands::get_connection_config_fields,
             commands::update_connection_config,

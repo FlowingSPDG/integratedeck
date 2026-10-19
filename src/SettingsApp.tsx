@@ -174,6 +174,9 @@ export default function SettingsApp() {
   const [newConnLabel, setNewConnLabel] = useState("");
   const [newConnModule, setNewConnModule] = useState("");
   const [configConnectionId, setConfigConnectionId] = useState<string | null>(null);
+  const [companionStatuses, setCompanionStatuses] = useState<
+    Record<string, { status?: string; message?: string }>
+  >({});
   const [configFields, setConfigFields] = useState<CompanionConfigField[]>([]);
   const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
   const [secretValues, setSecretValues] = useState<Record<string, unknown>>({});
@@ -236,14 +239,24 @@ export default function SettingsApp() {
   }, [selectedDeviceKey]);
 
   const loadCompanion = useCallback(async () => {
-    const [scan, conns, runtime] = await Promise.all([
+    const [scan, conns, runtime, statuses] = await Promise.all([
       invoke<ScanResult>("scan_plugins"),
       invoke<ConnectionRecord[]>("list_connections"),
       invoke<{ companion: { companionHostRunning: boolean } }>("get_runtime_status"),
+      invoke<Array<{ connectionId?: string; status?: string; message?: string }>>(
+        "list_companion_status",
+      ),
     ]);
     setCompanionScan(scan);
     setConnections(conns);
     setHostRunning(runtime.companion.companionHostRunning);
+    const map: Record<string, { status?: string; message?: string }> = {};
+    for (const entry of statuses) {
+      if (entry.connectionId) {
+        map[entry.connectionId] = { status: entry.status, message: entry.message };
+      }
+    }
+    setCompanionStatuses(map);
     if (scan.companion[0]) setNewConnModule(scan.companion[0].name);
   }, []);
 
@@ -663,13 +676,14 @@ export default function SettingsApp() {
                   <th>{s.connectionLabel}</th>
                   <th>{s.moduleId}</th>
                   <th />
+                  <th>状態</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {connections.length === 0 ? (
                   <tr>
-                    <td colSpan={4}>{s.noConnections}</td>
+                    <td colSpan={5}>{s.noConnections}</td>
                   </tr>
                 ) : (
                   connections.map((c) => (
@@ -679,6 +693,11 @@ export default function SettingsApp() {
                         <code>{c.moduleId}</code>
                       </td>
                       <td>{c.enabled ? "✓" : "—"}</td>
+                      <td>
+                        {companionStatuses[c.id]?.message ??
+                          companionStatuses[c.id]?.status ??
+                          "—"}
+                      </td>
                       <td>
                         <button
                           type="button"

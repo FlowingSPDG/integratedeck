@@ -55,6 +55,7 @@ pub struct Orchestrator {
     last_pi_context: Option<String>,
     last_pi_plugin_uuid: Option<String>,
     nfc: std::collections::HashMap<SurfaceId, Vec<u8>>,
+    comp_status: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -501,6 +502,7 @@ impl Orchestrator {
             last_pi_context: None,
             last_pi_plugin_uuid: None,
             nfc: std::collections::HashMap::new(),
+            comp_status: std::collections::HashMap::new(),
         })
     }
 
@@ -620,6 +622,10 @@ impl Orchestrator {
                 let _ = self.app.emit(HubEvents::DEFINITIONS_UPDATED, ev.data);
             }
             "connection.status" => {
+                if let Some(connection_id) = ev.data.get("connectionId").and_then(|v| v.as_str()) {
+                    self.comp_status
+                        .insert(connection_id.to_string(), ev.data.clone());
+                }
                 let _ = self.app.emit("connection-status", ev.data);
             }
             "connection.config" => {
@@ -630,6 +636,9 @@ impl Orchestrator {
                     if let Some(record) = self.inner.connections.get(connection_id) {
                         let mut updated = record.clone();
                         updated.config = config.clone();
+                        if let Some(secrets) = ev.data.get("secrets") {
+                            updated.secrets = secrets.clone();
+                        }
                         self.inner.connections.add(updated);
                         let _ = self.save_connections();
                     }
@@ -656,7 +665,7 @@ impl Orchestrator {
                         "moduleId": record.module_id,
                         "label": record.label,
                         "config": record.config,
-                        "secrets": {}
+                        "secrets": record.secrets
                     }),
                 )
                 .await;
@@ -4694,6 +4703,10 @@ impl Orchestrator {
 
     pub fn connections(&self) -> Vec<ConnectionRecord> {
         self.inner.connections.list()
+    }
+
+    pub fn companion_statuses(&self) -> Vec<serde_json::Value> {
+        self.comp_status.values().cloned().collect()
     }
 
     pub async fn add_connection(&mut self, record: ConnectionRecord) -> anyhow::Result<()> {
