@@ -272,9 +272,44 @@ impl Orchestrator {
                 index,
                 pressed: true,
             } => {
-                let o = state.read().await;
-                if let Err(e) = o.run_encoder_binding(surface_id, *index, None, true).await {
-                    warn!("encoder press: {e}");
+                let builtin = {
+                    let o = state.read().await;
+                    let page_id = o
+                        .inner
+                        .surface_pages
+                        .get(&surface_id)
+                        .copied()
+                        .or(o.inner.profile.active_page_id);
+                    page_id
+                        .and_then(|page_id| {
+                            o.inner
+                                .profile
+                                .pages
+                                .iter()
+                                .find(|page| page.id == page_id)
+                        })
+                        .and_then(|page| page.encoders.get(index))
+                        .and_then(|binding| match &binding.kind {
+                            BindingKind::BuiltIn {
+                                action_id,
+                                settings,
+                            } => Some((action_id.clone(), settings.clone())),
+                            _ => None,
+                        })
+                };
+                if let Some((action_id, settings)) = builtin {
+                    let mut o = state.write().await;
+                    if let Err(e) = o
+                        .execute_encoder_builtin(surface_id, &action_id, &settings)
+                        .await
+                    {
+                        warn!("encoder built-in: {e}");
+                    }
+                } else {
+                    let o = state.read().await;
+                    if let Err(e) = o.run_encoder_binding(surface_id, *index, None, true).await {
+                        warn!("encoder press: {e}");
+                    }
                 }
             }
             SurfaceInput::EncoderRotate {
@@ -292,6 +327,38 @@ impl Orchestrator {
             }
             _ => {}
         }
+    }
+
+    async fn execute_encoder_builtin(
+        &mut self,
+        surface_id: SurfaceId,
+        action_id: &str,
+        settings: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let target = |key: &str| {
+            settings
+                .get(key)
+                .and_then(|value| value.as_str())
+                .and_then(|value| uuid::Uuid::parse_str(value).ok())
+                .map(PageId)
+        };
+        match action_id {
+            BACK_TO_PARENT => self.navigate_surface_back(surface_id).await?,
+            SWITCH_PAGE => {
+                if let Some(page_id) = target("targetPageId").or_else(|| target("target_page_id")) {
+                    self.navigate_surface_to_page(surface_id, page_id, true)
+                        .await?;
+                }
+            }
+            OPEN_FOLDER => {
+                if let Some(page_id) = target("childPageId").or_else(|| target("child_page_id")) {
+                    self.navigate_surface_to_page(surface_id, page_id, true)
+                        .await?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     async fn run_encoder_binding(
