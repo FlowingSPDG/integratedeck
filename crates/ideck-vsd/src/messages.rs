@@ -4,7 +4,7 @@ use prost::Message;
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ClientMessage {
-    #[prost(oneof = "client_message::Msg", tags = "1, 2")]
+    #[prost(oneof = "client_message::Msg", tags = "1, 2, 3, 4")]
     pub msg: Option<client_message::Msg>,
 }
 
@@ -15,7 +15,23 @@ pub mod client_message {
         Hello(super::HelloFromClient),
         #[prost(message, tag = "2")]
         Authenticate(super::Authenticate),
+        #[prost(message, tag = "3")]
+        CreateVirtualDevice(super::CreateVirtualDevice),
+        #[prost(message, tag = "4")]
+        OpenVirtualDevice(super::OpenVirtualDevice),
     }
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct CreateVirtualDevice {
+    #[prost(string, tag = "1")]
+    pub name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct OpenVirtualDevice {
+    #[prost(string, tag = "1")]
+    pub device_id: String,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -50,16 +66,37 @@ pub struct Authenticate {
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Msg", tags = "10")]
+    #[prost(oneof = "server_message::Msg", tags = "2, 10, 20")]
     pub msg: Option<server_message::Msg>,
 }
 
 pub mod server_message {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Msg {
+        #[prost(message, tag = "2")]
+        Ok(super::Ok),
         #[prost(message, tag = "10")]
         Hello(super::HelloFromServer),
+        #[prost(message, tag = "20")]
+        VirtualDevices(super::VirtualDeviceList),
     }
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct Ok {}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct VirtualDeviceList {
+    #[prost(message, repeated, tag = "1")]
+    pub devices: Vec<VirtualDevice>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct VirtualDevice {
+    #[prost(string, tag = "1")]
+    pub id: String,
+    #[prost(string, tag = "2")]
+    pub name: String,
 }
 
 #[derive(Clone, PartialEq, Message)]

@@ -44,7 +44,7 @@ impl VsdClient {
         let server = ServerMessage::decode(plaintext.as_slice())?;
         let hello = match server.msg {
             Some(server_message::Msg::Hello(hello)) => hello,
-            None => anyhow::bail!("VSD2 server did not send HelloFromServer"),
+            _ => anyhow::bail!("VSD2 server did not send HelloFromServer"),
         };
         let peer = PublicKey::from_slice(&hello.public_key)
             .map_err(|_| anyhow::anyhow!("invalid VSD2 server public key"))?;
@@ -73,8 +73,8 @@ impl VsdClient {
         Ok(())
     }
 
-    /// Read and decrypt the next protobuf message.
-    pub async fn recv(&mut self) -> anyhow::Result<Option<ServerMessage>> {
+    /// Read and decrypt the next raw protobuf payload.
+    pub async fn recv_raw(&mut self) -> anyhow::Result<Option<Vec<u8>>> {
         loop {
             let Some(message) = self.stream.next().await else {
                 return Ok(None);
@@ -85,11 +85,19 @@ impl VsdClient {
                         .crypto
                         .decrypt(bytes.as_ref())
                         .map_err(|e| anyhow::anyhow!("VSD2 decrypt: {e}"))?;
-                    return Ok(Some(ServerMessage::decode(plaintext.as_slice())?));
+                    return Ok(Some(plaintext));
                 }
                 WsMessage::Close(_) => return Ok(None),
                 _ => {}
             }
+        }
+    }
+
+    /// Read and decrypt the next protobuf message.
+    pub async fn recv(&mut self) -> anyhow::Result<Option<ServerMessage>> {
+        match self.recv_raw().await? {
+            Some(plaintext) => Ok(Some(ServerMessage::decode(plaintext.as_slice())?)),
+            None => Ok(None),
         }
     }
 }
