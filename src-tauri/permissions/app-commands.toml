@@ -63,6 +63,7 @@ commands.allow = [
   "update_slot_settings",
   "set_active_page",
   "create_page",
+  "delete_page",
   "set_surface_page",
   "list_variables",
   "register_mock_surface",

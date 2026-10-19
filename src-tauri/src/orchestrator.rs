@@ -4069,6 +4069,57 @@ impl Orchestrator {
         Ok(page_id)
     }
 
+    pub async fn delete_page(&mut self, page_id: PageId) -> anyhow::Result<()> {
+        if !self.inner.profile.pages.iter().any(|page| page.id == page_id) {
+            anyhow::bail!("page not found");
+        }
+        if self.inner.profile.pages.len() <= 1 {
+            anyhow::bail!("cannot delete the last page");
+        }
+        let mut remove = std::collections::HashSet::new();
+        let mut stack = vec![page_id];
+        while let Some(id) = stack.pop() {
+            if !remove.insert(id) {
+                continue;
+            }
+            for child in self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .filter(|page| page.parent_page_id == Some(id))
+            {
+                stack.push(child.id);
+            }
+        }
+        self.inner
+            .profile
+            .pages
+            .retain(|page| !remove.contains(&page.id));
+        let fallback = self
+            .inner
+            .profile
+            .pages
+            .first()
+            .map(|page| page.id)
+            .ok_or_else(|| anyhow::anyhow!("no page left"))?;
+        for page in self.inner.surface_pages.values_mut() {
+            if remove.contains(page) {
+                *page = fallback;
+            }
+        }
+        if self
+            .inner
+            .profile
+            .active_page_id
+            .is_some_and(|active| remove.contains(&active))
+        {
+            self.inner.profile.active_page_id = Some(fallback);
+        }
+        self.save_profile().await?;
+        Ok(())
+    }
+
     pub async fn set_surface_page(
         &mut self,
         surface_id: SurfaceId,

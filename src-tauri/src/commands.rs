@@ -923,6 +923,16 @@ pub struct CreatePageArgs {
 
 /// Create a page and return its id. The frontend switches to it afterwards.
 #[tauri::command]
+pub async fn delete_page(state: State<'_, OrchState>, page_id: String) -> Result<(), String> {
+    let page_id = ideck_core::PageId(uuid::Uuid::parse_str(&page_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .delete_page(page_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn create_page(
     state: State<'_, OrchState>,
     args: CreatePageArgs,
