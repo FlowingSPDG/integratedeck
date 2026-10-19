@@ -38,8 +38,8 @@ export default class Demo {
     this.context.setVariableValues({ state: 'ready' })
     this.context.setPresetDefinitions({ p1: { type: 'button', name: 'Preset 1' } })
   }
-  async configUpdated(config) {
-    this.context.setVariableValues({ state: 'updated' })
+  async configUpdated(config, secrets) {
+    this.context.setVariableValues({ state: String(secrets?.token ?? 'updated') })
   }
   async destroy() {}
 }
@@ -107,6 +107,17 @@ async fn module_fixture_roundtrip() {
         .unwrap();
     assert_eq!(acted["value"], "acted");
 
+    let fields = runtime
+        .request(
+            "connection.getConfigFields",
+            json!({ "connectionId": "c1" }),
+        )
+        .await
+        .expect("fields")
+        .result
+        .unwrap();
+    assert_eq!(fields["fields"][0]["id"], "host");
+
     let with_options = runtime
         .request(
             "connection.executeAction",
@@ -134,7 +145,11 @@ async fn module_fixture_roundtrip() {
     let updated = runtime
         .request(
             "connection.updateConfig",
-            json!({ "connectionId": "c1", "config": { "host": "10.0.0.2" } }),
+            json!({
+                "connectionId": "c1",
+                "config": { "host": "10.0.0.2" },
+                "secrets": { "token": "s3" }
+            }),
         )
         .await
         .expect("update");
@@ -149,7 +164,7 @@ async fn module_fixture_roundtrip() {
         .expect("var")
         .result
         .unwrap();
-    assert_eq!(value["value"], "updated");
+    assert_eq!(value["value"], "s3");
 
     let removed = runtime
         .request("connection.remove", json!({ "connectionId": "c1" }))
