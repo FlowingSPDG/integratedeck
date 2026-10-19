@@ -40,7 +40,8 @@
 | USB HID 列挙（0fd9:00aa） | ユニット | [x] | `studio_usb` ドライバ |
 | USB キー画像 / 入力 / LED | 実機 | [ ] | Studio USB 未接続 |
 | USB/LAN 重複排除 | ユニット | [x] | `scan_all` |
-| LCD パネル画像（02 0c） | ユニット | [x] | `lcd_image_packets` |
+| LCD パネル画像（02 0c） | ユニット | [x] | `lcd_image_packets` + `set_studio_lcd` |
+| NFC UID 取得 | ユニット | [x] | `get_last_nfc`（コロン区切りHEX） |
 
 ## サーフェス / ダイヤル
 
