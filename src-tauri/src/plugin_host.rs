@@ -115,13 +115,21 @@ impl PluginHost {
             .window_size
             .map(|(w, h)| (w as f64, h as f64))
             .unwrap_or((DEFAULT_WIDTH, DEFAULT_HEIGHT));
+        let show_window = request.window_size.is_some();
 
         window.set_size(LogicalSize::new(width, height))?;
         window.set_title(&window_title(&request))?;
         window.set_skip_taskbar(false)?;
         window.navigate(url)?;
-        window.show()?;
-        window.set_focus()?;
+        if show_window {
+            window.show()?;
+            window.set_focus()?;
+        } else {
+            // Headless HTML plugins (no DefaultWindowSize) often have a
+            // script-only body; keep the window hidden instead of showing an
+            // empty subwindow. `focus_plugin_host_window` can reveal it.
+            window.hide()?;
+        }
 
         *active = Some(request.plugin_uuid.clone());
         info!(
