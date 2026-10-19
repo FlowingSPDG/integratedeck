@@ -189,6 +189,7 @@ async fn network_task(
 
     let mut report = [0u8; 512];
     let mut previous = [false; 32];
+    let mut previous_encoders = [false; 2];
     let mut logged = 0usize;
     loop {
         if read_half.read_exact(&mut report).await.is_err() {
@@ -198,11 +199,55 @@ async fn network_task(
             info!("studio rx head={:02x?}", &report[..16]);
             logged += 1;
         }
-        for input in decode_button_report(&report, &mut previous) {
+        for input in decode_button_report(&report, &mut previous)
+            .into_iter()
+            .chain(decode_encoder_report(&report, &mut previous_encoders))
+        {
             let _ = inputs.send(input);
         }
     }
     Ok(())
+}
+
+fn decode_encoder_report(
+    report: &[u8],
+    previous: &mut [bool; 2],
+) -> Vec<SurfaceInput> {
+    if report.len() < 7 || report[0] != 0x01 || report[1] != 0x03 {
+        return Vec::new();
+    }
+    let mut updates = Vec::new();
+    match report[4] {
+        // Encoder press states.
+        0x00 => {
+            for index in 0..2 {
+                let pressed = report[5 + index] != 0;
+                if pressed == previous[index] {
+                    continue;
+                }
+                previous[index] = pressed;
+                updates.push(SurfaceInput::EncoderPress {
+                    index: index as u32,
+                    pressed,
+                });
+            }
+        }
+        // Encoder twist deltas.
+        0x01 => {
+            for index in 0..2 {
+                let delta = report[5 + index] as i8;
+                if delta != 0 {
+                    updates.push(SurfaceInput::EncoderRotate {
+                        index: index as u32,
+                        ticks: i32::from(delta),
+                        pressed: false,
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+    updates
 }
 
 fn decode_button_report(
@@ -333,6 +378,36 @@ mod tests {
         let mut previous = [false; 32];
         let report = [0u8; 512];
         assert!(decode_button_report(&report, &mut previous).is_empty());
+    }
+
+    #[test]
+    fn decodes_encoder_press_and_twist() {
+        let mut previous = [false; 2];
+        let mut report = [0u8; 512];
+        report[0] = 0x01;
+        report[1] = 0x03;
+        report[4] = 0x00;
+        report[5] = 1;
+        let updates = decode_encoder_report(&report, &mut previous);
+        assert!(matches!(
+            updates[0],
+            SurfaceInput::EncoderPress {
+                index: 0,
+                pressed: true
+            }
+        ));
+
+        report[4] = 0x01;
+        report[5] = 2;
+        let updates = decode_encoder_report(&report, &mut previous);
+        assert!(matches!(
+            updates[0],
+            SurfaceInput::EncoderRotate {
+                index: 0,
+                ticks: 2,
+                ..
+            }
+        ));
     }
 }
 
