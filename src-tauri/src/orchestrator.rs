@@ -26,7 +26,7 @@ use serde_json::json;
 use tauri::AppHandle;
 use tauri::Emitter;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::hub::{HubEvents, PluginStatusPayload, SettingsChangedPayload, VisualUpdatedPayload};
 use crate::paths;
@@ -4280,7 +4280,13 @@ impl Orchestrator {
         let mut to_trigger: Vec<BindingKind> = Vec::new();
         if let Some(page_id) = page_id {
             if let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) {
-                for slot in page.slots.values() {
+                debug!(
+                    ?surface_id,
+                    ?address,
+                    page = %page_id.0,
+                    slots = page.slots.len(),
+                    "keydown lookup"
+                );                for slot in page.slots.values() {
                     if slot.locator.surface_id != surface_id {
                         continue;
                     }
@@ -4297,7 +4303,7 @@ impl Orchestrator {
             }
         }
         for kind in to_trigger {
-            match &kind {
+            debug!(?surface_id, action = ?kind, "keydown trigger");            match &kind {
                 BindingKind::BuiltIn {
                     action_id,
                     settings,
@@ -4870,8 +4876,7 @@ impl Orchestrator {
                     } else {
                         SurfaceInput::KeyUp { address }
                     };
-                    info!(?surface_id, index, pressed, "vsd key event");
-                    let mut orchestrator = state.write().await;
+                    debug!(?surface_id, index, pressed, "vsd key event");                    let mut orchestrator = state.write().await;
                     if let Err(error) = orchestrator.apply_surface_input(surface_id, input).await {
                         warn!("vsd apply_surface_input failed: {error:#}");
                     }
