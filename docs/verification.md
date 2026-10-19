@@ -66,7 +66,9 @@
 | CreateVirtualDevice | 実機 | [ ] | `Error{code:5}` でペアリング待ち |
 | クライアントcrate統合 | ビルド | [x] | `crates/ideck-vsd` をworkspaceへ追加 |
 | 自前 VSD2 サーバ | 実機 | [x] | `start_vsd_server` + 実クライアントで KeypadConfig 3x5 / Ok |
-| ソフトウェアサーフェス接続 | 実機 | [x] | Create で `integratedeck` サーフェスを登録、KeyEventを入力へ |
+| ソフトウェアサーフェス接続 | 実機 | [x] | Create で `integratedeck` サーフェスを登録 |
+| KeyEvent配送 | 実機 | [x] | `vsd key event surface_id=... index=0` をログ確認 |
+| KeyEvent→スロット実行（VSD経由） | 実機 | [ ] | 合成入力ではページ遷移確認、VSD経由は調整中 |
 | サーフェス解除 | 実機 | [x] | `unregister_surface` で重複Studio/VSDを整理 |
 | ButtonImage配信 | 実機 | [x] | `ensure_surface_slots` 後に index 0/7/8/11... のJPEGを受信 |
 | Pi GPIO | 実装 | [ ] | 計画 Phase 5 |
