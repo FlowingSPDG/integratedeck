@@ -5,7 +5,9 @@
 //! 32-byte feature reports. The wire commands are shared with the LAN driver
 //! through [`super::studio_protocol`].
 
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc::{self, TryRecvError};
+use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use hidapi::{HidApi, HidDevice};
@@ -121,7 +123,9 @@ pub struct StudioUsbSurface {
 
 impl StudioUsbSurface {
     fn start(id: SurfaceId, label: &str, device_id: &str) -> Result<Arc<Self>, SurfaceError> {
-        let device = open_device(device_id)?;
+        // Validate that the device is present now; the worker re-opens it after
+        // unplug/replug or driver errors.
+        let _ = open_device(device_id)?;
         let (commands, rx) = mpsc::channel::<Vec<u8>>();
         let (inputs, _) = tokio::sync::broadcast::channel(64);
         let descriptor = SurfaceDescriptor {
@@ -147,9 +151,10 @@ impl StudioUsbSurface {
             commands,
             inputs: inputs.clone(),
         });
+        let worker_device_id = device_id.to_string();
         std::thread::Builder::new()
             .name("studio-usb".into())
-            .spawn(move || usb_task(device, rx, inputs))
+            .spawn(move || usb_task(worker_device_id, rx, inputs))
             .map_err(|error| SurfaceError::Other(error.to_string()))?;
         info!("studio USB opened {device_id}");
         Ok(surface)
@@ -196,21 +201,41 @@ impl StudioUsbSurface {
     }
 }
 
+fn reconnect(device_id: &str) -> HidDevice {
+    loop {
+        match open_device(device_id) {
+            Ok(device) => {
+                let _ = device.send_feature_report(&[0x03, 0x08, 64]);
+                return device;
+            }
+            Err(error) => {
+                warn!("studio USB {device_id}: reconnect failed: {error}; retrying");
+                std::thread::sleep(Duration::from_secs(5));
+            }
+        }
+    }
+}
+
 fn usb_task(
-    device: HidDevice,
+    device_id: String,
     rx: mpsc::Receiver<Vec<u8>>,
     inputs: tokio::sync::broadcast::Sender<SurfaceInput>,
 ) {
-    let _ = device.send_feature_report(&[0x03, 0x08, 64]);
+    let mut device = reconnect(&device_id);
     let mut previous_keys = [false; KEYS];
     let mut previous_encoders = [false; ENCODERS];
     let mut report = [0u8; INPUT_REPORT_LEN];
     loop {
-        while let Ok(packet) = rx.try_recv() {
-            if let Err(error) = device.write(&packet) {
-                warn!("studio USB write failed: {error}");
-                return;
+        match rx.try_recv() {
+            Ok(packet) => {
+                if let Err(error) = device.write(&packet) {
+                    warn!("studio USB write failed: {error}; reconnecting");
+                    device = reconnect(&device_id);
+                    continue;
+                }
             }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => return,
         }
         match device.read_timeout(&mut report, 20) {
             Ok(0) => {}
@@ -224,8 +249,8 @@ fn usb_task(
                 }
             }
             Err(error) => {
-                warn!("studio USB read failed: {error}");
-                return;
+                warn!("studio USB read failed: {error}; reconnecting");
+                device = reconnect(&device_id);
             }
         }
     }
