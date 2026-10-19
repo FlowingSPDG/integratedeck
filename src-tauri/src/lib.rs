@@ -40,6 +40,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // Prefer a Node runtime shipped with the app for Companion and Node
+            // SDK plugins; an explicit IDECK_NODE always wins.
+            if std::env::var("IDECK_NODE").is_err() {
+                if let Ok(resource_dir) = app.path().resource_dir() {
+                    let node = resource_dir.join("node").join(if cfg!(windows) {
+                        "node.exe"
+                    } else {
+                        "node"
+                    });
+                    if node.is_file() {
+                        std::env::set_var("IDECK_NODE", node);
+                    }
+                }
+            }
             windows::ensure_main_window(app)?;
             windows::ensure_settings_window(app)?;
             plugin_host::ensure_plugin_host_window(app)?;
