@@ -2,6 +2,7 @@
 
 mod embedded;
 mod native;
+mod node;
 mod webview;
 
 use std::path::{Path, PathBuf};
@@ -13,7 +14,10 @@ use crate::StreamDeckManifest;
 
 #[derive(Debug, Clone)]
 pub enum PluginLaunchStrategy {
+    /// Simple script run inside the embedded Boa engine.
     JsPlugin { script: PathBuf },
+    /// Node SDK plugin (`"Nodejs"` in the manifest) run by the real Node runtime.
+    NodeScript { script: PathBuf },
     NativeBinary { exe: PathBuf },
     HtmlWebView { html: PathBuf },
 }
@@ -47,8 +51,15 @@ impl PluginLaunchStrategy {
             return Ok(Self::HtmlWebView { html: code_path });
         }
 
-        if matches!(ext.as_str(), "js" | "mjs" | "cjs") || manifest.nodejs.is_some() {
+        if matches!(ext.as_str(), "js" | "mjs" | "cjs") {
+            if manifest.nodejs.is_some() {
+                return Ok(Self::NodeScript { script: code_path });
+            }
             return Ok(Self::JsPlugin { script: code_path });
+        }
+
+        if manifest.nodejs.is_some() {
+            return Ok(Self::NodeScript { script: code_path });
         }
 
         if code_path.is_file() {
@@ -90,6 +101,7 @@ pub fn build_registration_info(plugin_uuid: &str, version: &str, devices: Value)
 
 pub use embedded::{spawn_embedded_plugin, SdEntryMode};
 pub use native::spawn_native;
+pub use node::{node_binary, spawn_node};
 pub use webview::{
     close_webview_plugin, default_window_size, install_webview_plugin_host, open_webview_plugin,
     webview_plugin_host, WebviewPluginHost, WebviewPluginRequest,

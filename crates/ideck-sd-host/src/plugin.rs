@@ -8,7 +8,8 @@ use tracing::{error, warn};
 
 use crate::launch::{
     build_registration_info, close_webview_plugin, default_window_size, spawn_embedded_plugin,
-    spawn_native, webview_plugin_host, PluginLaunchStrategy, SdEntryMode, WebviewPluginRequest,
+    spawn_native, spawn_node, webview_plugin_host, PluginLaunchStrategy, SdEntryMode,
+    WebviewPluginRequest,
 };
 use crate::StreamDeckManifest;
 
@@ -26,6 +27,7 @@ pub enum PluginLaunchError {
 
 enum PluginRuntime {
     Native(Box<Child>),
+    Node(Box<Child>),
     Embedded(JsEngine),
     /// HTML plugin rendered in a WebView owned by the application layer.
     Webview,
@@ -42,6 +44,9 @@ impl Drop for PluginProcess {
     fn drop(&mut self) {
         match &mut self.runtime {
             PluginRuntime::Native(child) => {
+                let _ = child.start_kill();
+            }
+            PluginRuntime::Node(child) => {
                 let _ = child.start_kill();
             }
             PluginRuntime::Embedded(engine) => {
@@ -85,6 +90,23 @@ impl PluginProcess {
                     plugin_dir: plugin_dir.to_path_buf(),
                     port,
                     runtime: PluginRuntime::Embedded(engine),
+                })
+            }
+            PluginLaunchStrategy::NodeScript { script } => {
+                let child = spawn_node(
+                    &script,
+                    plugin_dir,
+                    port,
+                    &manifest.uuid,
+                    register_event,
+                    &info,
+                )
+                .await?;
+                Ok(Self {
+                    plugin_uuid: manifest.uuid,
+                    plugin_dir: plugin_dir.to_path_buf(),
+                    port,
+                    runtime: PluginRuntime::Node(Box::new(child)),
                 })
             }
             PluginLaunchStrategy::NativeBinary { exe } => {
