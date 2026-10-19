@@ -54,7 +54,7 @@ pub fn ensure_plugin_host_window(app: &App) -> Result<(), String> {
         }
 
         let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
-        let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(blank))
+        let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(blank))
             .title("integratedeck plugin")
             .inner_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
             .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
@@ -63,9 +63,7 @@ pub fn ensure_plugin_host_window(app: &App) -> Result<(), String> {
             .initialization_script(SHIM);
 
         #[cfg(debug_assertions)]
-        {
-            builder = builder.devtools(true);
-        }
+        let builder = builder.devtools(true);
 
         let window = builder
             .build()
