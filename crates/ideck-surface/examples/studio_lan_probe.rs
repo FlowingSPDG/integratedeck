@@ -33,6 +33,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     brightness[2] = 64;
     stream.write_all(&brightness).await?;
 
+    let mut color = [0u8; 1024];
+    color[0] = 0x03;
+    color[1] = 0x06;
+    color[2] = 0x00;
+    color[3] = 0xff;
+    color[4] = 0x00;
+    color[5] = 0x00;
+    stream.write_all(&color).await?;
+    let mut color_response = [0u8; 512];
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        stream.read_exact(&mut color_response),
+    )
+    .await
+    {
+        Ok(Ok(_)) => println!("color response head={}", hex(&color_response[..16])),
+        Ok(Err(error)) => println!("color error: {error}"),
+        Err(_) => println!("color timeout"),
+    }
+
+    let image = image::RgbaImage::from_pixel(144, 112, image::Rgba([255, 0, 0, 255]));
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90)
+        .encode_image(&image::DynamicImage::ImageRgba8(image))?;
+    let mut offset = 0usize;
+    let mut sequence = 0u16;
+    while offset < jpeg.len() {
+        let end = (offset + 1016).min(jpeg.len());
+        let chunk_len = (end - offset) as u16;
+        let mut packet = vec![0u8; 1024];
+        packet[0] = 0x02;
+        packet[1] = 0x07;
+        packet[2] = 0x00;
+        packet[3] = u8::from(end == jpeg.len());
+        packet[4..6].copy_from_slice(&chunk_len.to_le_bytes());
+        packet[6..8].copy_from_slice(&sequence.to_le_bytes());
+        packet[8..8 + (end - offset)].copy_from_slice(&jpeg[offset..end]);
+        stream.write_all(&packet).await?;
+        sequence = sequence.wrapping_add(1);
+        offset = end;
+    }
+    let mut image_response = [0u8; 512];
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        stream.read_exact(&mut image_response),
+    )
+    .await
+    {
+        Ok(Ok(_)) => println!("image response head={}", hex(&image_response[..16])),
+        Ok(Err(error)) => println!("image error: {error}"),
+        Err(_) => println!("image timeout"),
+    }
+
     for (index, id) in [0x1cu8, 0x80].into_iter().enumerate() {
         let mut query = [0u8; 1024];
         query[0] = 0x03;
