@@ -848,6 +848,14 @@ pub async fn list_surface_drivers(
 }
 
 #[tauri::command]
+pub async fn scan_surface_devices(
+    state: State<'_, OrchState>,
+) -> Result<Vec<ideck_surface::DiscoveredDevice>, String> {
+    let o = state.read().await;
+    o.scan_surface_devices()
+}
+
+#[tauri::command]
 pub async fn connect_hid_device(
     state: State<'_, OrchState>,
     serial: String,

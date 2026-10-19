@@ -58,6 +58,7 @@ pub fn run() {
             commands::open_companion_modules_folder,
             commands::scan_hid_devices,
             commands::list_surface_drivers,
+            commands::scan_surface_devices,
             commands::connect_hid_device,
             commands::connect_surface_device,
             commands::ensure_surface_slots,

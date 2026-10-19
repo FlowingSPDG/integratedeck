@@ -1951,6 +1951,10 @@ impl Orchestrator {
         self.inner.surface_drivers.list_manifests()
     }
 
+    pub fn scan_surface_devices(&self) -> Result<Vec<ideck_surface::DiscoveredDevice>, String> {
+        self.scan_physical_devices()
+    }
+
     pub fn scan_hid_devices(&self) -> Result<Vec<HidDeviceDescriptor>, String> {
         self.scan_physical_devices()
             .map(|devices| {

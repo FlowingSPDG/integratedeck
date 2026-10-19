@@ -9,6 +9,7 @@ commands.allow = [
   "scan_plugins",
   "scan_hid_devices",
   "list_surface_drivers",
+  "scan_surface_devices",
   "connect_hid_device",
   "connect_surface_device",
   "ensure_surface_slots",

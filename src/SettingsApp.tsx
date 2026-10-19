@@ -162,6 +162,16 @@ export default function SettingsApp() {
   const [newConnLabel, setNewConnLabel] = useState("");
   const [newConnModule, setNewConnModule] = useState("");
   const [studioAddr, setStudioAddr] = useState("192.168.3.48:5343");
+  const [surfaceDevices, setSurfaceDevices] = useState<
+    Array<{
+      driverId: string;
+      deviceId: string;
+      label: string;
+      product: string;
+      rows: number;
+      columns: number;
+    }>
+  >([]);
 
   const s = I18N[language];
 
@@ -179,6 +189,11 @@ export default function SettingsApp() {
   const loadDevices = useCallback(async () => {
     const list = await invoke<SettingsDeviceEntry[]>("list_settings_devices");
     setDevices(list);
+    try {
+      setSurfaceDevices(await invoke("scan_surface_devices"));
+    } catch {
+      setSurfaceDevices([]);
+    }
     let key = selectedDeviceKey;
     if (!key && list.length > 0) key = list[0].deviceKey;
     setSelectedDeviceKey(key);
@@ -370,6 +385,45 @@ export default function SettingsApp() {
                   {s.connect}
                 </button>
               </div>
+            </div>
+            <div className="field">
+              <label>サーフェスデバイス</label>
+              {surfaceDevices.length === 0 ? (
+                <p className="muted">検出されたデバイスはありません</p>
+              ) : (
+                surfaceDevices.map((device) => (
+                  <div className="actions" key={`${device.driverId}:${device.deviceId}`}>
+                    <span>
+                      {device.label} ({device.rows}×{device.columns})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const result = await invoke<{ surfaceId: string }>(
+                            "connect_surface_device",
+                            { driverId: device.driverId, deviceId: device.deviceId },
+                          );
+                          await invoke("ensure_surface_slots", {
+                            surfaceId: result.surfaceId,
+                          });
+                          setStatusLine(
+                            language === "ja"
+                              ? `${device.label} に接続しました`
+                              : `Connected ${device.label}`,
+                            "success",
+                          );
+                          await loadDevices();
+                        } catch (err) {
+                          setStatusLine(formatUserError(err), "error");
+                        }
+                      }}
+                    >
+                      {s.connect}
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
             <div className="field">
               <label htmlFor="device-select">{s.device}</label>
