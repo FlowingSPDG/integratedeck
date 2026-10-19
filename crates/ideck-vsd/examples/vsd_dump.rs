@@ -44,16 +44,16 @@ async fn main() -> anyhow::Result<()> {
                             &message.msg
                         {
                             if let Some(device) = list.devices.first() {
-                                println!("  opening virtual device {}", device.id);
-                                let open = ideck_vsd::ClientMessage {
-                                    msg: Some(ideck_vsd::client_message::Msg::OpenVirtualDevice(
-                                        ideck_vsd::OpenVirtualDevice {
-                                            device_id: device.id.clone(),
+                                println!("  creating a new virtual device (seen {})", device.id);
+                                let create = ideck_vsd::ClientMessage {
+                                    msg: Some(ideck_vsd::client_message::Msg::CreateVirtualDevice(
+                                        ideck_vsd::CreateVirtualDevice {
+                                            name: "integratedeck".into(),
                                         },
                                     )),
                                 };
-                                if let Err(error) = client.send(&open).await {
-                                    eprintln!("  open failed: {error}");
+                                if let Err(error) = client.send(&create).await {
+                                    eprintln!("  create failed: {error}");
                                 }
                             }
                         }
