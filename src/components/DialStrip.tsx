@@ -32,6 +32,13 @@ export const DialStrip = memo(function DialStrip() {
           options: selected.options ?? {},
         },
       });
+      await invoke("set_encoder_led", {
+        surfaceId: selectedSurfaceId,
+        index,
+        r: 120,
+        g: 60,
+        b: 180,
+      });
     } else if (selected.type === "stream_deck") {
       await invoke("bind_encoder_sd", {
         args: {
@@ -41,6 +48,13 @@ export const DialStrip = memo(function DialStrip() {
           actionUuid: selected.actionUuid,
         },
       });
+      await invoke("set_encoder_led", {
+        surfaceId: selectedSurfaceId,
+        index,
+        r: 60,
+        g: 90,
+        b: 180,
+      });
     }
     await refresh({ surfaceId: selectedSurfaceId });
   };
@@ -49,6 +63,13 @@ export const DialStrip = memo(function DialStrip() {
     if (!selectedSurfaceId) return;
     await invoke("unbind_encoder", {
       args: { surfaceId: selectedSurfaceId, index },
+    });
+    await invoke("set_encoder_led", {
+      surfaceId: selectedSurfaceId,
+      index,
+      r: 0,
+      g: 0,
+      b: 0,
     });
     await refresh({ surfaceId: selectedSurfaceId });
   };
