@@ -2251,6 +2251,7 @@ impl Orchestrator {
                 count += 1;
             }
         }
+        self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await.map_err(|e| e.to_string())?;
         self.refresh_page_visuals(page_id, surface_id).await;
         Ok(count)
