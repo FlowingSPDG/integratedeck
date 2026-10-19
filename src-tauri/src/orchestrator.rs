@@ -2032,7 +2032,17 @@ impl Orchestrator {
         device_id: String,
     ) -> Result<ConnectHidResult, String> {
         let label = format!("{driver_id} ({device_id})");
-        let surface_id = SurfaceId(uuid::Uuid::new_v4());
+        let surface_id = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .find(|surface| {
+                surface.label == label
+                    && surface.emulation_profile.as_deref() == Some(driver_id.as_str())
+            })
+            .map(|surface| surface.surface_id)
+            .unwrap_or_else(|| SurfaceId(uuid::Uuid::new_v4()));
         let surface = self
             .inner
             .surface_drivers
