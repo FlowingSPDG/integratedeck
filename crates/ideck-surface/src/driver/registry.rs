@@ -36,6 +36,14 @@ impl SurfaceDriverRegistry {
         for driver in &self.drivers {
             devices.extend(driver.scan()?);
         }
+        // Prefer a directly attached USB Studio over the LAN discovery entry so
+        // the same physical deck is not offered twice.
+        let has_usb_studio = devices
+            .iter()
+            .any(|device| device.driver_id == super::studio_usb::STUDIO_USB_DRIVER_ID);
+        if has_usb_studio {
+            devices.retain(|device| device.driver_id != super::studio_lan::STUDIO_DRIVER_ID);
+        }
         devices.sort_by(|a, b| a.product.cmp(&b.product).then(a.label.cmp(&b.label)));
         Ok(devices)
     }
