@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useDeck } from "../deck/DeckContext";
 import {
   BUILTIN_OPEN_FOLDER,
@@ -311,12 +312,34 @@ function PropertyInspectorSection({
       <p className="muted" id="pi-status">
         {binding?.actionId ?? binding?.actionUuid ?? ""}
       </p>
+      {isCompanion && slotId ? (
+        <div className="companion-options">
+          <SettingsEditor
+            slotId={slotId}
+            settingsJson={JSON.stringify(
+              binding?.type === "companion" ? (binding.options ?? {}) : {},
+              null,
+              2,
+            )}
+            onSave={(json) => {
+              try {
+                const options = JSON.parse(json) as unknown;
+                void invoke("update_companion_options", {
+                  args: { slotId, options },
+                });
+              } catch {
+                // SettingsEditor already reports JSON errors.
+              }
+            }}
+          />
+        </div>
+      ) : null}
       <iframe
         ref={registerPiFrameRef}
         id="pi-frame"
         title="Property Inspector"
         sandbox="allow-scripts allow-same-origin"
-        className={nativeSettingsVisible ? "hidden" : undefined}
+        className={isCompanion || nativeSettingsVisible ? "hidden" : undefined}
       />
       <div
         className={`native-settings${nativeSettingsVisible ? "" : " hidden"}`}
