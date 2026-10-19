@@ -785,6 +785,18 @@ pub async fn connect_hid_device(
 }
 
 #[tauri::command]
+pub async fn connect_surface_device(
+    state: State<'_, OrchState>,
+    driver_id: String,
+    device_id: String,
+) -> Result<ConnectHidResult, String> {
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .connect_surface_device(driver_id, device_id)
+        .await
+}
+
+#[tauri::command]
 pub async fn register_mock_surface(
     state: State<'_, OrchState>,
     name: String,

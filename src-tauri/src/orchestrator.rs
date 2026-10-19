@@ -2026,6 +2026,53 @@ impl Orchestrator {
         Ok((result, surface))
     }
 
+    pub async fn connect_surface_device(
+        &mut self,
+        driver_id: String,
+        device_id: String,
+    ) -> Result<ConnectHidResult, String> {
+        let label = format!("{driver_id} ({device_id})");
+        let surface_id = SurfaceId(uuid::Uuid::new_v4());
+        let surface = self
+            .inner
+            .surface_drivers
+            .connect(&driver_id, &device_id, surface_id, &label)
+            .map_err(|e| e.to_string())?;
+
+        self.inner
+            .surfaces
+            .attach_physical(surface_id, surface.clone())
+            .await;
+        if !self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .any(|s| s.surface_id == surface_id)
+        {
+            self.inner
+                .profile
+                .surfaces
+                .push(ideck_core::SurfaceAssignment {
+                    surface_id,
+                    label: label.clone(),
+                    emulation_profile: Some(driver_id.clone()),
+                });
+        }
+        let handle = surface.clone().spawn_input_loop();
+        self.hid_task_handles.insert(surface_id, vec![handle]);
+        let _ = self.save_profile().await;
+        self.render_surface_visuals(surface_id).await;
+
+        let caps = surface.capabilities();
+        Ok(ConnectHidResult {
+            surface_id: surface_id.0.to_string(),
+            label,
+            rows: caps.rows,
+            columns: caps.columns,
+        })
+    }
+
     pub fn store_hid_tasks(
         &mut self,
         surface_id: SurfaceId,

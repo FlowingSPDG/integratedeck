@@ -59,6 +59,7 @@ pub fn run() {
             commands::scan_hid_devices,
             commands::list_surface_drivers,
             commands::connect_hid_device,
+            commands::connect_surface_device,
             commands::get_runtime_status,
             commands::unload_sd_plugin,
             commands::list_action_library,
