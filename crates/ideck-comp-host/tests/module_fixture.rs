@@ -6,6 +6,7 @@ use serde_json::json;
 fn write_fixture(root: &std::path::Path) {
     let module = root.join("demo");
     std::fs::create_dir_all(module.join("dist")).unwrap();
+    std::fs::write(module.join("package.json"), r#"{"type":"module"}"#).unwrap();
     std::fs::write(
         module.join("dist/index.js"),
         r#"
@@ -23,6 +24,13 @@ export default class Demo {
         options: [],
         callback: async () => {
           this.context.setVariableValues({ state: 'acted' })
+        },
+      },
+      act2: {
+        name: 'Act 2',
+        options: [],
+        callback: async (action) => {
+          this.context.setVariableValues({ state: String(action.options?.value ?? 'none') })
         },
       }
     })
@@ -64,7 +72,7 @@ async fn module_fixture_roundtrip() {
         .result
         .unwrap();
     eprintln!("defs={defs:?}");
-    assert_eq!(defs["actions"].as_array().unwrap().len(), 1);
+    assert_eq!(defs["actions"].as_array().unwrap().len(), 2);
     assert_eq!(defs["variables"].as_array().unwrap().len(), 1);
     assert_eq!(defs["presets"].as_array().unwrap().len(), 1);
 
@@ -98,6 +106,30 @@ async fn module_fixture_roundtrip() {
         .result
         .unwrap();
     assert_eq!(acted["value"], "acted");
+
+    let with_options = runtime
+        .request(
+            "connection.executeAction",
+            json!({
+                "connectionId": "c1",
+                "actionId": "act2",
+                "options": { "value": "opt" }
+            }),
+        )
+        .await
+        .expect("execute act2");
+    assert!(with_options.ok, "act2 failed: {:?}", with_options.error);
+
+    let opted = runtime
+        .request(
+            "connection.getVariableValue",
+            json!({ "connectionId": "c1", "variableId": "state" }),
+        )
+        .await
+        .expect("var")
+        .result
+        .unwrap();
+    assert_eq!(opted["value"], "opt");
 
     let updated = runtime
         .request(
