@@ -19,7 +19,8 @@ use ideck_sd_host::{
 };
 use ideck_surface::{
     CellAddress, CellUpdate, DiscoveredDevice, HidDeviceDescriptor, MockSurface, PhysicalSurface,
-    StreamDeckHidSurface, SurfaceCapabilities, SurfaceDriverManifest, SurfaceInput, DRIVER_ID,
+    StreamDeckHidSurface, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceDriverManifest,
+    SurfaceInput, DRIVER_ID,
 };
 use serde_json::json;
 use tauri::AppHandle;
@@ -58,6 +59,39 @@ pub struct Orchestrator {
     comp_status: std::collections::HashMap<String, serde_json::Value>,
     vsd_server: Option<tokio::task::JoinHandle<()>>,
     vsd_addr: Option<std::net::SocketAddr>,
+    vsd_images: Option<tokio::sync::broadcast::Sender<ideck_vsd::server::VsdImage>>,
+}
+
+struct VsdSurface {
+    descriptor: SurfaceDescriptor,
+    images: tokio::sync::broadcast::Sender<ideck_vsd::server::VsdImage>,
+    device_id: String,
+}
+
+#[async_trait::async_trait]
+impl Surface for VsdSurface {
+    fn descriptor(&self) -> &SurfaceDescriptor {
+        &self.descriptor
+    }
+
+    async fn render(&self, updates: &[CellUpdate]) -> Result<(), ideck_surface::SurfaceError> {
+        for update in updates {
+            let Some(image) = &update.visual.image else {
+                continue;
+            };
+            let Some(jpeg) = ideck_surface::encode_key_jpeg(image, &update.visual) else {
+                continue;
+            };
+            let index = update.address.row * self.descriptor.capabilities.columns
+                + update.address.column;
+            let _ = self.images.send(ideck_vsd::server::VsdImage {
+                device_id: self.device_id.clone(),
+                index,
+                jpeg,
+            });
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -507,6 +541,7 @@ impl Orchestrator {
             comp_status: std::collections::HashMap::new(),
             vsd_server: None,
             vsd_addr: None,
+            vsd_images: None,
         })
     }
 
@@ -4731,9 +4766,11 @@ impl Orchestrator {
             .map_err(|error| error.to_string())?;
         let addr = server.local_addr().map_err(|error| error.to_string())?;
         let events = server.subscribe();
+        let images = server.image_sender();
         let handle = tokio::spawn(server.run());
         self.vsd_server = Some(handle);
         self.vsd_addr = Some(addr);
+        self.vsd_images = Some(images);
         Ok((addr.to_string(), events))
     }
 
@@ -4741,13 +4778,41 @@ impl Orchestrator {
     /// UI can act as the software deck.
     pub async fn register_vsd_surface(
         &mut self,
+        device_id: String,
         name: String,
         rows: u32,
         columns: u32,
     ) -> SurfaceId {
         let id = SurfaceId::new();
-        let mock = MockSurface::with_grid(id, name.clone(), rows.max(1), columns.max(1));
-        self.inner.surfaces.register_mock(mock).await;
+        let rows = rows.max(1);
+        let columns = columns.max(1);
+        if let Some(images) = self.vsd_images.clone() {
+            let descriptor = SurfaceDescriptor {
+                id,
+                name: name.clone(),
+                capabilities: SurfaceCapabilities {
+                    rows,
+                    columns,
+                    key_width_px: 144,
+                    key_height_px: 112,
+                    encoders: 0,
+                    has_lcd_strip: false,
+                    emulation_profile: ideck_surface::EmulationProfile::Custom,
+                },
+                backend: ideck_surface::SurfaceBackend::Mock,
+            };
+            self.inner
+                .surfaces
+                .register_surface(Arc::new(VsdSurface {
+                    descriptor,
+                    images,
+                    device_id,
+                }))
+                .await;
+        } else {
+            let mock = MockSurface::with_grid(id, name.clone(), rows, columns);
+            self.inner.surfaces.register_mock(mock).await;
+        }
         self.inner
             .profile
             .surfaces
@@ -4783,7 +4848,7 @@ impl Orchestrator {
                 } => {
                     let mut orchestrator = state.write().await;
                     let surface_id = orchestrator
-                        .register_vsd_surface(name, rows, columns)
+                        .register_vsd_surface(device_id.clone(), name, rows, columns)
                         .await;
                     surfaces.insert(device_id, (surface_id, columns.max(1)));
                 }

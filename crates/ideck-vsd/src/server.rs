@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::{accept_async, WebSocketStream};
 
 use crate::messages::{
-    client_message, server_message::Msg as ServerMsg, ClientMessage, KeypadConfig, Ok,
+    client_message, server_message::Msg as ServerMsg, ButtonImage, ClientMessage, KeypadConfig, Ok,
     ServerMessage, VirtualDevice, VirtualDeviceList,
 };
 use crate::VsdCrypto;
@@ -49,6 +49,15 @@ pub struct VsdServer {
     config: VsdServerConfig,
     devices: Arc<Mutex<Vec<VirtualDevice>>>,
     events: broadcast::Sender<VsdServerEvent>,
+    images: broadcast::Sender<VsdImage>,
+}
+
+/// A rendered key image for one virtual device.
+#[derive(Debug, Clone)]
+pub struct VsdImage {
+    pub device_id: String,
+    pub index: u32,
+    pub jpeg: Vec<u8>,
 }
 
 /// Server-side notifications for the application layer.
@@ -75,16 +84,22 @@ impl VsdServer {
             name: format!("integratedeck {}x{}", config.rows, config.columns),
         }]));
         let (events, _) = broadcast::channel(64);
+        let (images, _) = broadcast::channel(128);
         Ok(Self {
             listener,
             config,
             devices,
             events,
+            images,
         })
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<VsdServerEvent> {
         self.events.subscribe()
+    }
+
+    pub fn image_sender(&self) -> broadcast::Sender<VsdImage> {
+        self.images.clone()
     }
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
@@ -98,8 +113,10 @@ impl VsdServer {
                     let config = self.config.clone();
                     let devices = self.devices.clone();
                     let events = self.events.clone();
+                    let images = self.images.subscribe();
                     tokio::spawn(async move {
-                        if let Err(error) = handle_connection(stream, config, devices, events).await
+                        if let Err(error) =
+                            handle_connection(stream, config, devices, events, images).await
                         {
                             tracing::debug!("vsd connection ended: {error:#}");
                         }
@@ -119,6 +136,7 @@ async fn handle_connection(
     config: VsdServerConfig,
     devices: Arc<Mutex<Vec<VirtualDevice>>>,
     events: broadcast::Sender<VsdServerEvent>,
+    mut images: broadcast::Receiver<VsdImage>,
 ) -> anyhow::Result<()> {
     let websocket = accept_async(stream).await?;
     let (mut sink, mut stream) = websocket.split();
@@ -165,63 +183,94 @@ async fn handle_connection(
     )
     .await?;
 
+    let (frame_tx, mut frames) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
+    let mut reader = stream;
+    tokio::spawn(async move {
+        while let Ok(Some(frame)) = next_binary(&mut reader).await {
+            if frame_tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+    });
+
     let mut opened_device_id: Option<String> = None;
-    while let Some(frame) = next_binary(&mut stream).await? {
-        let plaintext = crypto
-            .decrypt(&frame)
-            .map_err(|error| anyhow::anyhow!("decrypt: {error}"))?;
-        let message = ClientMessage::decode(plaintext.as_slice())?;
-        match message.msg {
-            Some(client_message::Msg::Authenticate(_)) => {
-                send_ok(&mut sink, &crypto).await?;
-            }
-            Some(client_message::Msg::CreateVirtualDevice(create)) => {
-                let id = format!("ideck-{}", uuid_like(devices.lock().await.len() + 1));
-                let name = create.name.clone();
-                devices.lock().await.push(VirtualDevice {
-                    id: id.clone(),
-                    name: name.clone(),
-                });
-                opened_device_id = Some(id.clone());
-                send_ok(&mut sink, &crypto).await?;
-                send_encrypted(
-                    &mut sink,
-                    &crypto,
-                    &ServerMessage {
-                        msg: Some(ServerMsg::VirtualDevices(VirtualDeviceList {
-                            devices: devices.lock().await.clone(),
-                        })),
-                    },
-                )
-                .await?;
-                let _ = events.send(VsdServerEvent::DeviceOpened {
-                    device_id: id,
-                    name,
-                    rows: config.rows,
-                    columns: config.columns,
-                });
-            }
-            Some(client_message::Msg::OpenVirtualDevice(open)) => {
-                opened_device_id = Some(open.device_id.clone());
-                send_ok(&mut sink, &crypto).await?;
-                let _ = events.send(VsdServerEvent::DeviceOpened {
-                    device_id: open.device_id,
-                    name: "virtual device".into(),
-                    rows: config.rows,
-                    columns: config.columns,
-                });
-            }
-            Some(client_message::Msg::KeyEvent(event)) => {
-                if let Some(device_id) = &opened_device_id {
-                    let _ = events.send(VsdServerEvent::KeyEvent {
-                        device_id: device_id.clone(),
-                        index: event.index,
-                        pressed: event.pressed,
-                    });
+    loop {
+        tokio::select! {
+            frame = frames.recv() => {
+                let Some(frame) = frame else { break };
+                let plaintext = crypto
+                    .decrypt(&frame)
+                    .map_err(|error| anyhow::anyhow!("decrypt: {error}"))?;
+                let message = ClientMessage::decode(plaintext.as_slice())?;
+                match message.msg {
+                    Some(client_message::Msg::Authenticate(_)) => {
+                        send_ok(&mut sink, &crypto).await?;
+                    }
+                    Some(client_message::Msg::CreateVirtualDevice(create)) => {
+                        let id = format!("ideck-{}", uuid_like(devices.lock().await.len() + 1));
+                        let name = create.name.clone();
+                        devices.lock().await.push(VirtualDevice {
+                            id: id.clone(),
+                            name: name.clone(),
+                        });
+                        opened_device_id = Some(id.clone());
+                        send_ok(&mut sink, &crypto).await?;
+                        send_encrypted(
+                            &mut sink,
+                            &crypto,
+                            &ServerMessage {
+                                msg: Some(ServerMsg::VirtualDevices(VirtualDeviceList {
+                                    devices: devices.lock().await.clone(),
+                                })),
+                            },
+                        )
+                        .await?;
+                        let _ = events.send(VsdServerEvent::DeviceOpened {
+                            device_id: id,
+                            name,
+                            rows: config.rows,
+                            columns: config.columns,
+                        });
+                    }
+                    Some(client_message::Msg::OpenVirtualDevice(open)) => {
+                        opened_device_id = Some(open.device_id.clone());
+                        send_ok(&mut sink, &crypto).await?;
+                        let _ = events.send(VsdServerEvent::DeviceOpened {
+                            device_id: open.device_id,
+                            name: "virtual device".into(),
+                            rows: config.rows,
+                            columns: config.columns,
+                        });
+                    }
+                    Some(client_message::Msg::KeyEvent(event)) => {
+                        if let Some(device_id) = &opened_device_id {
+                            let _ = events.send(VsdServerEvent::KeyEvent {
+                                device_id: device_id.clone(),
+                                index: event.index,
+                                pressed: event.pressed,
+                            });
+                        }
+                        tracing::debug!(index = event.index, pressed = event.pressed, "vsd key event");
+                    }
+                    _ => {}
                 }
-                tracing::debug!(index = event.index, pressed = event.pressed, "vsd key event");
             }
-            _ => {}
+            image = images.recv() => {
+                let Ok(image) = image else { continue };
+                if opened_device_id.as_deref() == Some(image.device_id.as_str()) {
+                    send_encrypted(
+                        &mut sink,
+                        &crypto,
+                        &ServerMessage {
+                            msg: Some(ServerMsg::ButtonImage(ButtonImage {
+                                index: image.index,
+                                jpeg: image.jpeg,
+                            })),
+                        },
+                    )
+                    .await?;
+                }
+            }
         }
     }
     Ok(())

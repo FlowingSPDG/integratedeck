@@ -141,6 +141,12 @@ impl SurfaceManager {
             .insert(id, surface as Arc<dyn Surface>);
     }
 
+    /// Register a non-mock logical surface (e.g. a VSD software device).
+    pub async fn register_surface(&self, surface: Arc<dyn Surface>) {
+        let id = surface.descriptor().id;
+        self.surfaces.write().await.insert(id, surface);
+    }
+
     pub async fn register_physical(&self, surface: Arc<dyn PhysicalSurface>) {
         let id = surface.surface_id();
         self.attach_physical(id, surface).await;

@@ -3,8 +3,9 @@
 use ideck_vsd::client::VsdClient;
 use ideck_vsd::messages::{
     client_message, server_message, ClientInformation, ClientMessage, CreateVirtualDevice,
+    OpenVirtualDevice,
 };
-use ideck_vsd::server::{VsdServer, VsdServerConfig};
+use ideck_vsd::server::{VsdImage, VsdServer, VsdServerConfig};
 
 #[tokio::test]
 async fn server_accepts_client_and_creates_virtual_device() {
@@ -71,6 +72,61 @@ async fn server_accepts_client_and_creates_virtual_device() {
                 .devices
                 .iter()
                 .any(|device| device.name == "Software Deck"));
+        }
+        other => panic!("unexpected message: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn server_pushes_button_images_to_the_opened_device() {
+    let server = VsdServer::bind("127.0.0.1:0", VsdServerConfig::default())
+        .await
+        .expect("bind");
+    let addr = server.local_addr().expect("addr");
+    let images = server.image_sender();
+    tokio::spawn(server.run());
+
+    let (mut client, _hello) = VsdClient::connect(
+        &format!("ws://{addr}"),
+        ClientInformation {
+            name: "ideck-image-test".into(),
+            user_agent: "ideck-test/0.1".into(),
+            device_type: 2,
+            device_model: "software".into(),
+            os_name: "windows".into(),
+            os_version: "11".into(),
+        },
+    )
+    .await
+    .expect("connect");
+
+    let _keypad = client.recv().await.expect("keypad").expect("some");
+    let _auth_ok = client.recv().await.expect("auth").expect("some");
+
+    client
+        .send(&ClientMessage {
+            msg: Some(client_message::Msg::OpenVirtualDevice(OpenVirtualDevice {
+                device_id: "integratedeck-primary".into(),
+            })),
+        })
+        .await
+        .expect("open");
+    let opened = client.recv().await.expect("open ok").expect("some");
+    assert!(matches!(opened.msg, Some(server_message::Msg::Ok(_))));
+
+    images
+        .send(VsdImage {
+            device_id: "integratedeck-primary".into(),
+            index: 2,
+            jpeg: vec![0xff, 0xd8, 0xff, 0xd9],
+        })
+        .expect("send image");
+
+    let image = client.recv().await.expect("image").expect("some");
+    match image.msg {
+        Some(server_message::Msg::ButtonImage(image)) => {
+            assert_eq!(image.index, 2);
+            assert_eq!(image.jpeg, vec![0xff, 0xd8, 0xff, 0xd9]);
         }
         other => panic!("unexpected message: {other:?}"),
     }
