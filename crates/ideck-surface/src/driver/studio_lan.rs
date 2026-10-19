@@ -16,7 +16,8 @@ use tracing::{info, warn};
 
 use super::{DiscoveredDevice, PhysicalSurface, SurfaceDriverManifest, SurfaceDriverPlugin};
 use crate::{
-    CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput,
+    CellAddress, CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError,
+    SurfaceInput,
 };
 
 pub const STUDIO_DRIVER_ID: &str = "studio-lan";
@@ -157,7 +158,7 @@ impl StudioLanSurface {
 async fn network_task(
     addr: &str,
     mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    _inputs: broadcast::Sender<SurfaceInput>,
+    inputs: broadcast::Sender<SurfaceInput>,
 ) -> anyhow::Result<()> {
     let stream = TcpStream::connect(addr).await?;
     stream.set_nodelay(true).ok();
@@ -187,12 +188,32 @@ async fn network_task(
     });
 
     let mut report = [0u8; 512];
+    let mut previous = [false; 32];
     loop {
         if read_half.read_exact(&mut report).await.is_err() {
             break;
         }
-        // Input report parsing is added after the Studio key report layout is
-        // confirmed from a live capture.
+        // Gen2 button report: 01 00 <len16> <0/1 per key>.
+        if report[0] == 0x01 && report[1] == 0x00 {
+            let len = u16::from_le_bytes([report[2], report[3]]) as usize;
+            for index in 0..len.min(32) {
+                let pressed = report.get(4 + index).copied().unwrap_or(0) != 0;
+                if pressed == previous[index] {
+                    continue;
+                }
+                previous[index] = pressed;
+                let address = CellAddress {
+                    row: (index / COLS as usize) as u32,
+                    column: (index % COLS as usize) as u32,
+                };
+                let input = if pressed {
+                    SurfaceInput::KeyDown { address }
+                } else {
+                    SurfaceInput::KeyUp { address }
+                };
+                let _ = inputs.send(input);
+            }
+        }
     }
     Ok(())
 }
