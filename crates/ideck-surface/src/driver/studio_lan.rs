@@ -103,9 +103,7 @@ impl StudioLanSurface {
         let addr = addr.to_string();
         let inputs_tx = surface.inputs.clone();
         tokio::spawn(async move {
-            if let Err(error) = network_task(&addr, rx, inputs_tx).await {
-                warn!("studio LAN {addr}: {error:#}");
-            }
+            network_task(addr, rx, inputs_tx).await;
         });
         surface
     }
@@ -148,14 +146,32 @@ impl StudioLanSurface {
     }
 }
 
+/// Keeps the LAN transport alive: reconnect with a 5s backoff after any error.
 async fn network_task(
-    addr: &str,
+    addr: String,
     mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
     inputs: broadcast::Sender<SurfaceInput>,
+) {
+    loop {
+        match TcpStream::connect(&addr).await {
+            Ok(stream) => {
+                stream.set_nodelay(true).ok();
+                info!("studio LAN connected {addr}");
+                if let Err(error) = run_session(stream, &mut rx, &inputs).await {
+                    warn!("studio LAN {addr}: {error:#}; reconnecting");
+                }
+            }
+            Err(error) => warn!("studio LAN {addr}: connect failed: {error}; retrying"),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
+async fn run_session(
+    stream: TcpStream,
+    rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
+    inputs: &broadcast::Sender<SurfaceInput>,
 ) -> anyhow::Result<()> {
-    let stream = TcpStream::connect(addr).await?;
-    stream.set_nodelay(true).ok();
-    info!("studio LAN connected {addr}");
     let (mut read_half, mut write_half) = stream.into_split();
 
     let mut keepalive = [0u8; 512];
@@ -169,31 +185,38 @@ async fn network_task(
     let brightness = brightness_packet(64);
     write_half.write_all(&brightness).await?;
 
-    tokio::spawn(async move {
-        while let Some(packet) = rx.recv().await {
-            if write_half.write_all(&packet).await.is_err() {
-                break;
-            }
-        }
-    });
-
     let mut report = [0u8; 512];
+    let mut filled = 0usize;
     let mut previous = [false; KEYS];
     let mut previous_encoders = [false; PROTOCOL_ENCODERS];
     let mut logged = 0usize;
     loop {
-        if read_half.read_exact(&mut report).await.is_err() {
-            break;
-        }
-        if logged < 24 {
-            info!("studio rx head={:02x?}", &report[..16]);
-            logged += 1;
-        }
-        for input in decode_input(&report, &mut previous, &mut previous_encoders) {
-            let _ = inputs.send(input);
+        tokio::select! {
+            command = rx.recv() => {
+                let Some(packet) = command else {
+                    return Ok(());
+                };
+                write_half.write_all(&packet).await?;
+            }
+            read = read_half.read(&mut report[filled..]) => {
+                let length = read?;
+                if length == 0 {
+                    anyhow::bail!("connection closed");
+                }
+                filled += length;
+                if filled == report.len() {
+                    if logged < 24 {
+                        info!("studio rx head={:02x?}", &report[..16]);
+                        logged += 1;
+                    }
+                    for input in decode_input(&report, &mut previous, &mut previous_encoders) {
+                        let _ = inputs.send(input);
+                    }
+                    filled = 0;
+                }
+            }
         }
     }
-    Ok(())
 }
 
 #[async_trait]
