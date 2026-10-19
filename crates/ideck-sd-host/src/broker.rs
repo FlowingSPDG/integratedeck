@@ -754,18 +754,28 @@ async fn handle_connection(
     Ok(())
 }
 
+/// PI messages often carry the PI UUID as context; use the action context when
+/// the requested context is not registered.
+fn pi_context<'a>(requested: &'a str, known: bool, default_context: &'a str) -> &'a str {
+    if known {
+        requested
+    } else {
+        default_context
+    }
+}
+
 async fn handle_pi_message(broker: &StreamDeckBroker, default_context: &str, text: &str) {
     let Ok(msg) = serde_json::from_str::<Value>(text) else {
         return;
     };
     let event = msg.get("event").and_then(|v| v.as_str()).unwrap_or("");
-    let context = msg
+    let requested_context = msg
         .get("context")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or(default_context);
-    let known = broker.contexts.read().await.contains_key(context);
-    let context = if known { context } else { default_context };
+    let known = broker.contexts.read().await.contains_key(requested_context);
+    let context = pi_context(requested_context, known, default_context);
 
     match event {
         "setSettings" => {
@@ -914,7 +924,7 @@ fn registered_event_name(msg: &Value) -> Option<&str> {
 mod tests {
     use super::{
         extract_feedback_layout, extract_feedback_payload, extract_set_settings_payload,
-        registered_event_name,
+        pi_context, registered_event_name,
     };
     use serde_json::json;
 
@@ -981,6 +991,12 @@ mod tests {
             registered_event_name(&json!({ "event": "registerEvent" })),
             None
         );
+    }
+
+    #[test]
+    fn pi_context_falls_back_to_action_context() {
+        assert_eq!(pi_context("action", true, "action"), "action");
+        assert_eq!(pi_context("pi-uuid", false, "action"), "action");
     }
 }
 
