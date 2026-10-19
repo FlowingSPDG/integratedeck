@@ -189,9 +189,14 @@ async fn network_task(
 
     let mut report = [0u8; 512];
     let mut previous = [false; 32];
+    let mut logged = 0usize;
     loop {
         if read_half.read_exact(&mut report).await.is_err() {
             break;
+        }
+        if logged < 24 {
+            info!("studio rx head={:02x?}", &report[..16]);
+            logged += 1;
         }
         for input in decode_button_report(&report, &mut previous) {
             let _ = inputs.send(input);
