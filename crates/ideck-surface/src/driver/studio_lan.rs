@@ -112,23 +112,9 @@ impl StudioLanSurface {
         let _ = self.commands.send(packet);
     }
 
-    fn send_image(&self, key: u8, jpeg: &[u8]) {        const CHUNK: usize = 1016;
-        let mut offset = 0;
-        let mut sequence = 0u16;
-        while offset < jpeg.len() {
-            let end = (offset + CHUNK).min(jpeg.len());
-            let chunk_len = (end - offset) as u16;
-            let mut packet = vec![0u8; 1024];
-            packet[0] = 0x02;
-            packet[1] = 0x07;
-            packet[2] = key;
-            packet[3] = u8::from(end == jpeg.len());
-            packet[4..6].copy_from_slice(&chunk_len.to_le_bytes());
-            packet[6..8].copy_from_slice(&sequence.to_le_bytes());
-            packet[8..8 + (end - offset)].copy_from_slice(&jpeg[offset..end]);
+    fn send_image(&self, key: u8, jpeg: &[u8]) {
+        for packet in build_image_packets(key, jpeg) {
             self.send(packet);
-            sequence = sequence.wrapping_add(1);
-            offset = end;
         }
     }
 
@@ -248,6 +234,29 @@ fn decode_encoder_report(
         _ => {}
     }
     updates
+}
+
+fn build_image_packets(key: u8, jpeg: &[u8]) -> Vec<Vec<u8>> {
+    const CHUNK: usize = 1016;
+    let mut packets = Vec::new();
+    let mut offset = 0;
+    let mut sequence = 0u16;
+    while offset < jpeg.len() {
+        let end = (offset + CHUNK).min(jpeg.len());
+        let chunk_len = (end - offset) as u16;
+        let mut packet = vec![0u8; 1024];
+        packet[0] = 0x02;
+        packet[1] = 0x07;
+        packet[2] = key;
+        packet[3] = u8::from(end == jpeg.len());
+        packet[4..6].copy_from_slice(&chunk_len.to_le_bytes());
+        packet[6..8].copy_from_slice(&sequence.to_le_bytes());
+        packet[8..8 + (end - offset)].copy_from_slice(&jpeg[offset..end]);
+        packets.push(packet);
+        sequence = sequence.wrapping_add(1);
+        offset = end;
+    }
+    packets
 }
 
 fn decode_button_report(
@@ -408,6 +417,20 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn splits_images_into_protocol_chunks() {
+        let jpeg = vec![0xAB; 2000];
+        let packets = build_image_packets(3, &jpeg);
+        assert_eq!(packets.len(), 2);
+        assert_eq!(packets[0][0..2], [0x02, 0x07]);
+        assert_eq!(packets[0][2], 3);
+        assert_eq!(packets[0][3], 0);
+        assert_eq!(u16::from_le_bytes([packets[0][4], packets[0][5]]), 1016);
+        assert_eq!(packets[1][3], 1);
+        assert_eq!(u16::from_le_bytes([packets[1][4], packets[1][5]]), 984);
+        assert_eq!(u16::from_le_bytes([packets[1][6], packets[1][7]]), 1);
     }
 }
 
