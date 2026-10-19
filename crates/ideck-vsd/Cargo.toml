@@ -10,4 +10,9 @@ prost = "0.13"
 crypto_box = "0.9"
 rand_core = { version = "0.6", features = ["getrandom"] }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tungstenite = { workspace = true }
+futures = { workspace = true }
 

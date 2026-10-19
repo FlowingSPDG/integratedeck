@@ -13,6 +13,7 @@ use crypto_box::aead::AeadInPlace;
 use crypto_box::{Nonce, PublicKey, SalsaBox, SecretKey, Tag};
 use rand_core::OsRng;
 
+pub mod client;
 pub mod messages;
 
 pub use messages::*;

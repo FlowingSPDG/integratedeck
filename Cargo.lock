@@ -2074,10 +2074,15 @@ dependencies = [
 name = "ideck-vsd"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "crypto_box",
+ "futures",
  "prost",
  "rand_core 0.6.4",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tungstenite",
 ]
 
 [[package]]
