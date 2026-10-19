@@ -316,6 +316,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   refreshRef.current = refresh;
 
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    const bind = (event: string) => {
+      void listen(event, () => {
+        if (!disposed) void refreshRef.current();
+      }).then((unlisten) => {
+        if (disposed) unlisten();
+        else unlisteners.push(unlisten);
+      });
+    };
+    bind("definitions-updated");
+    bind("connection-status");
+    bind("surfaces-changed");
+    return () => {
+      disposed = true;
+      for (const unlisten of unlisteners) unlisten();
+    };
+  }, []);
+
   const updatePropertyInspector = useCallback(
     async (slot?: Slot) => {
       const piFrame = piFrameRef.current;
