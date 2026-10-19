@@ -64,7 +64,8 @@
 | Hello / 暗号化 Authenticate | 実機 | [x] | 公式アプリ 7.6.0 |
 | VirtualDeviceList | 実機 | [x] | Stream Deck Mobile |
 | CreateVirtualDevice | 実機 | [ ] | `Error{code:5}` でペアリング待ち |
-| 自前 VSD2 サーバ | 実装 | [ ] | 計画 Phase 5 |
+| クライアントcrate統合 | ビルド | [x] | `crates/ideck-vsd` をworkspaceへ追加 |
+| 自前 VSD2 サーバ | 実装 | [ ] | 計画 Phase 5（次段） |
 | Pi GPIO | 実装 | [ ] | 計画 Phase 5 |
 
 ## 再現コマンド
