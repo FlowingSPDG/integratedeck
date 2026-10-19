@@ -61,6 +61,7 @@ pub fn run() {
             commands::connect_hid_device,
             commands::connect_surface_device,
             commands::ensure_surface_slots,
+            commands::set_encoder_led,
             commands::get_runtime_status,
             commands::unload_sd_plugin,
             commands::list_action_library,

@@ -2123,6 +2123,27 @@ impl Orchestrator {
         Ok(count)
     }
 
+    pub fn set_encoder_led(
+        &self,
+        surface_id: SurfaceId,
+        index: u8,
+        r: u8,
+        g: u8,
+        b: u8,
+    ) -> Result<(), String> {
+        let physical = self
+            .inner
+            .surfaces
+            .physical(surface_id)
+            .ok_or_else(|| "surface is not physical".to_string())?;
+        let studio = physical
+            .as_any()
+            .downcast::<ideck_surface::StudioLanSurface>()
+            .map_err(|_| "surface is not a Studio LAN surface".to_string())?;
+        studio.set_encoder_led(index, r, g, b);
+        Ok(())
+    }
+
     pub fn store_hid_tasks(
         &mut self,
         surface_id: SurfaceId,

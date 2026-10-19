@@ -811,6 +811,21 @@ pub async fn ensure_surface_slots(
 }
 
 #[tauri::command]
+pub async fn set_encoder_led(
+    state: State<'_, OrchState>,
+    surface_id: String,
+    index: u8,
+    r: u8,
+    g: u8,
+    b: u8,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let orchestrator = state.read().await;
+    orchestrator.set_encoder_led(surface_id, index, r, g, b)
+}
+
+#[tauri::command]
 pub async fn register_mock_surface(
     state: State<'_, OrchState>,
     name: String,

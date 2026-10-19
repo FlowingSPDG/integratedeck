@@ -64,7 +64,7 @@ pub fn studio_addr() -> String {
     std::env::var("IDECK_STUDIO_ADDR").unwrap_or_else(|_| "192.168.3.48:5343".into())
 }
 
-struct StudioLanSurface {
+pub struct StudioLanSurface {
     id: SurfaceId,
     descriptor: SurfaceDescriptor,
     commands: mpsc::UnboundedSender<Vec<u8>>,
@@ -116,6 +116,11 @@ impl StudioLanSurface {
         for packet in build_image_packets(key, jpeg) {
             self.send(packet);
         }
+    }
+
+    /// Set all LEDs of one encoder ring to an RGB colour.
+    pub fn set_encoder_led(&self, encoder: u8, r: u8, g: u8, b: u8) {
+        self.send(build_encoder_led_packet(encoder, r, g, b));
     }
 
     async fn render_inner(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
@@ -234,6 +239,17 @@ fn decode_encoder_report(
         _ => {}
     }
     updates
+}
+
+fn build_encoder_led_packet(encoder: u8, r: u8, g: u8, b: u8) -> Vec<u8> {
+    let mut packet = vec![0u8; 1024];
+    packet[0] = 0x02;
+    packet[1] = 0x10;
+    packet[2] = encoder;
+    packet[3] = r;
+    packet[4] = g;
+    packet[5] = b;
+    packet
 }
 
 fn build_image_packets(key: u8, jpeg: &[u8]) -> Vec<Vec<u8>> {
@@ -420,6 +436,12 @@ mod tests {
     }
 
     #[test]
+    fn builds_encoder_led_packet() {
+        let packet = build_encoder_led_packet(1, 0x11, 0x22, 0x33);
+        assert_eq!(&packet[..6], &[0x02, 0x10, 1, 0x11, 0x22, 0x33]);
+    }
+
+    #[test]
     fn splits_images_into_protocol_chunks() {
         let jpeg = vec![0xAB; 2000];
         let packets = build_image_packets(3, &jpeg);
@@ -433,5 +455,6 @@ mod tests {
         assert_eq!(u16::from_le_bytes([packets[1][6], packets[1][7]]), 1);
     }
 }
+
 
 
