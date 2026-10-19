@@ -7,9 +7,10 @@ use ideck_bridge::SdSurfaceBridge;
 use ideck_comp_host::{scan_module_dirs, CompModuleRuntime, ConnectionRecord, HostEvent};
 use ideck_core::{
     action_display_name, image_from_base64, image_from_data_url, merge_visual, solid_key_png,
-    ActionInstanceId, Binding, BindingKind, FolderSettings, MultiActionStep, Page, PageId, Profile,
-    Slot, SlotAppearance, SlotId, SlotLocator, SurfaceId, SwitchPageSettings, VisualState,
-    BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
+    ActionInstanceId, Binding, BindingKind, CompanionFeedbackConfig, FolderSettings,
+    MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance, SlotId, SlotLocator, SurfaceId,
+    SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER,
+    PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
 };
 use ideck_sd_host::{
     action_icon_data_url, close_webview_plugin, effective_plugin_uuid, scan_sd_plugins_roots,
@@ -2952,9 +2953,156 @@ impl Orchestrator {
                 slot.appearance.title = Some(title);
             }
         }
+        // A new action binding invalidates any feedback instance on the slot.
+        self.inner
+            .profile
+            .companion_feedbacks
+            .remove(&slot_id.0.to_string());
 
         self.persist_slot_changes(surface_id).await?;
         self.refresh_page_visuals(page_id, surface_id).await;
+        Ok(())
+    }
+
+    /// Attach a Companion feedback instance to a slot already bound to a
+    /// Companion action. The feedback is evaluated with its own options and
+    /// rendered into the slot.
+    pub async fn set_slot_companion_feedback(
+        &mut self,
+        slot_id: SlotId,
+        feedback_id: String,
+        options: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let (connection_id, action_id) = {
+            let page_id = self
+                .page_id_for_slot(slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|page| page.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            match &slot.binding {
+                Some(Binding {
+                    kind: BindingKind::Companion {
+                        connection_id,
+                        action_id,
+                        ..
+                    },
+                }) => (connection_id.clone(), action_id.clone()),
+                _ => anyhow::bail!("slot is not bound to a Companion action"),
+            }
+        };
+        let control_id = format!("{connection_id}:{action_id}");
+        self.inner.profile.companion_feedbacks.insert(
+            slot_id.0.to_string(),
+            CompanionFeedbackConfig {
+                connection_id: connection_id.clone(),
+                feedback_id: feedback_id.clone(),
+                action_id: action_id.clone(),
+                options: options.clone(),
+            },
+        );
+        self.save_profile().await?;
+        if let Some(runtime) = &self.inner.comp_runtime {
+            let resp = runtime
+                .request(
+                    "connection.setFeedback",
+                    json!({
+                        "connectionId": connection_id,
+                        "controlId": control_id,
+                        "feedbackId": feedback_id,
+                        "options": options
+                    }),
+                )
+                .await?;
+            if !resp.ok {
+                anyhow::bail!(resp
+                    .error
+                    .unwrap_or_else(|| "connection.setFeedback failed".into()));
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn clear_slot_companion_feedback(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
+        let removed = self
+            .inner
+            .profile
+            .companion_feedbacks
+            .remove(&slot_id.0.to_string());
+        self.save_profile().await?;
+        if let Some(removed) = removed {
+            if let Some(runtime) = &self.inner.comp_runtime {
+                let _ = runtime
+                    .request(
+                        "connection.removeFeedback",
+                        json!({
+                            "connectionId": removed.connection_id,
+                            "controlId": format!("{}:{}", removed.connection_id, removed.action_id)
+                        }),
+                    )
+                    .await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-apply persisted feedback instances after the module runtime starts.
+    pub async fn restore_companion_feedbacks(&mut self) -> anyhow::Result<()> {
+        let entries: Vec<(String, CompanionFeedbackConfig)> = self
+            .inner
+            .profile
+            .companion_feedbacks
+            .iter()
+            .map(|(slot, config)| (slot.clone(), config.clone()))
+            .collect();
+        for (slot, config) in entries {
+            let Ok(slot_id) = uuid::Uuid::parse_str(&slot) else {
+                continue;
+            };
+            let slot_id = SlotId(slot_id);
+            let action_id = if config.action_id.is_empty() {
+                self.page_id_for_slot(slot_id)
+                    .and_then(|page_id| {
+                        self.inner
+                            .profile
+                            .pages
+                            .iter()
+                            .find(|page| page.id == page_id)
+                    })
+                    .and_then(|page| page.slots.get(&slot_id))
+                    .and_then(|slot| slot.binding.as_ref())
+                    .and_then(|binding| match &binding.kind {
+                        BindingKind::Companion { action_id, .. } => Some(action_id.clone()),
+                        _ => None,
+                    })
+            } else {
+                Some(config.action_id.clone())
+            };
+            let Some(action_id) = action_id else {
+                continue;
+            };
+            if let Some(runtime) = &self.inner.comp_runtime {
+                let _ = runtime
+                    .request(
+                        "connection.setFeedback",
+                        json!({
+                            "connectionId": config.connection_id,
+                            "controlId": format!("{}:{}", config.connection_id, action_id),
+                            "feedbackId": config.feedback_id,
+                            "options": config.options
+                        }),
+                    )
+                    .await;
+            }
+        }
         Ok(())
     }
 
@@ -4491,6 +4639,7 @@ impl Orchestrator {
                 anyhow::bail!(resp.error.unwrap_or_else(|| "connection.add failed".into()));
             }
         }
+        self.restore_companion_feedbacks().await.ok();
         Ok(())
     }
 

@@ -23,6 +23,8 @@ commands.allow = [
   "bind_slot_sd",
   "bind_slot_companion",
   "update_companion_options",
+  "set_slot_companion_feedback",
+  "clear_slot_companion_feedback",
   "bind_encoder_companion",
   "bind_encoder_sd",
   "bind_encoder_builtin",

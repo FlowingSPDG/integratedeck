@@ -541,6 +541,41 @@ pub async fn update_companion_options(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetCompanionFeedbackArgs {
+    pub slot_id: String,
+    pub feedback_id: String,
+    #[serde(default)]
+    pub options: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn set_slot_companion_feedback(
+    state: State<'_, OrchState>,
+    args: SetCompanionFeedbackArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .set_slot_companion_feedback(slot_id, args.feedback_id, args.options)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_slot_companion_feedback(
+    state: State<'_, OrchState>,
+    slot_id: String,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&slot_id)?;
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .clear_slot_companion_feedback(slot_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn unbind_slot(state: State<'_, OrchState>, slot_id: String) -> Result<(), String> {
     let slot_id = parse_slot_id(&slot_id)?;

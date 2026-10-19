@@ -13,6 +13,20 @@ pub struct Profile {
     pub pages: Vec<Page>,
     #[serde(default)]
     pub active_page_id: Option<PageId>,
+    /// Per-slot Companion feedback binding, keyed by slot id string.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub companion_feedbacks: HashMap<String, CompanionFeedbackConfig>,
+}
+
+/// Companion feedback instance attached to a slot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CompanionFeedbackConfig {
+    pub connection_id: String,
+    pub feedback_id: String,
+    #[serde(default)]
+    pub action_id: String,
+    #[serde(default)]
+    pub options: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,6 +67,7 @@ impl Profile {
             surfaces: Vec::new(),
             pages: vec![page],
             active_page_id: Some(active),
+            companion_feedbacks: HashMap::new(),
         }
     }
 

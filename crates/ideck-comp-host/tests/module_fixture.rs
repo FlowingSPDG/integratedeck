@@ -37,6 +37,17 @@ export default class Demo {
     this.context.setVariableDefinitions({ state: { name: 'State' } })
     this.context.setVariableValues({ state: 'ready' })
     this.context.setPresetDefinitions({ p1: { type: 'button', name: 'Preset 1' } })
+    this.context.setFeedbackDefinitions({
+      fb1: {
+        name: 'FB 1',
+        type: 'boolean',
+        options: [],
+        callback: async (feedback) => {
+          this.context.setVariableValues({ state: String(feedback.options?.value ?? 'fb') })
+          return { color: 0x00ff00, text: 'fb' }
+        },
+      },
+    })
   }
   async configUpdated(config, secrets) {
     this.context.setVariableValues({ state: String(secrets?.token ?? 'updated') })
@@ -165,6 +176,31 @@ async fn module_fixture_roundtrip() {
         .result
         .unwrap();
     assert_eq!(value["value"], "s3");
+
+    let feedback = runtime
+        .request(
+            "connection.setFeedback",
+            json!({
+                "connectionId": "c1",
+                "controlId": "c1:act1",
+                "feedbackId": "fb1",
+                "options": { "value": "fb-opt" }
+            }),
+        )
+        .await
+        .expect("setFeedback");
+    assert!(feedback.ok, "setFeedback failed: {:?}", feedback.error);
+
+    let feedback_value = runtime
+        .request(
+            "connection.getVariableValue",
+            json!({ "connectionId": "c1", "variableId": "state" }),
+        )
+        .await
+        .expect("var")
+        .result
+        .unwrap();
+    assert_eq!(feedback_value["value"], "fb-opt");
 
     let removed = runtime
         .request("connection.remove", json!({ "connectionId": "c1" }))

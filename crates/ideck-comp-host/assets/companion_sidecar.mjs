@@ -23,6 +23,30 @@ function log(level, ...args) {
 function makeContext(id, cache) {
   const variableValues = new Map()
 
+  async function evaluateFeedback(controlId) {
+    const instance = cache.feedbackInstances.get(controlId)
+    if (!instance) return null
+    const definition = cache.feedbackDefinitions?.[instance.feedbackId]
+    if (!definition?.callback) return null
+    try {
+      const style = await definition.callback(
+        { id: controlId, controlId, options: instance.options },
+        {},
+      )
+      if (style) {
+        emit({
+          event: 'feedback.updated',
+          connectionId: id,
+          values: [{ id: controlId, style }],
+        })
+      }
+      return style ?? null
+    } catch (error) {
+      log('debug', `feedback ${instance.feedbackId} failed: ${error}`)
+      return null
+    }
+  }
+
   const context = {
     _isInstanceContext: true,
     id,
@@ -125,6 +149,29 @@ function makeContext(id, cache) {
     subscribeFeedbacks() {},
     unsubscribeFeedbacks() {},
 
+    async setFeedback(params) {
+      const controlId = params.controlId ?? `${id}:${params.feedbackId}`
+      cache.feedbackInstances.set(controlId, {
+        feedbackId: params.feedbackId,
+        options: params.options ?? {},
+      })
+      return evaluateFeedback(controlId)
+    },
+
+    removeFeedback(controlId) {
+      cache.feedbackInstances.delete(controlId)
+    },
+
+    async evaluateFeedbacks() {
+      for (const controlId of cache.feedbackInstances.keys()) {
+        await evaluateFeedback(controlId)
+      }
+    },
+
+    async evaluateFeedback(controlId) {
+      return evaluateFeedback(controlId)
+    },
+
     saveConfig(config, secrets) {
       cache.config = config
       cache.secrets = secrets
@@ -183,6 +230,7 @@ async function addConnection(params, modulesRoot) {
     presets: [],
     config: params.config ?? {},
     secrets: params.secrets ?? {},
+    feedbackInstances: new Map(),
   }
   const context = makeContext(id, cache)
   context.label = params.label ?? moduleId
@@ -265,6 +313,24 @@ async function handle(method, params, modulesRoot) {
         await connection.instance.configUpdated(params.config ?? {}, params.secrets ?? {})
       }
       connection.cache.config = params.config ?? connection.cache.config
+      return { connectionId: params.connectionId }
+    }
+    case 'connection.setFeedback': {
+      const connection = connections.get(params.connectionId)
+      if (!connection) throw new Error(`unknown connection ${params.connectionId}`)
+      const style = await connection.context.setFeedback(params)
+      return { connectionId: params.connectionId, style: style ?? null }
+    }
+    case 'connection.removeFeedback': {
+      const connection = connections.get(params.connectionId)
+      if (!connection) throw new Error(`unknown connection ${params.connectionId}`)
+      connection.context.removeFeedback(params.controlId)
+      return { connectionId: params.connectionId }
+    }
+    case 'connection.evaluateFeedbacks': {
+      const connection = connections.get(params.connectionId)
+      if (!connection) throw new Error(`unknown connection ${params.connectionId}`)
+      await connection.context.evaluateFeedbacks()
       return { connectionId: params.connectionId }
     }
     default:
