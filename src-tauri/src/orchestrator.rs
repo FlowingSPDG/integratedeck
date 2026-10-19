@@ -12,8 +12,9 @@ use ideck_core::{
     BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
 };
 use ideck_sd_host::{
-    action_icon_data_url, effective_plugin_uuid, scan_sd_plugins_roots, ActionContext, BrokerEvent,
-    ImageSetResult, LoadedSdPlugin, PluginSupervisor, StreamDeckBroker, StreamDeckManifest,
+    action_icon_data_url, close_webview_plugin, effective_plugin_uuid, scan_sd_plugins_roots,
+    ActionContext, BrokerEvent, ImageSetResult, LoadedSdPlugin, PluginSupervisor,
+    StreamDeckBroker, StreamDeckManifest,
 };
 use ideck_surface::{
     CellAddress, CellUpdate, DiscoveredDevice, HidDeviceDescriptor, MockSurface, PhysicalSurface,
@@ -2256,10 +2257,14 @@ impl Orchestrator {
     pub async fn unload_sd_plugin(&mut self, plugin_uuid: Option<String>) -> Result<(), String> {
         match plugin_uuid {
             Some(uuid) => {
+                close_webview_plugin(&uuid);
                 self.inner.sd_supervisor.unload(&uuid).await;
                 self.inner.bridges.remove(&uuid);
             }
             None => {
+                for uuid in self.inner.sd_supervisor.plugin_uuids() {
+                    close_webview_plugin(&uuid);
+                }
                 self.inner.sd_supervisor.unload_all().await;
                 self.inner.bridges.clear();
             }
