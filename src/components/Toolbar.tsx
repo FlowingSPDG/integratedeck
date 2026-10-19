@@ -13,6 +13,7 @@ export const Toolbar = memo(function Toolbar() {
     selectSurface,
     setActivePage,
     addPage,
+    deletePage,
     openSettings,
   } = useDeck();
 
@@ -53,6 +54,16 @@ export const Toolbar = memo(function Toolbar() {
             onClick={() => void addPage()}
           >
             +
+          </button>
+          <button
+            type="button"
+            className="toolbar-add-page"
+            title="現在のページを削除"
+            aria-label="現在のページを削除"
+            disabled={!activePageId || (profile?.pages.length ?? 0) <= 1}
+            onClick={() => activePageId && void deletePage(activePageId)}
+          >
+            −
           </button>
         </div>
       </div>

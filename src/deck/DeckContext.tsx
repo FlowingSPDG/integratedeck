@@ -81,6 +81,7 @@ interface DeckContextValue {
   selectSurface: (surfaceId: string) => Promise<void>;
   setActivePage: (pageId: string) => Promise<void>;
   addPage: () => Promise<void>;
+  deletePage: (pageId: string) => Promise<void>;
   onSlotClick: (row: number, col: number, existing?: Slot) => Promise<void>;
   applyActionToCell: (row: number, col: number, payload: DragActionPayload) => Promise<void>;
   transferSlotCell: (
@@ -474,6 +475,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setStatusText(`ページ追加に失敗: ${formatUserError(err)}`);
     }
   }, [setActivePage]);
+
+  const deletePage = useCallback(
+    async (pageId: string) => {
+      try {
+        await invoke("delete_page", { pageId });
+        await refreshRef.current();
+        setStatusText("ページを削除しました");
+      } catch (err) {
+        setStatusText(`ページ削除に失敗: ${formatUserError(err)}`);
+      }
+    },
+    [],
+  );
 
   const onSlotClick = useCallback(
     async (row: number, col: number, existing?: Slot) => {
@@ -1245,6 +1259,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       selectSurface,
       setActivePage,
       addPage,
+      deletePage,
       onSlotClick,
       applyActionToCell,
       transferSlotCell,
@@ -1295,6 +1310,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       selectSurface,
       setActivePage,
       addPage,
+      deletePage,
       onSlotClick,
       applyActionToCell,
       transferSlotCell,
