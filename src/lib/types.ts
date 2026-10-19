@@ -11,6 +11,7 @@ export interface Page {
   name: string;
   slots: Record<string, Slot>;
   parent_page_id?: string;
+  encoders?: Record<string, Record<string, unknown>>;
 }
 
 export interface SlotAppearance {

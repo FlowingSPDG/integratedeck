@@ -266,37 +266,98 @@ impl Orchestrator {
             }
         }
 
-        if let SurfaceInput::EncoderPress { index, pressed } = &input {
-            if *pressed {
-                let binding = {
-                    let o = state.read().await;
-                    o.inner
-                        .profile
-                        .active_page_id
-                        .and_then(|page_id| {
-                            o.inner.profile.pages.iter().find(|page| page.id == page_id)
-                        })
-                        .and_then(|page| page.encoders.get(index))
-                        .cloned()
-                };
-                if let Some(binding) = binding {
-                    if let BindingKind::Companion {
-                        connection_id,
-                        action_id,
-                        options,
-                    } = binding.kind
-                    {
-                        let o = state.write().await;
-                        if let Err(e) = o
-                            .execute_companion_action(&connection_id, &action_id, options)
-                            .await
-                        {
-                            warn!("encoder companion action: {e}");
-                        }
-                    }
+        match &input {
+            SurfaceInput::EncoderPress {
+                index,
+                pressed: true,
+            } => {
+                let o = state.read().await;
+                if let Err(e) = o.run_encoder_binding(surface_id, *index, None, true).await {
+                    warn!("encoder press: {e}");
                 }
             }
+            SurfaceInput::EncoderRotate {
+                index,
+                ticks,
+                pressed,
+            } if *ticks != 0 => {
+                let o = state.read().await;
+                if let Err(e) = o
+                    .run_encoder_binding(surface_id, *index, Some(*ticks), *pressed)
+                    .await
+                {
+                    warn!("encoder rotate: {e}");
+                }
+            }
+            _ => {}
         }
+    }
+
+    async fn run_encoder_binding(
+        &self,
+        surface_id: SurfaceId,
+        index: u32,
+        ticks: Option<i32>,
+        pressed: bool,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .inner
+            .surface_pages
+            .get(&surface_id)
+            .copied()
+            .or(self.inner.profile.active_page_id);
+        let binding = page_id
+            .and_then(|page_id| {
+                self.inner
+                    .profile
+                    .pages
+                    .iter()
+                    .find(|page| page.id == page_id)
+            })
+            .and_then(|page| page.encoders.get(&index))
+            .cloned();
+        let Some(binding) = binding else {
+            return Ok(());
+        };
+
+        match binding.kind {
+            BindingKind::Companion {
+                connection_id,
+                action_id,
+                options,
+            } => {
+                self.execute_companion_action(&connection_id, &action_id, options)
+                    .await?;
+            }
+            BindingKind::StreamDeck {
+                plugin_uuid,
+                action_uuid,
+                instance_id,
+                ..
+            } => {
+                let context =
+                    SdSurfaceBridge::build_context_id(&plugin_uuid, &action_uuid, &instance_id.0);
+                let Some(broker) = self.inner.sd_supervisor.get(&plugin_uuid) else {
+                    return Ok(());
+                };
+                broker
+                    .ensure_action_context(ActionContext {
+                        context: context.clone(),
+                        action_uuid,
+                        settings: json!({}),
+                        coordinates: (index, 0),
+                    })
+                    .await?;
+                if let Some(ticks) = ticks {
+                    broker.dial_rotate(&context, ticks, pressed).await?;
+                } else if pressed {
+                    broker.dial_down(&context).await?;
+                    broker.dial_up(&context).await?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     pub async fn dispatch_simulate_encoder(

@@ -251,7 +251,8 @@ fn encode_path_segments(path: &str) -> String {
 }
 
 /// Equivalent of JavaScript `encodeURIComponent`.
-fn encode_uri_component(input: &str) -> String {    let mut out = String::with_capacity(input.len());
+fn encode_uri_component(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
     for byte in input.bytes() {
         match byte {
             b'A'..=b'Z'
