@@ -19,7 +19,10 @@ impl Default for SurfaceDriverRegistry {
 impl SurfaceDriverRegistry {
     pub fn new() -> Self {
         Self {
-            drivers: vec![Arc::new(super::StreamDeckHidDriver)],
+            drivers: vec![
+                Arc::new(super::StreamDeckHidDriver),
+                Arc::new(super::StudioLanDriver),
+            ],
         }
     }
 

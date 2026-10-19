@@ -17,4 +17,6 @@ tokio = { workspace = true }
 elgato-streamdeck = { workspace = true }
 hidapi = "2.6"
 image = { workspace = true }
+anyhow = { workspace = true }
 tracing = { workspace = true }
+

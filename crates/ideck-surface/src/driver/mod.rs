@@ -5,9 +5,11 @@
 
 mod registry;
 pub mod streamdeck;
+pub mod studio_lan;
 
 pub use registry::*;
 pub use streamdeck::*;
+pub use studio_lan::*;
 
 use std::sync::Arc;
 
