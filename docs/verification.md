@@ -23,12 +23,12 @@
 |---|---|---|---|
 | モジュール load / init / destroy | 実機 | [x] | vMix モジュール読込 |
 | definitions（actions/feedbacks/variables/presets） | 実機 | [x] | 214 actions / 39 feedbacks |
-| config fields / secrets | ユニット | [x] | fixture + Settings UI |
+| config fields / secrets | 実機 | [x] | vMix の host/tcpPort/checkbox/static-text を取得 |
 | action options | ユニット | [x] | `options` が callback へ到達 |
 | feedback instance（control 単位） | ユニット | [x] | `connection.setFeedback` |
 | feedback options UI | ユニット | [x] | ConfigPanel の SettingsEditor |
 | module saveConfig 永続化 | ユニット | [x] | `connection.config` で config+secrets 保存 |
-| 接続状態表示 | 実機 | [x] | `list_companion_status` |
+| 接続状態表示 | 実機 | [x] | vMix 接続直後に `status: ok` |
 | 実 vMix 接続・実行 | 実機 | [ ] | vMix 本体が必要 |
 
 ## Studio
