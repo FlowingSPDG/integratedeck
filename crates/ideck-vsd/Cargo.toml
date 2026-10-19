@@ -17,3 +17,14 @@ tokio-tungstenite = { workspace = true }
 tungstenite = { workspace = true }
 futures = { workspace = true }
 
+[features]
+gpio = ["dep:rppal"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rppal = { version = "0.19", optional = true }
+
+[[bin]]
+name = "ideck-vsd-gpio"
+path = "src/bin/vsd_gpio.rs"
+required-features = ["gpio"]
+
