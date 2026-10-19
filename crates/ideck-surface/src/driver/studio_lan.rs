@@ -193,29 +193,39 @@ async fn network_task(
         if read_half.read_exact(&mut report).await.is_err() {
             break;
         }
-        // Gen2 button report: 01 00 <len16> <0/1 per key>.
-        if report[0] == 0x01 && report[1] == 0x00 {
-            let len = u16::from_le_bytes([report[2], report[3]]) as usize;
-            for index in 0..len.min(32) {
-                let pressed = report.get(4 + index).copied().unwrap_or(0) != 0;
-                if pressed == previous[index] {
-                    continue;
-                }
-                previous[index] = pressed;
-                let address = CellAddress {
-                    row: (index / COLS as usize) as u32,
-                    column: (index % COLS as usize) as u32,
-                };
-                let input = if pressed {
-                    SurfaceInput::KeyDown { address }
-                } else {
-                    SurfaceInput::KeyUp { address }
-                };
-                let _ = inputs.send(input);
-            }
+        for input in decode_button_report(&report, &mut previous) {
+            let _ = inputs.send(input);
         }
     }
     Ok(())
+}
+
+fn decode_button_report(
+    report: &[u8],
+    previous: &mut [bool; 32],
+) -> Vec<SurfaceInput> {
+    if report.len() < 4 || report[0] != 0x01 || report[1] != 0x00 {
+        return Vec::new();
+    }
+    let len = u16::from_le_bytes([report[2], report[3]]) as usize;
+    let mut updates = Vec::new();
+    for index in 0..len.min(32) {
+        let pressed = report.get(4 + index).copied().unwrap_or(0) != 0;
+        if pressed == previous[index] {
+            continue;
+        }
+        previous[index] = pressed;
+        let address = CellAddress {
+            row: (index / COLS as usize) as u32,
+            column: (index % COLS as usize) as u32,
+        };
+        updates.push(if pressed {
+            SurfaceInput::KeyDown { address }
+        } else {
+            SurfaceInput::KeyUp { address }
+        });
+    }
+    updates
 }
 
 #[async_trait]
@@ -278,6 +288,46 @@ impl Surface for StudioLanSurface {
 
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         self.render_inner(updates).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_key_press_and_release() {
+        let mut previous = [false; 32];
+        let mut report = [0u8; 512];
+        report[0] = 0x01;
+        report[1] = 0x00;
+        report[2] = 0x02;
+        report[4] = 1;
+
+        let updates = decode_button_report(&report, &mut previous);
+        assert_eq!(updates.len(), 1);
+        assert!(matches!(
+            updates[0],
+            SurfaceInput::KeyDown {
+                address: CellAddress { row: 0, column: 0 }
+            }
+        ));
+
+        report[4] = 0;
+        let updates = decode_button_report(&report, &mut previous);
+        assert!(matches!(
+            updates[0],
+            SurfaceInput::KeyUp {
+                address: CellAddress { row: 0, column: 0 }
+            }
+        ));
+    }
+
+    #[test]
+    fn ignores_non_button_reports() {
+        let mut previous = [false; 32];
+        let report = [0u8; 512];
+        assert!(decode_button_report(&report, &mut previous).is_empty());
     }
 }
 
