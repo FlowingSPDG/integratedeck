@@ -46,7 +46,23 @@ pub enum BrokerEvent {
     SendToPropertyInspector { context: String, payload: Value },
     ShowAlert { context: String },
     ShowOk { context: String },
-    SetState { context: String, state: u8 },
+    SetState {
+        context: String,
+        state: u8,
+    },
+    /// Stream Deck + / Studio encoder or touch-strip feedback.
+    SetFeedback {
+        context: String,
+        payload: Value,
+    },
+    SetFeedbackLayout {
+        context: String,
+        layout: String,
+    },
+    SetTriggerDescription {
+        context: String,
+        payload: Value,
+    },
     OpenUrl { url: String },
     LogMessage { message: String },
 }
@@ -307,6 +323,68 @@ impl StreamDeckBroker {
         Ok(())
     }
 
+    pub async fn dial_down(&self, context: &str) -> anyhow::Result<()> {
+        self.send_dial_press(context, "dialDown", true).await
+    }
+
+    pub async fn dial_up(&self, context: &str) -> anyhow::Result<()> {
+        self.send_dial_press(context, "dialUp", false).await
+    }
+
+    async fn send_dial_press(&self, context: &str, event: &str, pressed: bool) -> anyhow::Result<()> {
+        let ctx = self
+            .contexts
+            .read()
+            .await
+            .get(context)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        let payload = json!({
+            "event": event,
+            "action": ctx.action_uuid,
+            "context": context,
+            "device": self.device_id,
+            "payload": {
+                "settings": ctx.settings,
+                "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
+                "isInMultiAction": false,
+                "controller": "Encoder",
+                "resources": {},
+                "pressed": pressed
+            }
+        });
+        self.plugin_tx
+            .send(Message::Text(payload.to_string().into()))?;
+        Ok(())
+    }
+
+    pub async fn touch_tap(&self, context: &str, tap_pos: (i32, i32)) -> anyhow::Result<()> {
+        let ctx = self
+            .contexts
+            .read()
+            .await
+            .get(context)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        let payload = json!({
+            "event": "touchTap",
+            "action": ctx.action_uuid,
+            "context": context,
+            "device": self.device_id,
+            "payload": {
+                "settings": ctx.settings,
+                "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
+                "isInMultiAction": false,
+                "controller": "Encoder",
+                "tapPos": [tap_pos.0, tap_pos.1],
+                "hold": false
+            }
+        });
+        self.plugin_tx
+            .send(Message::Text(payload.to_string().into()))?;
+        Ok(())
+    }
+
     pub async fn will_appear(&self, context: &str) -> anyhow::Result<()> {
         self.send_lifecycle(context, "willAppear").await
     }
@@ -473,6 +551,27 @@ impl StreamDeckBroker {
                 });
                 self.enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
                     .await;
+            }
+            "setFeedback" => {
+                let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+                let _ = self.event_tx.send(BrokerEvent::SetFeedback {
+                    context: context.into(),
+                    payload: extract_feedback_payload(&msg),
+                });
+            }
+            "setFeedbackLayout" => {
+                let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+                let _ = self.event_tx.send(BrokerEvent::SetFeedbackLayout {
+                    context: context.into(),
+                    layout: extract_feedback_layout(&msg),
+                });
+            }
+            "setTriggerDescription" => {
+                let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+                let _ = self.event_tx.send(BrokerEvent::SetTriggerDescription {
+                    context: context.into(),
+                    payload: extract_feedback_payload(&msg),
+                });
             }
             _ => debug!("unhandled plugin command: {event}"),
         }
@@ -710,8 +809,7 @@ async fn send_did_receive_global_settings_to_pi(broker: &StreamDeckBroker) {
 /// Stream Deck SDK v1/v2 PI sends settings as the payload object directly
 /// (`{ "event": "setSettings", "payload": { "key": "value" } }`), while some
 /// plugin runtimes wrap them under `payload.settings`.
-fn extract_set_settings_payload(msg: &Value) -> Option<Value> {
-    let payload = msg.get("payload")?;
+fn extract_set_settings_payload(msg: &Value) -> Option<Value> {    let payload = msg.get("payload")?;
     match payload {
         Value::Object(map) if map.contains_key("settings") => Some(map["settings"].clone()),
         Value::Object(_) | Value::Array(_) => Some(payload.clone()),
@@ -720,9 +818,23 @@ fn extract_set_settings_payload(msg: &Value) -> Option<Value> {
     }
 }
 
+/// `setFeedback` / `setTriggerDescription` payload object.
+fn extract_feedback_payload(msg: &Value) -> Value {
+    msg.get("payload").cloned().unwrap_or_else(|| json!({}))
+}
+
+/// `setFeedbackLayout` accepts either `{ "layout": "..." }` or a bare string.
+fn extract_feedback_layout(msg: &Value) -> String {
+    msg.pointer("/payload/layout")
+        .or_else(|| msg.get("payload"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::extract_set_settings_payload;
+    use super::{extract_feedback_layout, extract_feedback_payload, extract_set_settings_payload};
     use serde_json::json;
 
     #[test]
@@ -745,6 +857,33 @@ mod tests {
         });
         let settings = extract_set_settings_payload(&msg).unwrap();
         assert_eq!(settings, json!({ "foo": "bar" }));
+    }
+
+    #[test]
+    fn extracts_feedback_payload_and_layout() {
+        let feedback = json!({
+            "event": "setFeedback",
+            "context": "ctx",
+            "payload": { "title": "Volume", "value": "42", "indicator": { "value": 42 } }
+        });
+        assert_eq!(
+            extract_feedback_payload(&feedback),
+            json!({ "title": "Volume", "value": "42", "indicator": { "value": 42 } })
+        );
+
+        let wrapped = json!({
+            "event": "setFeedbackLayout",
+            "context": "ctx",
+            "payload": { "layout": "$B1" }
+        });
+        assert_eq!(extract_feedback_layout(&wrapped), "$B1");
+
+        let bare = json!({
+            "event": "setFeedbackLayout",
+            "context": "ctx",
+            "payload": "custom.json"
+        });
+        assert_eq!(extract_feedback_layout(&bare), "custom.json");
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ideck_core::{SlotLocator, SurfaceId, VisualState};
+use ideck_core::{image_from_plugin_payload, SlotLocator, SurfaceId, VisualState};
 use ideck_sd_host::{BrokerEvent, ImageSetResult};
 use ideck_surface::{CellAddress, CellUpdate, EmulationProfile, SurfaceCapabilities, SurfaceInput};
 use tracing::debug;
@@ -133,6 +133,28 @@ impl SdSurfaceBridge {
                     visual.state_index = *state;
                     updates.push(cell_update(*row, *col, visual.clone()));
                 }
+            }
+            BrokerEvent::SetFeedback { context, payload } => {
+                if let Some((_surface_id, row, col)) = self.cell_by_context.get(context) {
+                    let visual = visuals.entry((*row, *col)).or_default();
+                    if let Some(title) = payload.get("title").and_then(|v| v.as_str()) {
+                        visual.title = Some(title.to_string());
+                    } else if let Some(value) = payload.get("value").and_then(|v| v.as_str()) {
+                        visual.title = Some(value.to_string());
+                    }
+                    if let Some(icon) = payload.get("icon").and_then(|v| v.as_str()) {
+                        if let Some(image) = image_from_plugin_payload(icon, None) {
+                            visual.image = Some(image);
+                        }
+                    }
+                    updates.push(cell_update(*row, *col, visual.clone()));
+                }
+            }
+            BrokerEvent::SetTriggerDescription { context, payload } => {
+                debug!("trigger description for context {context}: {payload}");
+            }
+            BrokerEvent::SetFeedbackLayout { context, layout } => {
+                debug!("feedback layout for context {context}: {layout}");
             }
             BrokerEvent::SettingsChanged { context, settings: _ } => {
                 debug!("settings changed for context {context}");
