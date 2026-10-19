@@ -66,7 +66,8 @@
 | CreateVirtualDevice | 実機 | [ ] | `Error{code:5}` でペアリング待ち |
 | クライアントcrate統合 | ビルド | [x] | `crates/ideck-vsd` をworkspaceへ追加 |
 | 自前 VSD2 サーバ | 実機 | [x] | `start_vsd_server` + 実クライアントで KeypadConfig 3x5 / Ok |
-| ソフトウェアサーフェス接続 | 実装 | [ ] | 次段 |
+| ソフトウェアサーフェス接続 | 実機 | [x] | Create で `integratedeck` サーフェスを登録、KeyEventを入力へ |
+| サーフェス解除 | 実機 | [x] | `unregister_surface` で重複Studio/VSDを整理 |
 | Pi GPIO | 実装 | [ ] | 計画 Phase 5 |
 
 ## 再現コマンド
