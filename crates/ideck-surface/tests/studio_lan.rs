@@ -2,8 +2,10 @@
 
 use std::time::Duration;
 
-use ideck_core::SurfaceId;
-use ideck_surface::{StudioLanDriver, SurfaceDriverPlugin, SurfaceInput};
+use ideck_core::{solid_key_png, SurfaceId, VisualState};
+use ideck_surface::{
+    CellAddress, CellUpdate, StudioLanDriver, Surface, SurfaceDriverPlugin, SurfaceInput,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -76,4 +78,45 @@ async fn decodes_keys_and_encoders_from_mock_server() {
 
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn sends_key_image_packet_to_mock_server() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut keepalive = [0u8; 512];
+        keepalive[0] = 0x01;
+        keepalive[1] = 0x0a;
+        stream.write_all(&keepalive).await.unwrap();
+        let mut packet = [0u8; 1024];
+        stream.read_exact(&mut packet).await.unwrap();
+        stream.read_exact(&mut packet).await.unwrap();
+        stream.read_exact(&mut packet).await.unwrap();
+        assert_eq!(packet[0..2], [0x02, 0x07]);
+        assert_eq!(packet[2], 0);
+        assert!(u16::from_le_bytes([packet[4], packet[5]]) > 0);
+    });
+
+    let driver = StudioLanDriver;
+    let surface = driver
+        .connect(&addr, SurfaceId(uuid::Uuid::new_v4()), "studio-image")
+        .expect("connect");
+    let visual = VisualState {
+        image: Some(solid_key_png(144, 112, 255, 0, 0)),
+        ..Default::default()
+    };
+    Surface::render(
+        surface.as_ref(),
+        &[CellUpdate {
+            address: CellAddress { row: 0, column: 0 },
+            visual,
+        }],
+    )
+    .await
+    .unwrap();
+    server.await.unwrap();
+}
+
 
