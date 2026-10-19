@@ -56,6 +56,8 @@ pub struct Orchestrator {
     last_pi_plugin_uuid: Option<String>,
     nfc: std::collections::HashMap<SurfaceId, Vec<u8>>,
     comp_status: std::collections::HashMap<String, serde_json::Value>,
+    vsd_server: Option<tokio::task::JoinHandle<()>>,
+    vsd_addr: Option<std::net::SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -503,6 +505,8 @@ impl Orchestrator {
             last_pi_plugin_uuid: None,
             nfc: std::collections::HashMap::new(),
             comp_status: std::collections::HashMap::new(),
+            vsd_server: None,
+            vsd_addr: None,
         })
     }
 
@@ -4707,6 +4711,39 @@ impl Orchestrator {
 
     pub fn companion_statuses(&self) -> Vec<serde_json::Value> {
         self.comp_status.values().cloned().collect()
+    }
+
+    pub async fn start_vsd_server(
+        &mut self,
+        rows: u32,
+        columns: u32,
+        port: u16,
+    ) -> Result<String, String> {
+        self.stop_vsd_server();
+        let config = ideck_vsd::server::VsdServerConfig {
+            rows,
+            columns,
+            ..Default::default()
+        };
+        let server = ideck_vsd::server::VsdServer::bind(&format!("0.0.0.0:{port}"), config)
+            .await
+            .map_err(|error| error.to_string())?;
+        let addr = server.local_addr().map_err(|error| error.to_string())?;
+        let handle = tokio::spawn(server.run());
+        self.vsd_server = Some(handle);
+        self.vsd_addr = Some(addr);
+        Ok(addr.to_string())
+    }
+
+    pub fn stop_vsd_server(&mut self) {
+        if let Some(handle) = self.vsd_server.take() {
+            handle.abort();
+        }
+        self.vsd_addr = None;
+    }
+
+    pub fn vsd_status(&self) -> Option<String> {
+        self.vsd_addr.map(|addr| addr.to_string())
     }
 
     pub async fn add_connection(&mut self, record: ConnectionRecord) -> anyhow::Result<()> {

@@ -633,6 +633,30 @@ pub async fn list_companion_status(
 }
 
 #[tauri::command]
+pub async fn start_vsd_server(
+    state: State<'_, OrchState>,
+    rows: u32,
+    columns: u32,
+    port: u16,
+) -> Result<String, String> {
+    let mut o = state.write().await;
+    o.start_vsd_server(rows, columns, port).await
+}
+
+#[tauri::command]
+pub async fn stop_vsd_server(state: State<'_, OrchState>) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.stop_vsd_server();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_vsd_status(state: State<'_, OrchState>) -> Result<Option<String>, String> {
+    let o = state.read().await;
+    Ok(o.vsd_status())
+}
+
+#[tauri::command]
 pub async fn list_connections(
     state: State<'_, OrchState>,
 ) -> Result<Vec<ConnectionRecord>, String> {

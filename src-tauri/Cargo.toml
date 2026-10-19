@@ -28,3 +28,4 @@ ideck-surface = { workspace = true }
 ideck-sd-host = { workspace = true }
 ideck-comp-host = { workspace = true }
 ideck-bridge = { workspace = true }
+ideck-vsd = { workspace = true }
