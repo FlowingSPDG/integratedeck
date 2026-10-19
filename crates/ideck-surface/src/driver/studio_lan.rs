@@ -268,12 +268,12 @@ fn decode_button_report(
     }
     let len = u16::from_le_bytes([report[2], report[3]]) as usize;
     let mut updates = Vec::new();
-    for index in 0..len.min(32) {
+    for (index, previous) in previous.iter_mut().take(len.min(32)).enumerate() {
         let pressed = report.get(4 + index).copied().unwrap_or(0) != 0;
-        if pressed == previous[index] {
+        if pressed == *previous {
             continue;
         }
-        previous[index] = pressed;
+        *previous = pressed;
         let address = CellAddress {
             row: (index / COLS as usize) as u32,
             column: (index % COLS as usize) as u32,
