@@ -65,7 +65,8 @@
 | VirtualDeviceList | 実機 | [x] | Stream Deck Mobile |
 | CreateVirtualDevice | 実機 | [ ] | `Error{code:5}` でペアリング待ち |
 | クライアントcrate統合 | ビルド | [x] | `crates/ideck-vsd` をworkspaceへ追加 |
-| 自前 VSD2 サーバ | 実装 | [ ] | 計画 Phase 5（次段） |
+| 自前 VSD2 サーバ | 統合 | [x] | Hello/Ok/Create/VirtualDeviceList + test |
+| ソフトウェアサーフェス接続 | 実装 | [ ] | 次段 |
 | Pi GPIO | 実装 | [ ] | 計画 Phase 5 |
 
 ## 再現コマンド
