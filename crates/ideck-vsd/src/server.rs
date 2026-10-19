@@ -250,7 +250,7 @@ async fn handle_connection(
                                 pressed: event.pressed,
                             });
                         }
-                        tracing::debug!(index = event.index, pressed = event.pressed, "vsd key event");
+                tracing::info!(index = event.index, pressed = event.pressed, "vsd key event from client");
                     }
                     _ => {}
                 }
