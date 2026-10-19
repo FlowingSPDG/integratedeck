@@ -6,7 +6,8 @@ use ideck_bridge::CompSurfaceBridge;
 use ideck_bridge::SdSurfaceBridge;
 use ideck_comp_host::{scan_module_dirs, CompModuleRuntime, ConnectionRecord, HostEvent};
 use ideck_core::{
-    action_display_name, image_from_base64, merge_visual, solid_key_png, ActionInstanceId, Binding,
+    action_display_name, image_from_base64, image_from_plugin_payload, merge_visual,
+    solid_key_png, ActionInstanceId, Binding,
     BindingKind, FolderSettings, MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance,
     SlotId, SlotLocator, SurfaceId, SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION,
     OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
@@ -2504,6 +2505,29 @@ impl Orchestrator {
             })
             .await?;
 
+        // Seed the slot with the plugin manifest icon so hardware keys have
+        // artwork before the plugin pushes its first setImage. SVG icons cannot
+        // be sent to the device directly, so fall back to a solid PNG plus the
+        // action name until the plugin supplies an image.
+        let action = self
+            .list_plugin_actions(None, Some(plugin_uuid.clone()))
+            .await
+            .ok()
+            .and_then(|actions| actions.into_iter().find(|a| a.id == action_uuid));
+        let (image, title) = match action {
+            Some(action) => {
+                let image = action
+                    .icon
+                    .as_deref()
+                    .and_then(|url| image_from_plugin_payload(url, None));
+                match image {
+                    Some(image) => (Some(image), None),
+                    None => (Some(solid_key_png(96, 96, 40, 44, 52)), Some(action.name)),
+                }
+            }
+            None => (None, None),
+        };
+
         if let Some(page) = self
             .inner
             .profile
@@ -2518,10 +2542,15 @@ impl Orchestrator {
                     instance_id,
                     serde_json::json!({}),
                 ));
+                slot.appearance.default_image = image;
+                if let Some(title) = title {
+                    slot.appearance.title = Some(title);
+                }
             }
         }
 
         self.persist_slot_changes(surface_id).await?;
+        self.refresh_page_visuals(page_id, surface_id).await;
         Ok(context)
     }
 
