@@ -71,7 +71,7 @@
 | KeyEvent→スロット実行（VSD経由） | 実機 | [x] | VSDクライアントのKeyEventでFolderページへ遷移 |
 | サーフェス解除 | 実機 | [x] | `unregister_surface` で重複Studio/VSDを整理 |
 | ButtonImage配信 | 実機 | [x] | `ensure_surface_slots` 後に index 0/7/8/11... のJPEGを受信 |
-| Pi GPIO | 実装 | [ ] | 計画 Phase 5 |
+| Pi GPIO | 実装 | [x] | `ideck-vsd-gpio`（Linux + `--features gpio`、実機未検証） |
 
 ## 再現コマンド
 
