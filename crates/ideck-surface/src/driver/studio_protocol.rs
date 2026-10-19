@@ -217,14 +217,14 @@ pub fn decode_input(
         }
         0x03 => {
             let subtype = report.get(4).copied().unwrap_or(0);
-            for index in 0..ENCODERS {
+            for (index, previous) in previous_encoders.iter_mut().enumerate() {
                 let value = report.get(5 + index).copied().unwrap_or(0);
                 if subtype == 0 {
                     let pressed = value != 0;
-                    if previous_encoders[index] == pressed {
+                    if *previous == pressed {
                         continue;
                     }
-                    previous_encoders[index] = pressed;
+                    *previous = pressed;
                     updates.push(SurfaceInput::EncoderPress {
                         index: index as u32,
                         pressed,

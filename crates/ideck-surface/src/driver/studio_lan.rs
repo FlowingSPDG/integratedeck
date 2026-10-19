@@ -6,18 +6,20 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ideck_core::{SurfaceId, VisualState};
+use ideck_core::SurfaceId;
 use crate::EmulationProfile;
-use image::RgbaImage;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
+use super::studio_protocol::{
+    brightness_packet, decode_input, encode_key_jpeg, encoder_led_packet, key_color_packet,
+    key_image_packets, ENCODERS as PROTOCOL_ENCODERS, KEYS,
+};
 use super::{DiscoveredDevice, PhysicalSurface, SurfaceDriverManifest, SurfaceDriverPlugin};
 use crate::{
-    CellAddress, CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError,
-    SurfaceInput,
+    CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput,
 };
 
 pub const STUDIO_DRIVER_ID: &str = "studio-lan";
@@ -113,31 +115,24 @@ impl StudioLanSurface {
     }
 
     fn send_image(&self, key: u8, jpeg: &[u8]) {
-        for packet in build_image_packets(key, jpeg) {
+        for packet in key_image_packets(key, jpeg) {
             self.send(packet);
         }
     }
 
     /// Set all LEDs of one encoder ring to an RGB colour.
     pub fn set_encoder_led(&self, encoder: u8, r: u8, g: u8, b: u8) {
-        self.send(build_encoder_led_packet(encoder, r, g, b));
+        self.send(encoder_led_packet(encoder, (r, g, b)));
     }
 
     async fn render_inner(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         for update in updates {
             let key = (update.address.row * COLS + update.address.column) as u8;
             if let Some(color) = update.visual.bgcolor {
-                let mut packet = vec![0u8; 1024];
-                packet[0] = 0x03;
-                packet[1] = 0x06;
-                packet[2] = key;
-                packet[3] = color.r;
-                packet[4] = color.g;
-                packet[5] = color.b;
-                self.send(packet);
+                self.send(key_color_packet(key, (color.r, color.g, color.b)));
             }
             if let Some(image) = &update.visual.image {
-                if let Some(jpeg) = encode_key_image(image, &update.visual) {
+                if let Some(jpeg) = encode_key_jpeg(image, &update.visual) {
                     self.send_image(key, &jpeg);
                 }
             }
@@ -164,10 +159,7 @@ async fn network_task(
     ack[1] = 0x1a;
     write_half.write_all(&ack).await?;
 
-    let mut brightness = [0u8; 1024];
-    brightness[0] = 0x03;
-    brightness[1] = 0x08;
-    brightness[2] = 64;
+    let brightness = brightness_packet(64);
     write_half.write_all(&brightness).await?;
 
     tokio::spawn(async move {
@@ -179,8 +171,8 @@ async fn network_task(
     });
 
     let mut report = [0u8; 512];
-    let mut previous = [false; 32];
-    let mut previous_encoders = [false; 2];
+    let mut previous = [false; KEYS];
+    let mut previous_encoders = [false; PROTOCOL_ENCODERS];
     let mut logged = 0usize;
     loop {
         if read_half.read_exact(&mut report).await.is_err() {
@@ -190,117 +182,11 @@ async fn network_task(
             info!("studio rx head={:02x?}", &report[..16]);
             logged += 1;
         }
-        for input in decode_button_report(&report, &mut previous)
-            .into_iter()
-            .chain(decode_encoder_report(&report, &mut previous_encoders))
-        {
+        for input in decode_input(&report, &mut previous, &mut previous_encoders) {
             let _ = inputs.send(input);
         }
     }
     Ok(())
-}
-
-fn decode_encoder_report(
-    report: &[u8],
-    previous: &mut [bool; 2],
-) -> Vec<SurfaceInput> {
-    if report.len() < 7 || report[0] != 0x01 || report[1] != 0x03 {
-        return Vec::new();
-    }
-    let mut updates = Vec::new();
-    match report[4] {
-        // Encoder press states.
-        0x00 => {
-            for index in 0..2 {
-                let pressed = report[5 + index] != 0;
-                if pressed == previous[index] {
-                    continue;
-                }
-                previous[index] = pressed;
-                updates.push(SurfaceInput::EncoderPress {
-                    index: index as u32,
-                    pressed,
-                });
-            }
-        }
-        // Encoder twist deltas.
-        0x01 => {
-            for index in 0..2 {
-                let delta = report[5 + index] as i8;
-                if delta != 0 {
-                    updates.push(SurfaceInput::EncoderRotate {
-                        index: index as u32,
-                        ticks: i32::from(delta),
-                        pressed: false,
-                    });
-                }
-            }
-        }
-        _ => {}
-    }
-    updates
-}
-
-fn build_encoder_led_packet(encoder: u8, r: u8, g: u8, b: u8) -> Vec<u8> {
-    let mut packet = vec![0u8; 1024];
-    packet[0] = 0x02;
-    packet[1] = 0x10;
-    packet[2] = encoder;
-    packet[3] = r;
-    packet[4] = g;
-    packet[5] = b;
-    packet
-}
-
-fn build_image_packets(key: u8, jpeg: &[u8]) -> Vec<Vec<u8>> {
-    const CHUNK: usize = 1016;
-    let mut packets = Vec::new();
-    let mut offset = 0;
-    let mut sequence = 0u16;
-    while offset < jpeg.len() {
-        let end = (offset + CHUNK).min(jpeg.len());
-        let chunk_len = (end - offset) as u16;
-        let mut packet = vec![0u8; 1024];
-        packet[0] = 0x02;
-        packet[1] = 0x07;
-        packet[2] = key;
-        packet[3] = u8::from(end == jpeg.len());
-        packet[4..6].copy_from_slice(&chunk_len.to_le_bytes());
-        packet[6..8].copy_from_slice(&sequence.to_le_bytes());
-        packet[8..8 + (end - offset)].copy_from_slice(&jpeg[offset..end]);
-        packets.push(packet);
-        sequence = sequence.wrapping_add(1);
-        offset = end;
-    }
-    packets
-}
-
-fn decode_button_report(
-    report: &[u8],
-    previous: &mut [bool; 32],
-) -> Vec<SurfaceInput> {
-    if report.len() < 4 || report[0] != 0x01 || report[1] != 0x00 {
-        return Vec::new();
-    }
-    let len = u16::from_le_bytes([report[2], report[3]]) as usize;
-    let mut updates = Vec::new();
-    for (index, previous) in previous.iter_mut().take(len.min(32)).enumerate() {
-        let pressed = report.get(4 + index).copied().unwrap_or(0) != 0;
-        if pressed == *previous {
-            continue;
-        }
-        *previous = pressed;
-        let address = CellAddress {
-            row: (index / COLS as usize) as u32,
-            column: (index % COLS as usize) as u32,
-        };
-        updates.push(if pressed {
-            SurfaceInput::KeyDown { address }
-        } else {
-            SurfaceInput::KeyUp { address }
-        });
-    }
-    updates
 }
 
 #[async_trait]
@@ -334,27 +220,6 @@ impl PhysicalSurface for StudioLanSurface {
     }
 }
 
-fn encode_key_image(
-    image: &ideck_core::ImagePayload,
-    visual: &VisualState,
-) -> Option<Vec<u8>> {
-    let decoded = image::load_from_memory(&image.data).ok()?;
-    let mut canvas = RgbaImage::new(KEY_W, KEY_H);
-    if let Some(color) = visual.bgcolor {
-        for pixel in canvas.pixels_mut() {
-            *pixel = image::Rgba([color.r, color.g, color.b, 255]);
-        }
-    }
-    let resized = decoded.resize_to_fill(KEY_W, KEY_H, image::imageops::FilterType::Triangle);
-    image::imageops::overlay(&mut canvas, &resized.to_rgba8(), 0, 0);
-    let mut jpeg = Vec::new();
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
-    encoder
-        .encode_image(&image::DynamicImage::ImageRgba8(canvas))
-        .ok()?;
-    Some(jpeg)
-}
-
 #[async_trait]
 impl Surface for StudioLanSurface {
     fn descriptor(&self) -> &SurfaceDescriptor {
@@ -363,96 +228,6 @@ impl Surface for StudioLanSurface {
 
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         self.render_inner(updates).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decodes_key_press_and_release() {
-        let mut previous = [false; 32];
-        let mut report = [0u8; 512];
-        report[0] = 0x01;
-        report[1] = 0x00;
-        report[2] = 0x02;
-        report[4] = 1;
-
-        let updates = decode_button_report(&report, &mut previous);
-        assert_eq!(updates.len(), 1);
-        assert!(matches!(
-            updates[0],
-            SurfaceInput::KeyDown {
-                address: CellAddress { row: 0, column: 0 }
-            }
-        ));
-
-        report[4] = 0;
-        let updates = decode_button_report(&report, &mut previous);
-        assert!(matches!(
-            updates[0],
-            SurfaceInput::KeyUp {
-                address: CellAddress { row: 0, column: 0 }
-            }
-        ));
-    }
-
-    #[test]
-    fn ignores_non_button_reports() {
-        let mut previous = [false; 32];
-        let report = [0u8; 512];
-        assert!(decode_button_report(&report, &mut previous).is_empty());
-    }
-
-    #[test]
-    fn decodes_encoder_press_and_twist() {
-        let mut previous = [false; 2];
-        let mut report = [0u8; 512];
-        report[0] = 0x01;
-        report[1] = 0x03;
-        report[4] = 0x00;
-        report[5] = 1;
-        let updates = decode_encoder_report(&report, &mut previous);
-        assert!(matches!(
-            updates[0],
-            SurfaceInput::EncoderPress {
-                index: 0,
-                pressed: true
-            }
-        ));
-
-        report[4] = 0x01;
-        report[5] = 2;
-        let updates = decode_encoder_report(&report, &mut previous);
-        assert!(matches!(
-            updates[0],
-            SurfaceInput::EncoderRotate {
-                index: 0,
-                ticks: 2,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn builds_encoder_led_packet() {
-        let packet = build_encoder_led_packet(1, 0x11, 0x22, 0x33);
-        assert_eq!(&packet[..6], &[0x02, 0x10, 1, 0x11, 0x22, 0x33]);
-    }
-
-    #[test]
-    fn splits_images_into_protocol_chunks() {
-        let jpeg = vec![0xAB; 2000];
-        let packets = build_image_packets(3, &jpeg);
-        assert_eq!(packets.len(), 2);
-        assert_eq!(packets[0][0..2], [0x02, 0x07]);
-        assert_eq!(packets[0][2], 3);
-        assert_eq!(packets[0][3], 0);
-        assert_eq!(u16::from_le_bytes([packets[0][4], packets[0][5]]), 1016);
-        assert_eq!(packets[1][3], 1);
-        assert_eq!(u16::from_le_bytes([packets[1][4], packets[1][5]]), 984);
-        assert_eq!(u16::from_le_bytes([packets[1][6], packets[1][7]]), 1);
     }
 }
 
