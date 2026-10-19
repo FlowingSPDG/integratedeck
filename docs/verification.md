@@ -44,8 +44,8 @@
 | USB 自動再接続 | 実装 | [x] | 5秒間隔で再列挙 |
 | USB キー画像 / 入力 / LED | 実機 | [ ] | Studio USB 未接続 |
 | USB/LAN 重複排除 | ユニット | [x] | `scan_all` |
-| LCD パネル画像（02 0c） | ユニット | [x] | `lcd_image_packets` + `set_studio_lcd` |
-| NFC UID 取得 | ユニット | [x] | `get_last_nfc`（コロン区切りHEX） |
+| LCD パネル画像（02 0c） | 実機 | [x] | `set_studio_lcd` が LAN Studio へ送信成功 |
+| NFC UID 取得 | 実機 | [x] | `get_last_nfc` が null（未タッチ）を返す |
 
 ## サーフェス / ダイヤル
 
@@ -53,7 +53,7 @@
 |---|---|---|---|
 | XL HID 画像 / 入力 | 実機 | [x] | CL18I1A02341 |
 | サーフェス検出UI | 実機 | [x] | `scan_surface_devices` が XL + Studio LAN を返す |
-| ダイヤル SD / Companion / Built-in | モック | [x] | bind + rotate/press |
+| ダイヤル SD / Companion / Built-in | 実機 | [x] | LAN StudioでBuilt-inをbind→simulate press |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
 | Plus / Neo | 実機 | [ ] | 未接続 |
 
