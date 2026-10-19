@@ -13,3 +13,5 @@ uuid = { workspace = true }
 base64 = { workspace = true }
 image = { workspace = true }
 ab_glyph = "0.2"
+resvg = "0.45"
+

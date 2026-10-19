@@ -6,8 +6,8 @@ use ideck_bridge::CompSurfaceBridge;
 use ideck_bridge::SdSurfaceBridge;
 use ideck_comp_host::{scan_module_dirs, CompModuleRuntime, ConnectionRecord, HostEvent};
 use ideck_core::{
-    action_display_name, image_from_base64, image_from_plugin_payload, merge_visual,
-    solid_key_png, ActionInstanceId, Binding,
+    action_display_name, image_from_base64, image_from_data_url,
+    merge_visual, solid_key_png, ActionInstanceId, Binding,
     BindingKind, FolderSettings, MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance,
     SlotId, SlotLocator, SurfaceId, SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION,
     OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
@@ -2519,7 +2519,7 @@ impl Orchestrator {
                 let image = action
                     .icon
                     .as_deref()
-                    .and_then(|url| image_from_plugin_payload(url, None));
+                    .and_then(|url| image_from_data_url(url, 96));
                 match image {
                     Some(image) => (Some(image), None),
                     None => (Some(solid_key_png(96, 96, 40, 44, 52)), Some(action.name)),
@@ -4465,3 +4465,4 @@ fn is_slot_configured(slot: &Slot) -> bool {
             .is_some_and(|t| !t.trim().is_empty())
         || slot.appearance.default_image.is_some()
 }
+

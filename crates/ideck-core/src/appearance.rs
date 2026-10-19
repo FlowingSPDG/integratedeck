@@ -39,6 +39,35 @@ pub fn image_from_base64(data: &str, format: ImageFormat) -> Option<ImagePayload
     })
 }
 
+/// Decode a data URL, rasterizing SVG icons to PNG so they can be sent to a
+/// Stream Deck device (which only accepts bitmap key images).
+pub fn image_from_data_url(data: &str, size: u32) -> Option<ImagePayload> {
+    let (meta, payload) = data.trim().split_once(',')?;
+    if meta.contains("svg") && meta.contains("base64") {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(payload.trim())
+            .ok()?;
+        return rasterize_svg(&bytes, size);
+    }
+    image_from_base64(data, ImageFormat::Png)
+}
+
+fn rasterize_svg(bytes: &[u8], size: u32) -> Option<ImagePayload> {
+    let options = resvg::usvg::Options::default();
+    let tree = resvg::usvg::Tree::from_data(bytes, &options).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)?;
+    let source = tree.size();
+    let scale = (size as f32 / source.width()).min(size as f32 / source.height());
+    let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    let png = pixmap.encode_png().ok()?;
+    Some(ImagePayload {
+        format: ImageFormat::Png,
+        data: png,
+    })
+}
+
 /// Resolve a Stream Deck `setImage` payload: base64/data-URL or relative path under `plugin_dir`.
 pub fn image_from_plugin_payload(
     data: &str,
@@ -103,5 +132,25 @@ fn detect_image_format(bytes: &[u8]) -> Option<ImageFormat> {
         Some(ImageFormat::Bmp)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rasterizes_svg_icon_to_png() {
+        use base64::Engine;
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="red"/></svg>"#;
+        let url = format!(
+            "data:image/svg+xml;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(svg)
+        );
+        let image = image_from_data_url(&url, 96).expect("rasterized icon");
+        assert_eq!(image.format, ImageFormat::Png);
+        assert!(image.data.starts_with(&[0x89, b'P', b'N', b'G']));
+        let decoded = image::load_from_memory(&image.data).expect("png");
+        assert_eq!((decoded.width(), decoded.height()), (96, 96));
     }
 }
