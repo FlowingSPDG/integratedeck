@@ -1352,6 +1352,9 @@ impl Orchestrator {
             _ => anyhow::bail!("unknown built-in action: {action_id}"),
         };
 
+        let title = action_display_name(&action_id)
+            .unwrap_or(action_id.as_str())
+            .to_string();
         if let Some(page) = self
             .inner
             .profile
@@ -1365,10 +1368,13 @@ impl Orchestrator {
                 } else {
                     slot.binding = Some(Binding::built_in(action_id, settings));
                 }
+                slot.appearance.default_image = Some(solid_key_png(96, 96, 74, 58, 28));
+                slot.appearance.title = Some(title);
             }
         }
 
         self.persist_slot_changes(surface_id).await?;
+        self.refresh_page_visuals(page_id, surface_id).await;
         Ok(())
     }
 
@@ -2856,6 +2862,7 @@ impl Orchestrator {
             bridge.register_cell(row, col, control_id);
         }
 
+        let title = action_id.clone();
         if let Some(page) = self
             .inner
             .profile
@@ -2865,10 +2872,13 @@ impl Orchestrator {
         {
             if let Some(slot) = page.slots.get_mut(&slot_id) {
                 slot.binding = Some(Binding::companion(connection_id, action_id, options));
+                slot.appearance.default_image = Some(solid_key_png(96, 96, 58, 42, 74));
+                slot.appearance.title = Some(title);
             }
         }
 
         self.persist_slot_changes(surface_id).await?;
+        self.refresh_page_visuals(page_id, surface_id).await;
         Ok(())
     }
 
