@@ -9,7 +9,7 @@ async fn ping_and_method_dispatch() {
     std::fs::create_dir_all(&dir).unwrap();
     let runtime = CompModuleRuntime::spawn(&dir).await.expect("spawn");
     let pong = runtime.ping().await.expect("ping");
-    assert_eq!(pong["engine"], "ideck-comp-host-boa");
+    assert_eq!(pong["engine"], "node-sidecar");
 
     let defs = runtime
         .request(

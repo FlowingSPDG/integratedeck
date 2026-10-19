@@ -9,22 +9,23 @@ fn write_fixture(root: &std::path::Path) {
     std::fs::write(
         module.join("dist/index.js"),
         r#"
-import { InstanceBase, combineRgb } from '@companion-module/base'
-
-export default class Demo extends InstanceBase {
+export default class Demo {
+  constructor(context) {
+    this.context = context
+  }
   getConfigFields() {
     return [{ id: 'host', type: 'textinput', label: 'Host', default: '127.0.0.1' }]
   }
   async init(config, isFirst, secrets) {
-    this.setActionDefinitions({
+    this.context.setActionDefinitions({
       act1: { name: 'Act 1', options: [], callback: async () => {} }
     })
-    this.setVariableDefinitions({ state: { name: 'State' } })
-    this.setVariableValues({ state: 'ready' })
-    this.setPresetDefinitions({ p1: { type: 'button', name: 'Preset 1' } })
+    this.context.setVariableDefinitions({ state: { name: 'State' } })
+    this.context.setVariableValues({ state: 'ready' })
+    this.context.setPresetDefinitions({ p1: { type: 'button', name: 'Preset 1' } })
   }
   async configUpdated(config) {
-    this.setVariableValues({ state: 'updated' })
+    this.context.setVariableValues({ state: 'updated' })
   }
   async destroy() {}
 }
