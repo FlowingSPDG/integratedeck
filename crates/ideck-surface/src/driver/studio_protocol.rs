@@ -158,6 +158,27 @@ pub fn encode_key_jpeg(image: &ImagePayload, visual: &VisualState) -> Option<Vec
     Some(jpeg)
 }
 
+/// Encode an image as a JPEG for a Studio fullscreen LCD panel.
+pub fn encode_lcd_jpeg(
+    image: &ImagePayload,
+    width: u32,
+    height: u32,
+) -> Option<Vec<u8>> {
+    let decoded = image::load_from_memory(&image.data).ok()?;
+    let mut canvas = image::RgbaImage::new(width, height);
+    for pixel in canvas.pixels_mut() {
+        *pixel = image::Rgba([0, 0, 0, 255]);
+    }
+    let resized = decoded.resize_to_fill(width, height, image::imageops::FilterType::Triangle);
+    image::imageops::overlay(&mut canvas, &resized.to_rgba8(), 0, 0);
+    let mut jpeg = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 85);
+    encoder
+        .encode_image(&image::DynamicImage::ImageRgba8(canvas))
+        .ok()?;
+    Some(jpeg)
+}
+
 /// Fullscreen LCD panel image (`02 0c`).
 pub fn lcd_image_packets(x: u16, y: u16, w: u16, h: u16, jpeg: &[u8]) -> Vec<Vec<u8>> {
     const HEADER: usize = 16;

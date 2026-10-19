@@ -173,6 +173,13 @@ impl StudioUsbSurface {
         ));
     }
 
+    /// Draw a JPEG on the Studio fullscreen LCD panel.
+    pub fn set_lcd_image(&self, jpeg: &[u8]) {
+        for packet in super::studio_protocol::lcd_image_packets(0, 0, 1424, 280, jpeg) {
+            self.send(packet);
+        }
+    }
+
     async fn render_inner(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         for update in updates {
             let key = (update.address.row * COLS + update.address.column) as u8;

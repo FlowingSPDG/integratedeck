@@ -2223,6 +2223,30 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub fn set_studio_lcd(
+        &self,
+        surface_id: SurfaceId,
+        image: &ideck_core::ImagePayload,
+    ) -> Result<(), String> {
+        let jpeg = ideck_surface::encode_lcd_jpeg(image, 1424, 280)
+            .ok_or_else(|| "failed to encode LCD image".to_string())?;
+        let physical = self
+            .inner
+            .surfaces
+            .physical(surface_id)
+            .ok_or_else(|| "surface is not physical".to_string())?;
+        let any = physical.as_any();
+        if let Ok(lan) = any.clone().downcast::<ideck_surface::StudioLanSurface>() {
+            lan.set_lcd_image(&jpeg);
+            return Ok(());
+        }
+        if let Ok(usb) = any.downcast::<ideck_surface::StudioUsbSurface>() {
+            usb.set_lcd_image(&jpeg);
+            return Ok(());
+        }
+        Err("surface is not a Studio surface".to_string())
+    }
+
     pub fn store_hid_tasks(
         &mut self,
         surface_id: SurfaceId,

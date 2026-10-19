@@ -14,6 +14,7 @@ commands.allow = [
   "connect_surface_device",
   "ensure_surface_slots",
   "set_encoder_led",
+  "set_studio_lcd",
   "open_plugins_folder",
   "get_runtime_status",
   "unload_sd_plugin",

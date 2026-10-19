@@ -986,6 +986,20 @@ pub async fn set_encoder_led(
 }
 
 #[tauri::command]
+pub async fn set_studio_lcd(
+    state: State<'_, OrchState>,
+    surface_id: String,
+    data_url: String,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let image = ideck_core::image_from_data_url(&data_url, 1424)
+        .ok_or_else(|| "invalid LCD image data URL".to_string())?;
+    let orchestrator = state.read().await;
+    orchestrator.set_studio_lcd(surface_id, &image)
+}
+
+#[tauri::command]
 pub async fn register_mock_surface(
     state: State<'_, OrchState>,
     name: String,
