@@ -71,6 +71,7 @@ pub fn run() {
             commands::bind_slot_companion,
             commands::update_companion_options,
             commands::bind_encoder_companion,
+            commands::bind_encoder_sd,
             commands::simulate_encoder,
             commands::simulate_encoder_rotate,
             commands::unbind_encoder,

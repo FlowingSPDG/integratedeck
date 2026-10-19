@@ -2882,6 +2882,39 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub async fn bind_encoder_sd(
+        &mut self,
+        surface_id: SurfaceId,
+        index: u32,
+        plugin_uuid: String,
+        action_uuid: String,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .inner
+            .profile
+            .active_page_id
+            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        page.encoders.insert(
+            index,
+            Binding::stream_deck(
+                plugin_uuid,
+                action_uuid,
+                ActionInstanceId::new(),
+                serde_json::json!({}),
+            ),
+        );
+        self.inner.surface_pages.insert(surface_id, page_id);
+        self.save_profile().await?;
+        Ok(())
+    }
+
     pub async fn bind_encoder_companion(
         &mut self,
         surface_id: SurfaceId,
