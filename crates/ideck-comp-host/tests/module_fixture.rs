@@ -18,7 +18,13 @@ export default class Demo {
   }
   async init(config, isFirst, secrets) {
     this.context.setActionDefinitions({
-      act1: { name: 'Act 1', options: [], callback: async () => {} }
+      act1: {
+        name: 'Act 1',
+        options: [],
+        callback: async () => {
+          this.context.setVariableValues({ state: 'acted' })
+        },
+      }
     })
     this.context.setVariableDefinitions({ state: { name: 'State' } })
     this.context.setVariableValues({ state: 'ready' })
@@ -81,6 +87,17 @@ async fn module_fixture_roundtrip() {
         .await
         .expect("execute");
     assert!(executed.ok, "execute failed: {:?}", executed.error);
+
+    let acted = runtime
+        .request(
+            "connection.getVariableValue",
+            json!({ "connectionId": "c1", "variableId": "state" }),
+        )
+        .await
+        .expect("var")
+        .result
+        .unwrap();
+    assert_eq!(acted["value"], "acted");
 
     let updated = runtime
         .request(

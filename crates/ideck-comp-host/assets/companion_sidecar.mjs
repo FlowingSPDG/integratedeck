@@ -78,8 +78,48 @@ function makeContext(id, cache) {
       emit({ event: 'definitions.updated', connectionId: id, kind: 'presets', definitions: cache.presets })
     },
 
-    checkFeedbacks() {},
-    checkFeedbacksById() {},
+    updateFeedbackValues(values) {
+      const updates = Object.entries(values ?? {}).map(([feedbackId, value]) => ({
+        id: `${id}:${feedbackId}`,
+        style: value?.style ?? value ?? {},
+      }))
+      if (updates.length) {
+        emit({ event: 'feedback.updated', connectionId: id, values: updates })
+      }
+    },
+
+    async checkFeedbacks(types) {
+      const wanted = Array.isArray(types) && types.length ? new Set(types) : null
+      const values = []
+      for (const [feedbackId, definition] of Object.entries(cache.feedbackDefinitions ?? {})) {
+        if (wanted && !wanted.has(feedbackId)) continue
+        if (!definition?.callback) continue
+        try {
+          const style = await definition.callback(
+            {
+              id: `${id}:${feedbackId}`,
+              controlId: `${id}:${feedbackId}`,
+              options: {},
+            },
+            {},
+          )
+          if (style) values.push({ id: `${id}:${feedbackId}`, style })
+        } catch {
+          // A feedback that needs a live device/options is skipped until bound.
+        }
+      }
+      if (values.length) {
+        emit({ event: 'feedback.updated', connectionId: id, values })
+      }
+    },
+
+    checkFeedbacksById(ids) {
+      return this.checkFeedbacks(ids)
+    },
+
+    checkFeedbacksByTypes(types) {
+      return this.checkFeedbacks(types)
+    },
     subscribeActions() {},
     unsubscribeActions() {},
     subscribeFeedbacks() {},
