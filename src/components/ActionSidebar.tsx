@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo } from "react";
 import { useDeck } from "../deck/DeckContext";
 import { filterActions, isRunningStatus, statusBadgeLabel } from "../lib/actions";
+import { actionListIcon } from "../lib/icons";
 import type { DragActionPayload, PluginLibraryEntry } from "../lib/types";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 
@@ -143,6 +144,7 @@ const PluginGroup = memo(function PluginGroup({
                 entry={entry}
                 actionId={a.id}
                 actionName={a.name}
+                actionIcon={a.icon}
                 onDragStart={onDragStart}
               />
             ))
@@ -157,11 +159,13 @@ const ActionItem = memo(function ActionItem({
   entry,
   actionId,
   actionName,
+  actionIcon,
   onDragStart,
 }: {
   entry: PluginLibraryEntry;
   actionId: string;
   actionName: string;
+  actionIcon?: string;
   onDragStart: (e: React.PointerEvent, payload: DragActionPayload) => void;
 }) {
   const payload = useMemo(
@@ -183,7 +187,9 @@ const ActionItem = memo(function ActionItem({
         onDragStart(e, payload);
       }}
     >
-      <span className="action-icon" />
+      <span className="action-icon">
+        <img src={actionListIcon({ id: actionId, icon: actionIcon }, entry.source)} alt="" />
+      </span>
       <span>{actionName}</span>
     </div>
   );

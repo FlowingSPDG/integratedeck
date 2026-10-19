@@ -36,6 +36,8 @@ import { formatUserError } from "../utils/format-error";
 
 const DRAG_THRESHOLD_PX = 6;
 
+export type ControlMode = "keys" | "dials";
+
 export interface DragGhostState {
   label: string;
   x: number;
@@ -62,18 +64,23 @@ interface DeckContextValue {
   startupConflicts: StartupConflictReport | null;
   connectedSurfaces: SurfaceRuntimeEntry[];
   deviceLabel: string;
+  controlMode: ControlMode;
+  hasEncoderSurface: boolean;
+  encoderCount: number;
   activePage: Profile["pages"][number] | undefined;
   selectedSlot: Slot | undefined;
   piNativeSettingsVisible: boolean;
   piSettingsJson: string;
   setActionSearch: (q: string) => void;
   setExecuteMode: (v: boolean) => void;
+  setControlMode: (mode: ControlMode) => void;
   setConflictDismissed: (v: boolean) => void;
   setContextMenu: (menu: SlotContextMenuState | null) => void;
   toggleGroup: (key: string) => void;
   refresh: (opts?: { surfaceId?: string | null }) => Promise<void>;
   selectSurface: (surfaceId: string) => Promise<void>;
   setActivePage: (pageId: string) => Promise<void>;
+  addPage: () => Promise<void>;
   onSlotClick: (row: number, col: number, existing?: Slot) => Promise<void>;
   applyActionToCell: (row: number, col: number, payload: DragActionPayload) => Promise<void>;
   transferSlotCell: (
@@ -166,6 +173,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const [startupConflicts, setStartupConflicts] = useState<StartupConflictReport | null>(null);
   const [connectedSurfaces, setConnectedSurfaces] = useState<SurfaceRuntimeEntry[]>([]);
   const [deviceLabel, setDeviceLabel] = useState("Stream Deck");
+  const [controlMode, setControlMode] = useState<ControlMode>("keys");
   const [piNativeSettingsVisible, setPiNativeSettingsVisible] = useState(false);
   const [piSettingsJson, setPiSettingsJson] = useState("{}");
 
@@ -417,17 +425,33 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     async (pageId: string) => {
       const surfaceId = selectedSurfaceIdRef.current;
       if (!surfaceId) return;
+      // Drop plugin visuals immediately so the new page never renders the
+      // previous page's icons/titles for the same row/column.
+      setCellVisuals({});
+      selectedSlotIdRef.current = null;
+      setSelectedSlotId(null);
       await invoke("set_surface_page", {
         args: { surfaceId, pageId },
       });
       activePageIdRef.current = pageId;
       setActivePageId(pageId);
-      selectedSlotIdRef.current = null;
-      setSelectedSlotId(null);
       await refreshRef.current();
     },
     [],
   );
+
+  const addPage = useCallback(async () => {
+    try {
+      const pageId = await invoke<string>("create_page", {
+        args: { parentPageId: null },
+      });
+      await refreshRef.current();
+      await setActivePage(pageId);
+      setStatusText("ページを追加しました");
+    } catch (err) {
+      setStatusText(`ページ追加に失敗: ${formatUserError(err)}`);
+    }
+  }, [setActivePage]);
 
   const onSlotClick = useCallback(
     async (row: number, col: number, existing?: Slot) => {
@@ -1006,6 +1030,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     setSelectedSurfaceId(surfaceId);
     selectedSlotIdRef.current = null;
     setSelectedSlotId(null);
+    // Context switch: clear cached plugin visuals before loading the new surface.
+    setCellVisuals({});
+    setControlMode("keys");
     await refreshRef.current({ surfaceId });
   }, []);
 
@@ -1046,6 +1073,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [profile, activePageId],
   );
 
+  const activeSurface = useMemo(
+    () => connectedSurfaces.find((s) => s.surfaceId === selectedSurfaceId),
+    [connectedSurfaces, selectedSurfaceId],
+  );
+  const encoderCount = activeSurface?.encoders ?? 0;
+  const hasEncoderSurface = encoderCount > 0;
+
+  // Encoder-less surfaces always stay in keypad mode.
+  useEffect(() => {
+    if (!hasEncoderSurface && controlMode !== "keys") setControlMode("keys");
+  }, [hasEncoderSurface, controlMode]);
+
   const selectedSlot = useMemo(() => {
     if (!activePage || !selectedSlotId) return undefined;
     return Object.values(activePage.slots).find((s) => s.id === selectedSlotId);
@@ -1071,8 +1110,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubs: (() => void)[] = [];
-    void listen<{ row: number; column: number; visual: VisualState }>("visual-updated", (ev) => {
-      const { row, column, visual } = ev.payload;
+    void listen<{
+      row: number;
+      column: number;
+      visual: VisualState;
+      surfaceId?: string;
+      pageId?: string;
+    }>("visual-updated", (ev) => {
+      const { row, column, visual, surfaceId, pageId } = ev.payload;
+      // Ignore feedback that belongs to a context we are no longer showing;
+      // otherwise the previous page/surface leaks icons into the current grid.
+      if (surfaceId && surfaceId !== selectedSurfaceIdRef.current) return;
+      if (pageId && activePageIdRef.current && pageId !== activePageIdRef.current) return;
       setCellVisuals((prev) => ({
         ...prev,
         [`${row},${column}`]: visual,
@@ -1083,6 +1132,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (ev.payload.surfaceId) {
         selectedSurfaceIdRef.current = ev.payload.surfaceId;
         setSelectedSurfaceId(ev.payload.surfaceId);
+        selectedSlotIdRef.current = null;
+        setSelectedSlotId(null);
+        setCellVisuals({});
+        setControlMode("keys");
       }
       void refreshRef.current();
     }).then((u) => unsubs.push(u));
@@ -1153,18 +1206,23 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       startupConflicts,
       connectedSurfaces,
       deviceLabel,
+      controlMode,
+      hasEncoderSurface,
+      encoderCount,
       activePage,
       selectedSlot,
       piNativeSettingsVisible,
       piSettingsJson,
       setActionSearch,
       setExecuteMode,
+      setControlMode,
       setConflictDismissed,
       setContextMenu,
       toggleGroup,
       refresh,
       selectSurface,
       setActivePage,
+      addPage,
       onSlotClick,
       applyActionToCell,
       transferSlotCell,
@@ -1204,6 +1262,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       startupConflicts,
       connectedSurfaces,
       deviceLabel,
+      controlMode,
+      hasEncoderSurface,
+      encoderCount,
       activePage,
       selectedSlot,
       piNativeSettingsVisible,
@@ -1211,6 +1272,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       refresh,
       selectSurface,
       setActivePage,
+      addPage,
       onSlotClick,
       applyActionToCell,
       transferSlotCell,

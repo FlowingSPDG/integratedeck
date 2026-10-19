@@ -3,7 +3,7 @@ import { useDeck } from "../deck/DeckContext";
 import type { Page } from "../lib/types";
 
 export const PageNav = memo(function PageNav() {
-  const { profile, activePageId, setActivePage } = useDeck();
+  const { profile, activePageId, setActivePage, addPage } = useDeck();
 
   const { activePage, breadcrumb, rootPages } = useMemo(() => {
     if (!profile) {
@@ -46,6 +46,15 @@ export const PageNav = memo(function PageNav() {
           {i + 1}
         </button>
       ))}
+      <button
+        type="button"
+        className="page-btn page-add"
+        title="新しいページを追加"
+        aria-label="新しいページを追加"
+        onClick={() => void addPage()}
+      >
+        +
+      </button>
     </div>
   );
 });

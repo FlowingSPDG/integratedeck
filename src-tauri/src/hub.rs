@@ -108,6 +108,12 @@ pub struct VisualUpdatedPayload {
     pub row: u32,
     pub column: u32,
     pub visual: ideck_core::VisualState,
+    /// Context of the update so the editor can ignore feedback for a page or
+    /// surface that is no longer displayed (prevents stale icons/titles).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
 }
 
 #[derive(Clone, Serialize)]

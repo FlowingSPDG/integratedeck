@@ -1,5 +1,6 @@
 import { memo, useMemo } from "react";
 import { useDeck, useDeckDrag } from "../deck/DeckContext";
+import { iconForSlot } from "../lib/icons";
 import { buildSlotIndex, findSlot, isSlotConfigured, slotDisplayContent } from "../lib/slots";
 import type { Slot, VisualState } from "../lib/types";
 
@@ -12,6 +13,7 @@ interface GridCellProps {
   dragging: boolean;
   flashClass: string;
   cellVisuals: Record<string, VisualState>;
+  defaultIcon?: string;
   executeMode: boolean;
   onSlotClick: (row: number, col: number, existing?: Slot) => Promise<void>;
   beginSlotDrag: (
@@ -39,12 +41,13 @@ const GridCell = memo(function GridCell({
   dragging,
   flashClass,
   cellVisuals,
+  defaultIcon,
   executeMode,
   onSlotClick,
   beginSlotDrag,
   setContextMenu,
 }: GridCellProps) {
-  const content = slotDisplayContent(slot, row, col, cellVisuals);
+  const content = slotDisplayContent(slot, row, col, cellVisuals, defaultIcon);
   const canInteract =
     slot && ((isSlotConfigured(slot) && !executeMode) || (executeMode && slot.binding));
 
@@ -99,6 +102,7 @@ export const DeviceGrid = memo(function DeviceGrid() {
     gridRows,
     gridCols,
     cellVisuals,
+    actionLibrary,
     executeMode,
     flash,
     registerGridRef,
@@ -145,6 +149,7 @@ export const DeviceGrid = memo(function DeviceGrid() {
           dragging={draggingSlotId === slot?.id}
           flashClass={flashing}
           cellVisuals={cellVisuals}
+          defaultIcon={iconForSlot(slot, actionLibrary)}
           executeMode={executeMode}
           onSlotClick={onSlotClick}
           beginSlotDrag={beginSlotDrag}

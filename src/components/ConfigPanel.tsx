@@ -7,6 +7,7 @@ import {
   normalizeBinding,
 } from "../lib/binding";
 import type { Slot } from "../lib/types";
+import { SettingsEditor } from "./SettingsEditor";
 
 function imagePreviewUrl(image?: { format: string; data: string }): string | null {
   if (!image?.data) return null;
@@ -76,6 +77,7 @@ export const ConfigPanel = memo(function ConfigPanel() {
       <PropertyInspectorSection
         hidden={!showPi}
         binding={showPi ? binding : undefined}
+        slotId={selectedSlotId}
         registerPiFrameRef={registerPiFrameRef}
         onSettingsChange={saveNativeSettings}
         nativeSettingsVisible={piNativeSettingsVisible}
@@ -281,6 +283,7 @@ function BuiltinSettings({
 function PropertyInspectorSection({
   hidden,
   binding,
+  slotId,
   registerPiFrameRef,
   onSettingsChange,
   nativeSettingsVisible,
@@ -288,17 +291,13 @@ function PropertyInspectorSection({
 }: {
   hidden: boolean;
   binding: ReturnType<typeof normalizeBinding> | undefined;
+  slotId: string | null;
   registerPiFrameRef: (el: HTMLIFrameElement | null) => void;
   onSettingsChange: (json: string) => void;
   nativeSettingsVisible: boolean;
   settingsJson: string;
 }) {
   const isCompanion = binding?.type === "companion";
-  const [localJson, setLocalJson] = useState(settingsJson);
-
-  useEffect(() => {
-    setLocalJson(settingsJson);
-  }, [settingsJson, binding?.actionId, binding?.actionUuid]);
 
   return (
     <div className={hidden ? "hidden" : undefined}>
@@ -323,19 +322,13 @@ function PropertyInspectorSection({
         className={`native-settings${nativeSettingsVisible ? "" : " hidden"}`}
         id="native-settings"
       >
-        <label>
-          Settings JSON
-          <textarea
-            id="settings-json"
-            rows={4}
-            style={{ width: "100%" }}
-            value={localJson}
-            onChange={(e) => {
-              setLocalJson(e.target.value);
-              onSettingsChange(e.target.value);
-            }}
+        {nativeSettingsVisible ? (
+          <SettingsEditor
+            slotId={slotId}
+            settingsJson={settingsJson}
+            onSave={onSettingsChange}
           />
-        </label>
+        ) : null}
       </div>
     </div>
   );

@@ -12,8 +12,8 @@ use ideck_core::{
     OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
 };
 use ideck_sd_host::{
-    effective_plugin_uuid, scan_sd_plugins_roots, ActionContext, BrokerEvent, ImageSetResult,
-    LoadedSdPlugin, PluginSupervisor, StreamDeckBroker, StreamDeckManifest,
+    action_icon_data_url, effective_plugin_uuid, scan_sd_plugins_roots, ActionContext, BrokerEvent,
+    ImageSetResult, LoadedSdPlugin, PluginSupervisor, StreamDeckBroker, StreamDeckManifest,
 };
 use ideck_surface::{
     CellAddress, CellUpdate, DiscoveredDevice, HidDeviceDescriptor, MockSurface, PhysicalSurface,
@@ -387,6 +387,8 @@ impl Orchestrator {
                                 row: update.address.row,
                                 column: update.address.column,
                                 visual,
+                                surface_id: Some(surface_id.0.to_string()),
+                                page_id: Some(page_id.0.to_string()),
                             },
                         );
                     }
@@ -908,6 +910,30 @@ impl Orchestrator {
         }
     }
 
+    /// Blank every cell of a surface. Used on page/context switches so keys
+    /// that have no binding on the new page do not keep the old icon/title.
+    async fn clear_surface_cells(&mut self, surface_id: SurfaceId) {
+        let Some((rows, columns)) = self.inner.surfaces.get(surface_id).await.map(|s| {
+            let caps = &s.descriptor().capabilities;
+            (caps.rows, caps.columns)
+        }) else {
+            return;
+        };
+        let blank = self.blank_cell_visual(surface_id).await;
+        let mut updates = Vec::with_capacity((rows * columns) as usize);
+        for row in 0..rows {
+            for column in 0..columns {
+                updates.push(CellUpdate {
+                    address: CellAddress { row, column },
+                    visual: blank.clone(),
+                });
+            }
+        }
+        if !updates.is_empty() {
+            self.inner.surfaces.render(surface_id, &updates).await.ok();
+        }
+    }
+
     async fn navigate_surface_to_page(
         &mut self,
         surface_id: SurfaceId,
@@ -934,6 +960,8 @@ impl Orchestrator {
             if old != page_id {
                 self.sd_will_disappear_for_surface_page(surface_id, old)
                     .await;
+                // Clear the physical surface before painting the new page.
+                self.clear_surface_cells(surface_id).await;
             }
         }
         self.inner.surface_pages.insert(surface_id, page_id);
@@ -1049,6 +1077,14 @@ impl Orchestrator {
         let Some(page_id) = page_id else {
             return Ok(());
         };
+        let previous = self.inner.surface_pages.get(&surface_id).copied();
+        if let Some(old) = previous {
+            if old != page_id {
+                self.sd_will_disappear_for_surface_page(surface_id, old)
+                    .await;
+                self.clear_surface_cells(surface_id).await;
+            }
+        }
         self.inner.surface_pages.insert(surface_id, page_id);
         self.sync_sd_routing_for_surface_page(surface_id, page_id)
             .await;
@@ -1154,10 +1190,8 @@ impl Orchestrator {
         self.unbind_slot(slot_id).await.ok();
 
         let page_id = self
-            .inner
-            .profile
-            .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
         let surface_id = {
             let page = self
                 .inner
@@ -2346,6 +2380,7 @@ impl Orchestrator {
                 status: status.into(),
                 rows: desc.capabilities.rows,
                 columns: desc.capabilities.columns,
+                encoders: desc.capabilities.encoders,
                 serial,
                 kind,
                 product,
@@ -2418,10 +2453,8 @@ impl Orchestrator {
         let context = SdSurfaceBridge::build_context_id(&plugin_uuid, &action_uuid, &instance_id.0);
 
         let page_id = self
-            .inner
-            .profile
-            .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
 
         let (row, col, surface_id) = {
             let page = self
@@ -2441,6 +2474,10 @@ impl Orchestrator {
                 slot.locator.surface_id,
             )
         };
+
+        // Drop any visual left over from the previous binding before the new
+        // action starts pushing images.
+        self.clear_cell_at(page_id, surface_id, row, col).await;
 
         if let Some(bridge) = self.inner.bridges.get_mut(&plugin_uuid) {
             bridge.register_cell(surface_id, row, col, context.clone());
@@ -2496,10 +2533,31 @@ impl Orchestrator {
         options: serde_json::Value,
     ) -> anyhow::Result<()> {
         let page_id = self
-            .inner
-            .profile
-            .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+
+        let (row, col, surface_id) = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            (
+                slot.locator.row,
+                slot.locator.column,
+                slot.locator.surface_id,
+            )
+        };
+
+        // Clear visuals from the previous binding before Companion feedback
+        // starts replacing this cell.
+        self.clear_cell_at(page_id, surface_id, row, col).await;
 
         self.inner.routing.register_companion_slot(
             slot_id,
@@ -2511,20 +2569,6 @@ impl Orchestrator {
             self.inner.comp_bridge = Some(CompSurfaceBridge::new());
         }
         if let Some(bridge) = self.inner.comp_bridge.as_mut() {
-            let (row, col) = {
-                let page = self
-                    .inner
-                    .profile
-                    .pages
-                    .iter()
-                    .find(|p| p.id == page_id)
-                    .ok_or_else(|| anyhow::anyhow!("page not found"))?;
-                let slot = page
-                    .slots
-                    .get(&slot_id)
-                    .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
-                (slot.locator.row, slot.locator.column)
-            };
             let control_id = format!("{connection_id}:{action_id}");
             bridge.register_cell(row, col, control_id);
         }
@@ -2541,29 +2585,14 @@ impl Orchestrator {
             }
         }
 
-        let surface_id = {
-            let page = self
-                .inner
-                .profile
-                .pages
-                .iter()
-                .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
-            page.slots
-                .get(&slot_id)
-                .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
-        };
         self.persist_slot_changes(surface_id).await?;
         Ok(())
     }
 
     pub async fn unbind_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
         let page_id = self
-            .inner
-            .profile
-            .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
 
         let binding = {
             let page = self
@@ -3178,6 +3207,7 @@ impl Orchestrator {
                         id,
                         name,
                         source: "companion".into(),
+                        icon: None,
                     })
                 })
                 .collect());
@@ -3186,7 +3216,7 @@ impl Orchestrator {
         if let Some(plugin_uuid) = plugin_uuid {
             if let Some(meta) = self.inner.sd_supervisor.meta(&plugin_uuid) {
                 let actions = StreamDeckManifest::list_actions(&meta.path)?;
-                return Ok(sd_manifest_actions(actions));
+                return Ok(sd_manifest_actions(actions, Some(&meta.path)));
             }
             let scan = self.scan_plugins()?;
             if let Some(entry) = scan.streamdeck.into_iter().find(|e| {
@@ -3194,8 +3224,9 @@ impl Orchestrator {
                     || effective_plugin_uuid(std::path::Path::new(&e.path), e.uuid.as_deref())
                         == plugin_uuid
             }) {
-                let actions = StreamDeckManifest::list_actions(std::path::Path::new(&entry.path))?;
-                return Ok(sd_manifest_actions(actions));
+                let path = std::path::Path::new(&entry.path);
+                let actions = StreamDeckManifest::list_actions(path)?;
+                return Ok(sd_manifest_actions(actions, Some(path)));
             }
             anyhow::bail!("SD plugin not found: {plugin_uuid}");
         }
@@ -3210,6 +3241,39 @@ impl Orchestrator {
         self.inner.profile.active_page_id = Some(page_id);
         self.save_profile().await?;
         Ok(())
+    }
+
+    /// Create a new page (root by default, or a child of `parent_page_id`).
+    pub async fn create_page(
+        &mut self,
+        name: Option<String>,
+        parent_page_id: Option<PageId>,
+    ) -> anyhow::Result<PageId> {
+        if let Some(parent) = parent_page_id {
+            if !self.inner.profile.pages.iter().any(|p| p.id == parent) {
+                anyhow::bail!("parent page not found");
+            }
+        }
+        let sibling_count = self
+            .inner
+            .profile
+            .pages
+            .iter()
+            .filter(|p| p.parent_page_id == parent_page_id)
+            .count();
+        let name = name
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| format!("Page {}", sibling_count + 1));
+        let page_id = PageId::new();
+        self.inner.profile.pages.push(Page {
+            id: page_id,
+            name,
+            slots: Default::default(),
+            parent_page_id,
+        });
+        self.save_profile().await?;
+        Ok(page_id)
     }
 
     pub async fn set_surface_page(
@@ -3587,13 +3651,18 @@ impl Orchestrator {
                     )
                 };
                 self.inner.cell_visuals.insert(cell_key, merged.clone());
-                self.push_cell_render(
-                    surface_id,
-                    update.address.row,
-                    update.address.column,
-                    merged,
-                )
-                .await;
+                // Only paint the cell when its page is the one currently shown
+                // on this surface; hidden pages must not overwrite the grid.
+                let visible_page = self.inner.page_for_surface(surface_id);
+                if visible_page.is_none() || visible_page == Some(page_id) {
+                    self.push_cell_render(
+                        surface_id,
+                        update.address.row,
+                        update.address.column,
+                        merged,
+                    )
+                    .await;
+                }
             }
         }
         Ok(())
@@ -3619,12 +3688,15 @@ impl Orchestrator {
         column: u32,
         visual: VisualState,
     ) {
+        let page_id = self.inner.page_for_surface(surface_id);
         HubEvents::emit_visual(
             &self.app,
             VisualUpdatedPayload {
                 row,
                 column,
                 visual: visual.clone(),
+                surface_id: Some(surface_id.0.to_string()),
+                page_id: page_id.map(|p| p.0.to_string()),
             },
         );
         if let Some(surface) = self.inner.surfaces.get(surface_id).await {
@@ -3684,6 +3756,8 @@ impl Orchestrator {
                         row,
                         column: col,
                         visual: restored.clone(),
+                        surface_id: Some(surface_id.0.to_string()),
+                        page_id: Some(page_id.0.to_string()),
                     },
                 );
                 let update = CellUpdate {
@@ -3985,7 +4059,7 @@ impl Orchestrator {
                 self.list_plugin_actions(None, Some(uuid.clone())).await?
             } else {
                 StreamDeckManifest::list_actions(plugin_path)
-                    .map(sd_manifest_actions)
+                    .map(|actions| sd_manifest_actions(actions, Some(plugin_path)))
                     .unwrap_or_default()
             };
             streamdeck.push(PluginLibraryEntry {
@@ -4038,6 +4112,7 @@ impl Orchestrator {
                                     id: id.into(),
                                     name: action_display_name(id)?.into(),
                                     source: "builtin".into(),
+                                    icon: None,
                                 })
                             })
                             .collect(),
@@ -4199,16 +4274,23 @@ pub struct LoadPluginResult {
     pub name: String,
 }
 
-fn sd_manifest_actions(actions: Vec<ideck_sd_host::ManifestAction>) -> Vec<PluginActionInfo> {
+fn sd_manifest_actions(
+    actions: Vec<ideck_sd_host::ManifestAction>,
+    plugin_dir: Option<&std::path::Path>,
+) -> Vec<PluginActionInfo> {
     actions
         .into_iter()
         .filter_map(|a| {
             let id = a.uuid?;
             let name = a.name.unwrap_or_else(|| id.clone());
+            let icon = plugin_dir
+                .zip(a.icon.as_deref())
+                .and_then(|(dir, rel)| action_icon_data_url(dir, rel));
             Some(PluginActionInfo {
                 id,
                 name,
                 source: "streamdeck".into(),
+                icon,
             })
         })
         .collect()
@@ -4220,6 +4302,9 @@ pub struct PluginActionInfo {
     pub id: String,
     pub name: String,
     pub source: String,
+    /// Manifest icon as a data URL, when the plugin ships one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -4270,6 +4355,8 @@ pub struct SurfaceRuntimeEntry {
     pub status: String,
     pub rows: u32,
     pub columns: u32,
+    /// Rotary encoder / dial count (0 for key-only surfaces).
+    pub encoders: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

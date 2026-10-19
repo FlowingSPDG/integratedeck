@@ -80,6 +80,7 @@ export function slotDisplayContent(
   row: number,
   col: number,
   cellVisuals: Record<string, VisualState>,
+  defaultIcon?: string,
 ): { imgSrc?: string; title?: string; fallback?: string } {
   const visual = visualForCell(cellVisuals, row, col);
   const defaultImg = slot?.appearance?.default_image;
@@ -90,6 +91,11 @@ export function slotDisplayContent(
   if (imgData) {
     const mime = imgFormat === "jpeg" ? "jpeg" : "png";
     return { imgSrc: `data:image/${mime};base64,${imgData}`, title: title ?? undefined };
+  }
+  // Plugin/action default icon (manifest icon or builtin placeholder) when the
+  // plugin has not pushed an image yet.
+  if (defaultIcon) {
+    return { imgSrc: defaultIcon, title: title ?? undefined };
   }
   if (title) return { title };
   if (slot?.binding) {

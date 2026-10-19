@@ -64,6 +64,7 @@ export interface SurfaceRuntimeEntry {
   serial?: string;
   kind?: string;
   product?: string;
+  encoders?: number;
   activePageId?: string;
 }
 
@@ -74,7 +75,7 @@ export interface PluginLibraryEntry {
   source: string;
   status: string;
   port?: number;
-  actions: { id: string; name: string; source: string }[];
+  actions: { id: string; name: string; source: string; icon?: string }[];
 }
 
 export interface ActionLibrary {

@@ -600,6 +600,37 @@ pub async fn set_active_page(state: State<'_, OrchState>, page_id: String) -> Re
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreatePageArgs {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub parent_page_id: Option<String>,
+}
+
+/// Create a page and return its id. The frontend switches to it afterwards.
+#[tauri::command]
+pub async fn create_page(
+    state: State<'_, OrchState>,
+    args: CreatePageArgs,
+) -> Result<String, String> {
+    let parent = args
+        .parent_page_id
+        .map(|raw| {
+            uuid::Uuid::parse_str(&raw)
+                .map(PageId)
+                .map_err(|e| e.to_string())
+        })
+        .transpose()?;
+    let mut o = state.write().await;
+    let page_id = o
+        .create_page(args.name, parent)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(page_id.0.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetSurfacePageArgs {
     pub surface_id: String,
     pub page_id: String,

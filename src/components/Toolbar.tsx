@@ -12,6 +12,7 @@ export const Toolbar = memo(function Toolbar() {
     setExecuteMode,
     selectSurface,
     setActivePage,
+    addPage,
     openSettings,
   } = useDeck();
 
@@ -33,16 +34,27 @@ export const Toolbar = memo(function Toolbar() {
       </div>
       <div className="toolbar-select">
         <label>プロファイル</label>
-        <select
-          value={activePageId ?? ""}
-          onChange={(e) => void setActivePage(e.target.value)}
-        >
-          {profile?.pages.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          )) ?? null}
-        </select>
+        <div className="toolbar-page-row">
+          <select
+            value={activePageId ?? ""}
+            onChange={(e) => void setActivePage(e.target.value)}
+          >
+            {profile?.pages.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            )) ?? null}
+          </select>
+          <button
+            type="button"
+            className="toolbar-add-page"
+            title="新しいページを追加"
+            aria-label="新しいページを追加"
+            onClick={() => void addPage()}
+          >
+            +
+          </button>
+        </div>
       </div>
       <span className="toolbar-spacer" />
       <label className="toolbar-toggle" title="ON: キーを押すとアクションを実行">

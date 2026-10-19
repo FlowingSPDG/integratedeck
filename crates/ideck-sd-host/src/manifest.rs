@@ -51,6 +51,9 @@ pub struct ManifestAction {
     pub name: Option<String>,
     #[serde(default, rename = "PropertyInspectorPath")]
     pub property_inspector: Option<String>,
+    /// Manifest `Icon` path (relative to the plugin bundle, extension optional).
+    #[serde(default, rename = "Icon")]
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -171,6 +174,48 @@ impl StreamDeckManifest {
             .iter()
             .find(|a| a.uuid.as_deref() == Some(action_uuid))
     }
+}
+
+/// Resolve a manifest `Icon` path to a data URL the frontend can render.
+///
+/// Stream Deck manifests usually omit the extension (`"imgs/action"`), so a
+/// handful of common extensions and the `@2x` retina variant are probed.
+pub fn action_icon_data_url(plugin_dir: &Path, icon: &str) -> Option<String> {
+    use base64::Engine;
+
+    let rel = icon.trim().trim_start_matches(['/', '\\']);
+    if rel.is_empty() {
+        return None;
+    }
+
+    let direct = plugin_dir.join(rel);
+    let resolved = if direct.is_file() {
+        direct
+    } else {
+        [".png", ".svg", ".jpg", ".jpeg", "@2x.png"]
+            .iter()
+            .map(|ext| plugin_dir.join(format!("{rel}{ext}")))
+            .find(|candidate| candidate.is_file())?
+    };
+
+    let bytes = std::fs::read(&resolved).ok()?;
+    if bytes.is_empty() || bytes.len() > 256 * 1024 {
+        return None;
+    }
+    let mime = match resolved
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("svg") => "image/svg+xml",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        _ => "image/png",
+    };
+    Some(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 /// Stable plugin id for UI grouping when manifest UUID is absent.
@@ -421,6 +466,7 @@ fn collect_actions(items: &[Value], out: &mut Vec<ManifestAction>) {
         let name = pick_string(item, &["Name", "name"]);
         let property_inspector =
             pick_string(item, &["PropertyInspectorPath", "propertyInspectorPath"]);
+        let icon = pick_string(item, &["Icon", "icon"]);
 
         if uuid.is_none() && name.is_none() {
             continue;
@@ -430,6 +476,7 @@ fn collect_actions(items: &[Value], out: &mut Vec<ManifestAction>) {
             uuid,
             name,
             property_inspector,
+            icon,
         });
     }
 }
@@ -449,6 +496,7 @@ fn actions_from_localization(value: &Value) -> Vec<ManifestAction> {
                 value,
                 &["PropertyInspectorPath", "propertyInspectorPath"],
             ),
+            icon: pick_string(value, &["Icon", "icon"]),
         })
         .collect();
     actions.sort_by(|a, b| {
@@ -699,6 +747,28 @@ mod tests {
         let ids: Vec<_> = actions.iter().filter_map(|a| a.uuid.as_deref()).collect();
         assert!(ids.contains(&"com.example.chat.mute"));
         assert!(ids.contains(&"com.example.chat.deafen"));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn resolves_manifest_icon_data_url_without_extension() {
+        let dir = std::env::temp_dir().join(format!(
+            "ideck-manifest-icon-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("imgs")).unwrap();
+        fs::write(dir.join("imgs/action.png"), [0x89, b'P', b'N', b'G', 0, 0]).unwrap();
+
+        let url = action_icon_data_url(&dir, "imgs/action").expect("icon data url");
+        assert!(
+            url.starts_with("data:image/png;base64,"),
+            "unexpected url: {url}"
+        );
+        assert!(action_icon_data_url(&dir, "imgs/missing").is_none());
 
         let _ = fs::remove_dir_all(dir);
     }
