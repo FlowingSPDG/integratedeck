@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -80,6 +80,8 @@ pub struct StreamDeckBroker {
     device_id: String,
     device_info: DeviceInfo,
     global_settings: RwLock<Value>,
+    /// Events the plugin asked for via `registerEvent`.
+    registered_events: RwLock<HashSet<String>>,
     plugin_dir: PathBuf,
     _plugin_process: PluginProcess,
 }
@@ -135,6 +137,7 @@ impl StreamDeckBroker {
             device_id,
             device_info,
             global_settings: RwLock::new(json!({})),
+            registered_events: RwLock::new(HashSet::new()),
             plugin_dir: plugin_dir.to_path_buf(),
             _plugin_process: plugin_process,
         });
@@ -439,9 +442,37 @@ impl StreamDeckBroker {
                 debug!("setTitle context={context} title={title:?}");
                 let _ = self.event_tx.send(BrokerEvent::SetTitle {
                     context: context.into(),
-                    title,
-                    title_params,
+                    title: title.clone(),
+                    title_params: title_params.clone(),
                 });
+                if self
+                    .registered_events
+                    .read()
+                    .await
+                    .contains("titleParametersDidChange")
+                {
+                    if let Some(ctx) = self.contexts.read().await.get(context).cloned() {
+                        let params = title_params
+                            .as_ref()
+                            .and_then(|p| serde_json::to_value(p).ok())
+                            .unwrap_or_else(|| json!({}));
+                        let payload = json!({
+                            "event": "titleParametersDidChange",
+                            "action": ctx.action_uuid,
+                            "context": context,
+                            "device": self.device_id,
+                            "payload": {
+                                "settings": ctx.settings,
+                                "coordinates": { "column": ctx.coordinates.0, "row": ctx.coordinates.1 },
+                                "state": 0,
+                                "title": title,
+                                "titleParameters": params
+                            }
+                        });
+                        self.enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
+                            .await;
+                    }
+                }
             }
             "setSettings" => {
                 let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
@@ -572,6 +603,32 @@ impl StreamDeckBroker {
                     context: context.into(),
                     payload: extract_feedback_payload(&msg),
                 });
+            }
+            "registerEvent" => {
+                let Some(event_name) = registered_event_name(&msg) else {
+                    debug!("registerEvent without eventName");
+                    return;
+                };
+                self.registered_events
+                    .write()
+                    .await
+                    .insert(event_name.to_string());
+                debug!("plugin registered for {event_name}");
+                match event_name {
+                    "didReceiveGlobalSettings" => {
+                        let settings = self.global_settings.read().await.clone();
+                        let payload = json!({
+                            "event": "didReceiveGlobalSettings",
+                            "payload": { "settings": settings }
+                        });
+                        self.enqueue_or_send_to_plugin(Message::Text(payload.to_string().into()))
+                            .await;
+                    }
+                    "deviceDidConnect" => {
+                        self.device_did_connect().await.ok();
+                    }
+                    _ => {}
+                }
             }
             _ => debug!("unhandled plugin command: {event}"),
         }
@@ -832,9 +889,17 @@ fn extract_feedback_layout(msg: &Value) -> String {
         .to_string()
 }
 
+/// `registerEvent` carries the requested event name in `eventName`.
+fn registered_event_name(msg: &Value) -> Option<&str> {
+    msg.get("eventName").and_then(|v| v.as_str())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_feedback_layout, extract_feedback_payload, extract_set_settings_payload};
+    use super::{
+        extract_feedback_layout, extract_feedback_payload, extract_set_settings_payload,
+        registered_event_name,
+    };
     use serde_json::json;
 
     #[test]
@@ -884,6 +949,19 @@ mod tests {
             "payload": "custom.json"
         });
         assert_eq!(extract_feedback_layout(&bare), "custom.json");
+    }
+
+    #[test]
+    fn extracts_register_event_name() {
+        let msg = json!({
+            "event": "registerEvent",
+            "eventName": "didReceiveGlobalSettings"
+        });
+        assert_eq!(
+            registered_event_name(&msg),
+            Some("didReceiveGlobalSettings")
+        );
+        assert_eq!(registered_event_name(&json!({ "event": "registerEvent" })), None);
     }
 }
 
