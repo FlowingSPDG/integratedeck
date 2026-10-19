@@ -68,6 +68,7 @@
 | 自前 VSD2 サーバ | 実機 | [x] | `start_vsd_server` + 実クライアントで KeypadConfig 3x5 / Ok |
 | ソフトウェアサーフェス接続 | 実機 | [x] | Create で `integratedeck` サーフェスを登録、KeyEventを入力へ |
 | サーフェス解除 | 実機 | [x] | `unregister_surface` で重複Studio/VSDを整理 |
+| ButtonImage配信 | 統合 | [x] | OpenVirtualDevice + `VsdImage` → 暗号化ButtonImage |
 | Pi GPIO | 実装 | [ ] | 計画 Phase 5 |
 
 ## 再現コマンド
