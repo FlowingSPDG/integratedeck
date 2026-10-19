@@ -40,7 +40,10 @@ pub fn image_from_base64(data: &str, format: ImageFormat) -> Option<ImagePayload
 }
 
 /// Resolve a Stream Deck `setImage` payload: base64/data-URL or relative path under `plugin_dir`.
-pub fn image_from_plugin_payload(data: &str, plugin_dir: Option<&std::path::Path>) -> Option<ImagePayload> {
+pub fn image_from_plugin_payload(
+    data: &str,
+    plugin_dir: Option<&std::path::Path>,
+) -> Option<ImagePayload> {
     let trimmed = data.trim();
     if trimmed.is_empty() {
         return None;
@@ -68,7 +71,12 @@ pub fn image_from_plugin_payload(data: &str, plugin_dir: Option<&std::path::Path
 }
 
 fn looks_like_image_path(s: &str) -> bool {
-    s.contains('/') || s.contains('\\') || s.ends_with(".png") || s.ends_with(".jpg") || s.ends_with(".jpeg") || s.ends_with(".bmp")
+    s.contains('/')
+        || s.contains('\\')
+        || s.ends_with(".png")
+        || s.ends_with(".jpg")
+        || s.ends_with(".jpeg")
+        || s.ends_with(".bmp")
 }
 
 fn decode_image_bytes(data: &str) -> Option<Vec<u8>> {
@@ -81,10 +89,7 @@ fn decode_image_bytes(data: &str) -> Option<Vec<u8>> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD
         .decode(b64.trim())
-        .or_else(|_| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(b64.trim())
-        })
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(b64.trim()))
         .ok()
         .filter(|b| !b.is_empty())
 }

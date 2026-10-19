@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use ideck_core::{SurfaceId, SlotId};
+use ideck_core::{SlotId, SurfaceId};
 use ideck_surface::SurfaceInput;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};

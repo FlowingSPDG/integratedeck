@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::driver::PhysicalSurface;
-use crate::{CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput};
+use crate::{
+    CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput,
+};
 use ideck_core::SurfaceId;
 
 /// Erases [`PhysicalSurface`] for storage as [`Surface`].
@@ -126,10 +128,10 @@ impl SurfaceManager {
             .write()
             .await
             .insert(surface_id, surface.clone());
-        self.surfaces.write().await.insert(
-            surface_id,
-            Arc::new(ErasedPhysicalSurface(surface)),
-        );
+        self.surfaces
+            .write()
+            .await
+            .insert(surface_id, Arc::new(ErasedPhysicalSurface(surface)));
     }
 
     pub fn physical(&self, id: SurfaceId) -> Option<Arc<dyn PhysicalSurface>> {
@@ -153,14 +155,14 @@ impl SurfaceManager {
     }
 
     pub async fn render(&self, id: SurfaceId, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
-        let surface = self
-            .get(id)
-            .await
-            .ok_or(SurfaceError::NotFound(id))?;
+        let surface = self.get(id).await.ok_or(SurfaceError::NotFound(id))?;
         surface.render(updates).await
     }
 
-    pub fn subscribe_mock_inputs(&self, id: SurfaceId) -> Option<broadcast::Receiver<SurfaceInput>> {
+    pub fn subscribe_mock_inputs(
+        &self,
+        id: SurfaceId,
+    ) -> Option<broadcast::Receiver<SurfaceInput>> {
         self.mock_inputs
             .try_read()
             .ok()

@@ -4,6 +4,7 @@ mod errors;
 mod hub;
 mod orchestrator;
 mod paths;
+mod plugin_host;
 mod settings_store;
 mod state;
 mod windows;
@@ -31,7 +32,9 @@ fn start_orchestrator(app: &App) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("integratedeck=info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("integratedeck=info".parse().unwrap()),
+        )
         .init();
 
     tauri::Builder::default()
@@ -39,6 +42,8 @@ pub fn run() {
         .setup(|app| {
             windows::ensure_main_window(app)?;
             windows::ensure_settings_window(app)?;
+            plugin_host::ensure_plugin_host_window(app)?;
+            app.manage(plugin_host::install(app.handle())?);
             start_orchestrator(app)?;
             Ok(())
         })
@@ -93,6 +98,7 @@ pub fn run() {
             commands::import_profile,
             commands::apply_surface_input,
             commands::open_settings_window,
+            plugin_host::focus_plugin_host_window,
             commands::get_global_settings,
             commands::set_global_settings,
             commands::list_settings_devices,

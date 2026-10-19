@@ -122,9 +122,7 @@ mod serde_bytes_base64 {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        STANDARD
-            .decode(s)
-            .map_err(serde::de::Error::custom)
+        STANDARD.decode(s).map_err(serde::de::Error::custom)
     }
 }
 

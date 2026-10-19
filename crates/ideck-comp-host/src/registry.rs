@@ -17,4 +17,3 @@ pub fn scan_module_dirs(root: &Path) -> Vec<PathBuf> {
     modules.sort();
     modules
 }
-

@@ -1,5 +1,5 @@
+use ab_glyph::{point, Font, FontArc, Glyph, PxScale, ScaleFont};
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
-use ab_glyph::{Font, FontArc, Glyph, PxScale, ScaleFont, point};
 
 use crate::{ImageFormat, ImagePayload, TitleAlignment, TitleParams, VisualState};
 
@@ -45,10 +45,7 @@ pub fn merge_visual(
 
 /// Build a PNG for HID upload: key-sized image + optional title caption.
 pub fn compose_key_png(visual: &VisualState, hints: KeyDisplayHints) -> Option<Vec<u8>> {
-    let has_title = visual
-        .title
-        .as_ref()
-        .is_some_and(|t| !t.trim().is_empty());
+    let has_title = visual.title.as_ref().is_some_and(|t| !t.trim().is_empty());
     if visual.image.is_none() && !has_title {
         return None;
     }
@@ -141,8 +138,7 @@ fn draw_title_on_key(
         .map(|c| scaled.h_advance(scaled.glyph_id(c)))
         .sum();
 
-    let (bar_top, baseline_y) =
-        title_bar_geometry(params, height, bar_height, scaled.ascent());
+    let (bar_top, baseline_y) = title_bar_geometry(params, height, bar_height, scaled.ascent());
 
     let x = match params.alignment {
         TitleAlignment::Left => 4.0,
@@ -317,7 +313,9 @@ mod tests {
             ..Default::default()
         };
         let png = compose_key_png(&visual, hints).expect("compose title png");
-        let img = image::load_from_memory(&png).expect("decode png").to_rgba8();
+        let img = image::load_from_memory(&png)
+            .expect("decode png")
+            .to_rgba8();
         let mut white_in_bar = 0u32;
         for y in 72..96 {
             for x in 0..96 {

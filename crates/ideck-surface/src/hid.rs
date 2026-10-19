@@ -4,12 +4,12 @@ use std::sync::Arc;
 use elgato_streamdeck::asynchronous::AsyncStreamDeck;
 use elgato_streamdeck::images::convert_image_with_format;
 use elgato_streamdeck::info::Kind;
-use ideck_core::KeyDisplayHints;
 use elgato_streamdeck::{list_devices, new_hidapi, refresh_device_list, DeviceStateUpdate};
+use ideck_core::KeyDisplayHints;
 use image::codecs::jpeg::JpegEncoder;
-use image::{ColorType, DynamicImage};
 use image::imageops::FilterType;
 use image::ImageReader;
+use image::{ColorType, DynamicImage};
 use tokio::sync::broadcast;
 use tracing::warn;
 
@@ -318,8 +318,7 @@ impl super::Surface for StreamDeckHidSurface {
                         .ok()
                 })
             } else if let Some(image) = &update.visual.image {
-                let Ok(reader) =
-                    ImageReader::new(Cursor::new(&image.data)).with_guessed_format()
+                let Ok(reader) = ImageReader::new(Cursor::new(&image.data)).with_guessed_format()
                 else {
                     continue;
                 };

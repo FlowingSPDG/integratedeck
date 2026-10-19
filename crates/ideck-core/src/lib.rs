@@ -10,9 +10,9 @@ mod variables;
 mod visual;
 
 pub use appearance::*;
-pub use key_render::*;
 pub use binding::*;
 pub use builtin::*;
+pub use key_render::*;
 pub use profile::*;
 pub use slot::{Slot, SlotId};
 pub use variables::*;

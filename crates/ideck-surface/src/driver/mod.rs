@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::{CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput};
+use crate::{
+    CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput,
+};
 use ideck_core::SurfaceId;
 
 /// Static metadata for a surface driver plugin (like a Companion surface module manifest).

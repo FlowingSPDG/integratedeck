@@ -19,18 +19,19 @@ impl EmbeddedEngine {
     pub fn spawn(modules_dir: &Path) -> anyhow::Result<Self> {
         let (event_tx, _) = broadcast::channel(128);
         let event_tx_clone = event_tx.clone();
-        let emitter: Arc<dyn Fn(String, String) + Send + Sync> = Arc::new(move |event, data_json| {
-            let mut value: JsonValue =
-                serde_json::from_str(&data_json).unwrap_or_else(|_| serde_json::json!({}));
-            if let JsonValue::Object(ref mut map) = value {
-                map.insert("event".into(), JsonValue::String(event.clone()));
-                let host_event = HostEvent {
-                    event,
-                    data: JsonValue::Object(map.clone()),
-                };
-                let _ = event_tx_clone.send(host_event);
-            }
-        });
+        let emitter: Arc<dyn Fn(String, String) + Send + Sync> =
+            Arc::new(move |event, data_json| {
+                let mut value: JsonValue =
+                    serde_json::from_str(&data_json).unwrap_or_else(|_| serde_json::json!({}));
+                if let JsonValue::Object(ref mut map) = value {
+                    map.insert("event".into(), JsonValue::String(event.clone()));
+                    let host_event = HostEvent {
+                        event,
+                        data: JsonValue::Object(map.clone()),
+                    };
+                    let _ = event_tx_clone.send(host_event);
+                }
+            });
 
         let modules_root = modules_dir.to_path_buf();
         let inner = JsEngine::spawn(JsEngineConfig {

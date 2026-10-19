@@ -17,7 +17,12 @@ fn plugins_dir() -> Option<PathBuf> {
         return Some(PathBuf::from(dir));
     }
     let appdata = std::env::var("APPDATA").ok()?;
-    Some(PathBuf::from(appdata).join("Elgato").join("StreamDeck").join("Plugins"))
+    Some(
+        PathBuf::from(appdata)
+            .join("Elgato")
+            .join("StreamDeck")
+            .join("Plugins"),
+    )
 }
 
 fn first_plugin(path: &std::path::Path) -> Option<PathBuf> {

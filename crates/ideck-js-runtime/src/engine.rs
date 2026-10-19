@@ -1,9 +1,9 @@
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::cell::RefCell;
 use std::sync::Arc;
 
-use boa_engine::{Context, JsValue, Source, js_string};
+use boa_engine::{js_string, Context, JsValue, Source};
 use boa_runtime::extensions::{ConsoleExtension, MicrotaskExtension, TimeoutExtension};
 use serde_json::Value as JsonValue;
 use tokio::sync::{mpsc, oneshot};
@@ -99,12 +99,8 @@ fn run_worker(
             .build()
             .map_err(|e| anyhow::anyhow!("failed to build JS context: {e}"))?;
 
-        boa_runtime::register(
-            ConsoleExtension::default(),
-            None,
-            &mut context,
-        )
-        .map_err(|e| anyhow::anyhow!("failed to register console extension: {e}"))?;
+        boa_runtime::register(ConsoleExtension::default(), None, &mut context)
+            .map_err(|e| anyhow::anyhow!("failed to register console extension: {e}"))?;
         boa_runtime::register_extensions(MicrotaskExtension {}, None, &mut context)
             .map_err(|e| anyhow::anyhow!("failed to register microtask extension: {e}"))?;
         boa_runtime::register_extensions(TimeoutExtension {}, None, &mut context)

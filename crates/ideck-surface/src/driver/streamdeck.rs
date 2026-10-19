@@ -3,13 +3,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use ideck_core::SurfaceId;
 
-use super::{
-    DiscoveredDevice, PhysicalSurface, SurfaceDriverManifest, SurfaceDriverPlugin,
+use super::{DiscoveredDevice, PhysicalSurface, SurfaceDriverManifest, SurfaceDriverPlugin};
+use crate::hid::{self, capabilities_from_kind, parse_kind_id, HidSession, StreamDeckHidSurface};
+use crate::{
+    CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput,
 };
-use crate::hid::{
-    self, HidSession, StreamDeckHidSurface, capabilities_from_kind, parse_kind_id,
-};
-use crate::{CellUpdate, Surface, SurfaceCapabilities, SurfaceDescriptor, SurfaceError, SurfaceInput};
 
 pub const DRIVER_ID: &str = "streamdeck-hid";
 
@@ -95,7 +93,9 @@ impl PhysicalSurface for StreamDeckHidSurface {
 }
 
 pub fn parse_streamdeck_device_id(device_id: &str) -> Option<(String, String)> {
-    device_id.split_once(':').map(|(k, s)| (k.to_string(), s.to_string()))
+    device_id
+        .split_once(':')
+        .map(|(k, s)| (k.to_string(), s.to_string()))
 }
 
 pub fn capabilities_for_kind_id(kind_id: &str) -> Option<SurfaceCapabilities> {

@@ -10,12 +10,12 @@ use tokio::sync::RwLock;
 use crate::conflict_check;
 use crate::errors::{friendly_anyhow, friendly_error};
 use crate::orchestrator::{
-    ActionLibrary, ConnectHidResult, LoadPluginResult, Orchestrator,
-    PiContextDto, PluginActionInfo, RuntimeStatus, ScanResult, SettingsDeviceEntry,
+    ActionLibrary, ConnectHidResult, LoadPluginResult, Orchestrator, PiContextDto,
+    PluginActionInfo, RuntimeStatus, ScanResult, SettingsDeviceEntry,
 };
-use crate::settings_store::AppGlobalSettings;
 use crate::paths;
 use crate::settings_store;
+use crate::settings_store::AppGlobalSettings;
 use crate::windows;
 
 type OrchState = Arc<RwLock<Orchestrator>>;
@@ -47,7 +47,9 @@ pub async fn check_startup_conflicts() -> conflict_check::StartupConflictReport 
 }
 
 #[tauri::command]
-pub async fn list_surfaces(state: State<'_, OrchState>) -> Result<Vec<ideck_surface::SurfaceDescriptor>, String> {
+pub async fn list_surfaces(
+    state: State<'_, OrchState>,
+) -> Result<Vec<ideck_surface::SurfaceDescriptor>, String> {
     let o = state.read().await;
     Ok(o.list_surface_descriptors().await)
 }
@@ -176,14 +178,9 @@ pub async fn bind_slot_companion(
 ) -> Result<(), String> {
     let slot_id = parse_slot_id(&args.slot_id)?;
     let mut o = state.write().await;
-    o.bind_slot_companion(
-        slot_id,
-        args.connection_id,
-        args.action_id,
-        args.options,
-    )
-    .await
-    .map_err(|e| e.to_string())
+    o.bind_slot_companion(slot_id, args.connection_id, args.action_id, args.options)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Deserialize)]
@@ -268,9 +265,8 @@ pub async fn set_switch_page_target(
     args: SetSwitchPageTargetArgs,
 ) -> Result<(), String> {
     let slot_id = parse_slot_id(&args.slot_id)?;
-    let target_page_id = PageId(
-        uuid::Uuid::parse_str(&args.target_page_id).map_err(|e| e.to_string())?,
-    );
+    let target_page_id =
+        PageId(uuid::Uuid::parse_str(&args.target_page_id).map_err(|e| e.to_string())?);
     let mut o = state.write().await;
     o.set_switch_page_target(slot_id, target_page_id)
         .await
@@ -403,8 +399,7 @@ pub async fn simulate_slot_key(
     };
     let state_clone = state.inner().clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            Orchestrator::dispatch_simulate_slot_key(state_clone, slot_id, phase).await
+        if let Err(e) = Orchestrator::dispatch_simulate_slot_key(state_clone, slot_id, phase).await
         {
             tracing::warn!("simulate_slot_key: {e}");
         }
@@ -413,7 +408,9 @@ pub async fn simulate_slot_key(
 }
 
 #[tauri::command]
-pub async fn list_connections(state: State<'_, OrchState>) -> Result<Vec<ConnectionRecord>, String> {
+pub async fn list_connections(
+    state: State<'_, OrchState>,
+) -> Result<Vec<ConnectionRecord>, String> {
     let o = state.read().await;
     Ok(o.connections())
 }
@@ -551,9 +548,10 @@ pub async fn get_property_inspector_url(
     args: PropertyInspectorUrlArgs,
 ) -> Result<Option<String>, String> {
     let o = state.read().await;
-    Ok(o
-        .property_inspector_path(&args.plugin_uuid, &args.action_uuid)
-        .map(|p| p.display().to_string()))
+    Ok(
+        o.property_inspector_path(&args.plugin_uuid, &args.action_uuid)
+            .map(|p| p.display().to_string()),
+    )
 }
 
 #[derive(Deserialize)]
@@ -594,10 +592,7 @@ pub async fn update_slot_settings(
 }
 
 #[tauri::command]
-pub async fn set_active_page(
-    state: State<'_, OrchState>,
-    page_id: String,
-) -> Result<(), String> {
+pub async fn set_active_page(state: State<'_, OrchState>, page_id: String) -> Result<(), String> {
     let page_id = PageId(uuid::Uuid::parse_str(&page_id).map_err(|e| e.to_string())?);
     let mut o = state.write().await;
     o.set_active_page(page_id).await.map_err(|e| e.to_string())
@@ -674,8 +669,7 @@ pub async fn import_profile(
     state: State<'_, OrchState>,
     args: ImportProfileArgs,
 ) -> Result<(), String> {
-    let profile: Profile =
-        serde_json::from_str(&args.json).map_err(|e| e.to_string())?;
+    let profile: Profile = serde_json::from_str(&args.json).map_err(|e| e.to_string())?;
     let mut o = state.write().await;
     *o.profile_mut() = profile;
     o.save_profile().await.map_err(|e| e.to_string())
@@ -791,9 +785,7 @@ pub async fn transfer_slot_cell(
 }
 
 fn parse_slot_id(s: &str) -> Result<SlotId, String> {
-    Ok(SlotId(
-        uuid::Uuid::parse_str(s).map_err(|e| e.to_string())?,
-    ))
+    Ok(SlotId(uuid::Uuid::parse_str(s).map_err(|e| e.to_string())?))
 }
 
 #[tauri::command]

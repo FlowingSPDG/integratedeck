@@ -90,11 +90,13 @@ impl StreamDeckManifest {
 
     /// Best-effort read for plugin scanning when strict load is not required.
     pub fn read_summary(plugin_dir: &Path) -> Option<ManifestSummary> {
-        parse_plugin_manifest(plugin_dir).ok().map(|parsed| ManifestSummary {
-            name: parsed.name,
-            uuid: Some(parsed.uuid).filter(|u| !u.is_empty()),
-            version: parsed.version,
-        })
+        parse_plugin_manifest(plugin_dir)
+            .ok()
+            .map(|parsed| ManifestSummary {
+                name: parsed.name,
+                uuid: Some(parsed.uuid).filter(|u| !u.is_empty()),
+                version: parsed.version,
+            })
     }
 
     /// Action entries suitable for the action library UI.
@@ -177,11 +179,10 @@ pub fn effective_plugin_uuid(plugin_dir: &Path, manifest_uuid: Option<&str>) -> 
         .map(str::trim)
         .filter(|u| !u.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| infer_uuid_from_bundle(plugin_dir).unwrap_or_else(|| {
-            plugin_dir
-                .to_string_lossy()
-                .replace('\\', "/")
-        }))
+        .unwrap_or_else(|| {
+            infer_uuid_from_bundle(plugin_dir)
+                .unwrap_or_else(|| plugin_dir.to_string_lossy().replace('\\', "/"))
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -279,15 +280,19 @@ fn parse_manifest_json(bytes: &[u8]) -> Result<Value, ManifestError> {
     if bytes.len() >= 2 && bytes[0] == 0 {
         if let Ok(text) = String::from_utf16(
             &bytes
-                .chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|chunk| u16::from_le_bytes(*chunk))
                 .collect::<Vec<_>>(),
         ) {
             return Ok(serde_json::from_str(text.trim_start_matches('\u{feff}'))?);
         }
     }
 
-    Err(ManifestError::Json(serde_json::from_str::<Value>("").unwrap_err()))
+    Err(ManifestError::Json(
+        serde_json::from_str::<Value>("").unwrap_err(),
+    ))
 }
 
 fn decode_text(bytes: &[u8]) -> Option<String> {
@@ -296,15 +301,19 @@ fn decode_text(bytes: &[u8]) -> Option<String> {
     }
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let units = bytes[2..]
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| u16::from_le_bytes(*chunk))
             .collect::<Vec<_>>();
         return String::from_utf16(&units).ok();
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
         let units = bytes[2..]
-            .chunks_exact(2)
-            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| u16::from_be_bytes(*chunk))
             .collect::<Vec<_>>();
         return String::from_utf16(&units).ok();
     }
@@ -340,11 +349,8 @@ fn plugin_uuid_from_value(value: &Value, plugin_dir: &Path) -> String {
         ],
     )
     .unwrap_or_else(|| {
-        infer_uuid_from_bundle(plugin_dir).unwrap_or_else(|| {
-            plugin_dir
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
+        infer_uuid_from_bundle(plugin_dir)
+            .unwrap_or_else(|| plugin_dir.to_string_lossy().replace('\\', "/"))
     })
 }
 
@@ -355,9 +361,7 @@ fn plugin_name_from_value(
 ) -> String {
     pick_string(value, &["Name", "name"])
         .or_else(|| pick_string(value, &["Category", "category"]))
-        .or_else(|| {
-            localization.and_then(|loc| pick_string(loc, &["Name", "name"]))
-        })
+        .or_else(|| localization.and_then(|loc| pick_string(loc, &["Name", "name"])))
         .or_else(|| humanize_bundle_name(plugin_dir))
         .unwrap_or_else(|| "Unknown Plugin".into())
 }
@@ -441,7 +445,10 @@ fn actions_from_localization(value: &Value) -> Vec<ManifestAction> {
         .map(|(key, value)| ManifestAction {
             uuid: Some(key.clone()),
             name: pick_string(value, &["Name", "name"]),
-            property_inspector: pick_string(value, &["PropertyInspectorPath", "propertyInspectorPath"]),
+            property_inspector: pick_string(
+                value,
+                &["PropertyInspectorPath", "propertyInspectorPath"],
+            ),
         })
         .collect();
     actions.sort_by(|a, b| {
@@ -449,7 +456,12 @@ fn actions_from_localization(value: &Value) -> Vec<ManifestAction> {
             .as_deref()
             .unwrap_or("")
             .cmp(b.name.as_deref().unwrap_or(""))
-            .then_with(|| a.uuid.as_deref().unwrap_or("").cmp(b.uuid.as_deref().unwrap_or("")))
+            .then_with(|| {
+                a.uuid
+                    .as_deref()
+                    .unwrap_or("")
+                    .cmp(b.uuid.as_deref().unwrap_or(""))
+            })
     });
     actions
 }
@@ -701,7 +713,11 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(dir.join("bin")).unwrap();
-        fs::write(dir.join("manifest.json"), r#"{"Name":"P","UUID":"com.test","Version":"1"}"#).unwrap();
+        fs::write(
+            dir.join("manifest.json"),
+            r#"{"Name":"P","UUID":"com.test","Version":"1"}"#,
+        )
+        .unwrap();
         fs::write(dir.join("bin/plugin.js"), "// plugin").unwrap();
 
         let manifest = StreamDeckManifest::load(&dir).expect("load");
@@ -841,10 +857,7 @@ mod tests {
     #[test]
     fn effective_uuid_falls_back_to_bundle_name() {
         let dir = PathBuf::from("/tmp/com.vendor.plugin.sdPlugin");
-        assert_eq!(
-            effective_plugin_uuid(&dir, None),
-            "com.vendor.plugin"
-        );
+        assert_eq!(effective_plugin_uuid(&dir, None), "com.vendor.plugin");
     }
 
     #[test]

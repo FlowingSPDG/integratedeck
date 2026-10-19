@@ -77,8 +77,7 @@ fn is_stream_deck_process(normalized: &str) -> bool {
 fn is_companion_process(normalized: &str) -> bool {
     normalized == "companion"
         || normalized.starts_with("companion ")
-        || normalized.starts_with("companion-")
-            && !normalized.contains("integratedeck")
+        || normalized.starts_with("companion-") && !normalized.contains("integratedeck")
 }
 
 #[cfg(test)]

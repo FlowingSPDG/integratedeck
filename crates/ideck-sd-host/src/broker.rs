@@ -14,10 +14,7 @@ use ideck_core::{image_from_plugin_payload, ImagePayload, TitleParams};
 
 use crate::{InboundMessage, PluginProcess, StreamDeckManifest};
 
-type WsSink = futures::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<TcpStream>,
-    Message,
->;
+type WsSink = futures::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>;
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
@@ -30,7 +27,9 @@ pub struct DeviceInfo {
 
 #[derive(Debug, Clone)]
 pub enum BrokerEvent {
-    PluginRegistered { plugin_uuid: String },
+    PluginRegistered {
+        plugin_uuid: String,
+    },
     SetImage {
         context: String,
         /// `Unchanged` = payload omitted `image`; `Cleared` = null/empty; `Set` = new bytes.
@@ -42,10 +41,20 @@ pub enum BrokerEvent {
         title: Option<String>,
         title_params: Option<TitleParams>,
     },
-    SettingsChanged { context: String, settings: Value },
-    SendToPropertyInspector { context: String, payload: Value },
-    ShowAlert { context: String },
-    ShowOk { context: String },
+    SettingsChanged {
+        context: String,
+        settings: Value,
+    },
+    SendToPropertyInspector {
+        context: String,
+        payload: Value,
+    },
+    ShowAlert {
+        context: String,
+    },
+    ShowOk {
+        context: String,
+    },
     SetState {
         context: String,
         state: u8,
@@ -63,8 +72,12 @@ pub enum BrokerEvent {
         context: String,
         payload: Value,
     },
-    OpenUrl { url: String },
-    LogMessage { message: String },
+    OpenUrl {
+        url: String,
+    },
+    LogMessage {
+        message: String,
+    },
 }
 
 /// Stream Deck-compatible WebSocket broker (dynamic port per plugin session).
@@ -173,10 +186,7 @@ impl StreamDeckBroker {
     }
 
     pub async fn register_context(&self, ctx: ActionContext) {
-        self.contexts
-            .write()
-            .await
-            .insert(ctx.context.clone(), ctx);
+        self.contexts.write().await.insert(ctx.context.clone(), ctx);
     }
 
     pub async fn has_context(&self, context: &str) -> bool {
@@ -334,7 +344,12 @@ impl StreamDeckBroker {
         self.send_dial_press(context, "dialUp", false).await
     }
 
-    async fn send_dial_press(&self, context: &str, event: &str, pressed: bool) -> anyhow::Result<()> {
+    async fn send_dial_press(
+        &self,
+        context: &str,
+        event: &str,
+        pressed: bool,
+    ) -> anyhow::Result<()> {
         let ctx = self
             .contexts
             .read()
@@ -429,13 +444,16 @@ impl StreamDeckBroker {
             }
             "setTitle" => {
                 let context = msg.get("context").and_then(|v| v.as_str()).unwrap_or("");
-                let title = msg.get("payload").and_then(|p| p.get("title")).and_then(|v| {
-                    if v.is_null() {
-                        None
-                    } else {
-                        v.as_str().map(String::from)
-                    }
-                });
+                let title = msg
+                    .get("payload")
+                    .and_then(|p| p.get("title"))
+                    .and_then(|v| {
+                        if v.is_null() {
+                            None
+                        } else {
+                            v.as_str().map(String::from)
+                        }
+                    });
                 let title_params = msg
                     .pointer("/payload/titleParams")
                     .map(ideck_core::title_params_from_json);
@@ -517,9 +535,7 @@ impl StreamDeckBroker {
                 let mut pi = self.pi_connections.write().await;
                 if let Some(key) = pi_connection_key(&pi, context) {
                     if let Some(sink) = pi.get_mut(&key) {
-                        let _ = sink
-                            .send(Message::Text(out.to_string().into()))
-                            .await;
+                        let _ = sink.send(Message::Text(out.to_string().into())).await;
                     }
                 }
             }
@@ -816,9 +832,7 @@ async fn send_did_receive_settings_to_pi(broker: &StreamDeckBroker, context: &st
     let mut pi = broker.pi_connections.write().await;
     if let Some(key) = pi_connection_key(&pi, context) {
         if let Some(sink) = pi.get_mut(&key) {
-            let _ = sink
-                .send(Message::Text(payload.to_string().into()))
-                .await;
+            let _ = sink.send(Message::Text(payload.to_string().into())).await;
         }
     }
 }
@@ -855,9 +869,7 @@ async fn send_did_receive_global_settings_to_pi(broker: &StreamDeckBroker) {
     });
     let mut pi = broker.pi_connections.write().await;
     for sink in pi.values_mut() {
-        let _ = sink
-            .send(Message::Text(payload.to_string().into()))
-            .await;
+        let _ = sink.send(Message::Text(payload.to_string().into())).await;
     }
 }
 
@@ -866,7 +878,8 @@ async fn send_did_receive_global_settings_to_pi(broker: &StreamDeckBroker) {
 /// Stream Deck SDK v1/v2 PI sends settings as the payload object directly
 /// (`{ "event": "setSettings", "payload": { "key": "value" } }`), while some
 /// plugin runtimes wrap them under `payload.settings`.
-fn extract_set_settings_payload(msg: &Value) -> Option<Value> {    let payload = msg.get("payload")?;
+fn extract_set_settings_payload(msg: &Value) -> Option<Value> {
+    let payload = msg.get("payload")?;
     match payload {
         Value::Object(map) if map.contains_key("settings") => Some(map["settings"].clone()),
         Value::Object(_) | Value::Array(_) => Some(payload.clone()),
@@ -895,6 +908,7 @@ fn registered_event_name(msg: &Value) -> Option<&str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{
         extract_feedback_layout, extract_feedback_payload, extract_set_settings_payload,
@@ -961,7 +975,10 @@ mod tests {
             registered_event_name(&msg),
             Some("didReceiveGlobalSettings")
         );
-        assert_eq!(registered_event_name(&json!({ "event": "registerEvent" })), None);
+        assert_eq!(
+            registered_event_name(&json!({ "event": "registerEvent" })),
+            None
+        );
     }
 }
 

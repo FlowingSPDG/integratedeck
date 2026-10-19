@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use boa_engine::native_function::NativeFunction;
 use boa_engine::property::Attribute;
-use boa_engine::{Context, JsArgs, JsObject, JsResult, JsString, JsValue, js_string};
+use boa_engine::{js_string, Context, JsArgs, JsObject, JsResult, JsString, JsValue};
 
 use crate::loader::IdeckModuleLoader;
 use crate::resolver::normalize_specifier;
@@ -17,10 +17,7 @@ thread_local! {
     static MODULE_LOADER: RefCell<Option<Rc<IdeckModuleLoader>>> = const { RefCell::new(None) };
 }
 
-pub fn install_globals(
-    context: &mut Context,
-    event_emitter: Option<EventEmitter>,
-) -> JsResult<()> {
+pub fn install_globals(context: &mut Context, event_emitter: Option<EventEmitter>) -> JsResult<()> {
     EVENT_EMITTER.with(|slot| {
         *slot.borrow_mut() = event_emitter;
     });
@@ -77,11 +74,7 @@ pub fn install_globals(
         context,
     )?;
 
-    context.register_global_property(
-        js_string!("__ideckFs"),
-        fs,
-        Attribute::all(),
-    )?;
+    context.register_global_property(js_string!("__ideckFs"), fs, Attribute::all())?;
 
     context.register_global_callable(
         js_string!("__ideckEmit"),

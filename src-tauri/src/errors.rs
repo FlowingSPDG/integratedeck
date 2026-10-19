@@ -40,7 +40,8 @@ pub fn friendly_message(raw: &str) -> String {
     }
 
     if lower.contains("manifest not found") {
-        return "manifest.json が見つかりません。`.sdPlugin` バンドルの構成を確認してください。".into();
+        return "manifest.json が見つかりません。`.sdPlugin` バンドルの構成を確認してください。"
+            .into();
     }
 
     if lower.contains("missing field") && (lower.contains("uuid") || lower.contains("uuid`")) {
@@ -65,7 +66,8 @@ pub fn friendly_message(raw: &str) -> String {
     }
 
     if lower.contains("no such file") || lower.contains("not found") && lower.contains("node") {
-        return "Node.js が見つかりません。Node をインストールするか PATH を確認してください。".into();
+        return "Node.js が見つかりません。Node をインストールするか PATH を確認してください。"
+            .into();
     }
 
     raw.to_string()
@@ -78,9 +80,7 @@ fn friendly_manifest_json_error(detail: &str) -> String {
                 Elgato 形式のフィールド名になっているか確認してください。"
             .into();
     }
-    format!(
-        "manifest.json を読み込めません: {trimmed}"
-    )
+    format!("manifest.json を読み込めません: {trimmed}")
 }
 
 pub fn friendly_manifest_err(err: &ManifestError) -> String {
@@ -89,10 +89,12 @@ pub fn friendly_manifest_err(err: &ManifestError) -> String {
         ManifestError::MissingField(field) => {
             friendly_message(&format!("manifest missing required field: {field}"))
         }
-        ManifestError::Encrypted => "このプラグインの manifest.json は Elgato 公式形式で暗号化されています。\
+        ManifestError::Encrypted => {
+            "このプラグインの manifest.json は Elgato 公式形式で暗号化されています。\
             en.json / ja.json からプラグイン情報を読み込めなかった場合、Elgato Stream Deck 上で \
             プラグイン名を確認してください。"
-            .into(),
+                .into()
+        }
         ManifestError::Json(e) => friendly_manifest_json_error(&e.to_string()),
         ManifestError::Io(e) => friendly_error(e),
     }

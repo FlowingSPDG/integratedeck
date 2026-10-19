@@ -50,6 +50,7 @@ commands.allow = [
   "import_profile",
   "apply_surface_input",
   "open_settings_window",
+  "focus_plugin_host_window",
   "get_global_settings",
   "set_global_settings",
   "list_settings_devices",

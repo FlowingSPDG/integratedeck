@@ -27,23 +27,14 @@ impl SdSurfaceBridge {
         }
     }
 
-    pub fn register_cell(
-        &mut self,
-        surface_id: SurfaceId,
-        row: u32,
-        column: u32,
-        context: String,
-    ) {
+    pub fn register_cell(&mut self, surface_id: SurfaceId, row: u32, column: u32, context: String) {
         let key = (surface_id, row, column);
         self.context_by_cell.insert(key, context.clone());
-        self.cell_by_context.insert(context, (surface_id, row, column));
+        self.cell_by_context
+            .insert(context, (surface_id, row, column));
     }
 
-    pub fn context_for_input(
-        &self,
-        surface_id: SurfaceId,
-        address: &CellAddress,
-    ) -> Option<&str> {
+    pub fn context_for_input(&self, surface_id: SurfaceId, address: &CellAddress) -> Option<&str> {
         self.context_by_cell
             .get(&(surface_id, address.row, address.column))
             .map(String::as_str)
@@ -61,16 +52,16 @@ impl SdSurfaceBridge {
             SurfaceInput::KeyUp { address } => self
                 .context_for_input(surface_id, address)
                 .map(|c| (c.to_string(), "keyUp")),
-            SurfaceInput::EncoderRotate { index, ticks, pressed } => {
+            SurfaceInput::EncoderRotate {
+                index,
+                ticks,
+                pressed,
+            } => {
                 let ctx = self
                     .context_by_cell
                     .get(&(surface_id, 0, *index))
                     .cloned()
-                    .or_else(|| {
-                        self.context_by_cell
-                            .get(&(surface_id, *index, 0))
-                            .cloned()
-                    })?;
+                    .or_else(|| self.context_by_cell.get(&(surface_id, *index, 0)).cloned())?;
                 let _ = (ticks, pressed);
                 Some((ctx, "dialRotate"))
             }
@@ -79,11 +70,7 @@ impl SdSurfaceBridge {
                     .context_by_cell
                     .get(&(surface_id, 0, *index))
                     .cloned()
-                    .or_else(|| {
-                        self.context_by_cell
-                            .get(&(surface_id, *index, 0))
-                            .cloned()
-                    })?;
+                    .or_else(|| self.context_by_cell.get(&(surface_id, *index, 0)).cloned())?;
                 Some((ctx, "dialPress"))
             }
             _ => None,
@@ -156,7 +143,10 @@ impl SdSurfaceBridge {
             BrokerEvent::SetFeedbackLayout { context, layout } => {
                 debug!("feedback layout for context {context}: {layout}");
             }
-            BrokerEvent::SettingsChanged { context, settings: _ } => {
+            BrokerEvent::SettingsChanged {
+                context,
+                settings: _,
+            } => {
                 debug!("settings changed for context {context}");
             }
             _ => {}
@@ -164,18 +154,11 @@ impl SdSurfaceBridge {
         updates
     }
 
-    pub fn map_slot_to_sd_coordinates(
-        locator: &SlotLocator,
-        _profile_columns: u32,
-    ) -> (u32, u32) {
+    pub fn map_slot_to_sd_coordinates(locator: &SlotLocator, _profile_columns: u32) -> (u32, u32) {
         (locator.column, locator.row)
     }
 
-    pub fn build_context_id(
-        plugin_uuid: &str,
-        action_uuid: &str,
-        instance_id: &str,
-    ) -> String {
+    pub fn build_context_id(plugin_uuid: &str, action_uuid: &str, instance_id: &str) -> String {
         format!("{plugin_uuid}.{action_uuid}.{instance_id}")
     }
 
@@ -227,7 +210,9 @@ impl CapabilityNegotiation {
         match profile {
             EmulationProfile::Custom => CapabilityNegotiation::ok(),
             EmulationProfile::StreamDeckPlus if caps.encoders == 0 => {
-                CapabilityNegotiation::unsupported("surface has no encoders for Stream Deck Plus profile")
+                CapabilityNegotiation::unsupported(
+                    "surface has no encoders for Stream Deck Plus profile",
+                )
             }
             _ => CapabilityNegotiation::ok(),
         }

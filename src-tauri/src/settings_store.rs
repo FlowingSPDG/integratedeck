@@ -79,7 +79,10 @@ pub fn save_device_registry(records: &[DeviceRecord]) -> Result<(), String> {
 
 pub fn upsert_device_record(record: DeviceRecord) -> Result<(), String> {
     let mut records = load_device_registry();
-    if let Some(existing) = records.iter_mut().find(|r| r.device_key == record.device_key) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|r| r.device_key == record.device_key)
+    {
         *existing = record;
     } else {
         records.push(record);

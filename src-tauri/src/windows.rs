@@ -98,8 +98,7 @@ fn build_window(
     config: &tauri::utils::config::WindowConfig,
     start_hidden: bool,
 ) -> Result<WebviewWindow, String> {
-    let mut builder =
-        WebviewWindowBuilder::from_config(app, config).map_err(|e| e.to_string())?;
+    let mut builder = WebviewWindowBuilder::from_config(app, config).map_err(|e| e.to_string())?;
 
     if start_hidden {
         builder = builder.visible(false).skip_taskbar(true);

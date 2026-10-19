@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use boa_engine::native_function::NativeFunction;
 use boa_engine::property::Attribute;
-use boa_engine::{Context, JsArgs, JsObject, JsResult, JsString, JsValue, Source, js_string};
+use boa_engine::{js_string, Context, JsArgs, JsObject, JsResult, JsString, JsValue, Source};
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -34,8 +34,13 @@ enum WsCommand {
         on_error: WsCallback,
         on_close: WsCallback,
     },
-    Send { id: u64, data: String },
-    Close { id: u64 },
+    Send {
+        id: u64,
+        data: String,
+    },
+    Close {
+        id: u64,
+    },
 }
 
 pub struct WsBridge {
@@ -116,10 +121,7 @@ impl WsBridge {
             }
         });
 
-        (
-            Self { cmd_tx, event_tx },
-            event_rx,
-        )
+        (Self { cmd_tx, event_tx }, event_rx)
     }
 
     fn emit(&self, event: WsJsEvent) {
@@ -177,11 +179,7 @@ pub fn install_websocket(
         context,
     )?;
 
-    context.register_global_property(
-        js_string!("__ideckWs"),
-        ws_api,
-        Attribute::all(),
-    )?;
+    context.register_global_property(js_string!("__ideckWs"), ws_api, Attribute::all())?;
 
     context.eval(Source::from_bytes(WEBSOCKET_INSTALL))?;
     Ok(())
@@ -298,10 +296,7 @@ fn ws_send(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue
             .get_or_undefined(1)
             .to_string(ctx)?
             .to_std_string_escaped();
-        let _ = state
-            .bridge
-            .cmd_tx
-            .send(WsCommand::Send { id, data });
+        let _ = state.bridge.cmd_tx.send(WsCommand::Send { id, data });
         Ok(JsValue::undefined())
     })
 }

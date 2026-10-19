@@ -29,11 +29,7 @@ impl CompSurfaceBridge {
             .map(String::as_str)
     }
 
-    pub fn feedback_to_update(
-        &self,
-        control_id: &str,
-        visual: VisualState,
-    ) -> Option<CellUpdate> {
+    pub fn feedback_to_update(&self, control_id: &str, visual: VisualState) -> Option<CellUpdate> {
         let (row, col) = self.cell_by_control.get(control_id)?;
         Some(CellUpdate {
             address: CellAddress {
@@ -59,9 +55,9 @@ impl CompSurfaceBridge {
 
     pub fn surface_input_control(input: &SurfaceInput, bridge: &Self) -> Option<String> {
         match input {
-            SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => bridge
-                .control_for_input(address)
-                .map(String::from),
+            SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => {
+                bridge.control_for_input(address).map(String::from)
+            }
             _ => None,
         }
     }

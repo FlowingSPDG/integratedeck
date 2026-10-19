@@ -76,10 +76,7 @@ pub enum PluginCommand {
     #[serde(rename = "getSettings")]
     GetSettings { context: String },
     #[serde(rename = "sendToPropertyInspector")]
-    SendToPropertyInspector {
-        context: String,
-        payload: Value,
-    },
+    SendToPropertyInspector { context: String, payload: Value },
     #[serde(other)]
     Other,
 }

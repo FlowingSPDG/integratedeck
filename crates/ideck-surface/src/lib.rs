@@ -2,10 +2,10 @@
 
 mod capabilities;
 mod driver;
+mod hid;
 mod input;
 mod manager;
 mod update;
-mod hid;
 
 pub use capabilities::*;
 pub use driver::*;
@@ -15,8 +15,8 @@ pub use manager::*;
 pub use update::CellUpdate;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use ideck_core::SurfaceId;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -33,7 +33,6 @@ pub trait Surface: Send + Sync {
     fn descriptor(&self) -> &SurfaceDescriptor;
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError>;
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]

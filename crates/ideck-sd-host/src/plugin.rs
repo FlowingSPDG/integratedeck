@@ -4,11 +4,11 @@ use ideck_js_runtime::JsEngine;
 use serde_json::Value;
 use thiserror::Error;
 use tokio::process::Child;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::launch::{
-    build_registration_info, spawn_embedded_plugin, spawn_native, PluginLaunchStrategy,
-    SdEntryMode,
+    build_registration_info, close_webview_plugin, default_window_size, spawn_embedded_plugin,
+    spawn_native, webview_plugin_host, PluginLaunchStrategy, SdEntryMode, WebviewPluginRequest,
 };
 use crate::StreamDeckManifest;
 
@@ -27,6 +27,8 @@ pub enum PluginLaunchError {
 enum PluginRuntime {
     Native(Box<Child>),
     Embedded(JsEngine),
+    /// HTML plugin rendered in a WebView owned by the application layer.
+    Webview,
 }
 
 pub struct PluginProcess {
@@ -45,6 +47,9 @@ impl Drop for PluginProcess {
             PluginRuntime::Embedded(engine) => {
                 let _ = engine;
             }
+            PluginRuntime::Webview => {
+                close_webview_plugin(&self.plugin_uuid);
+            }
         }
     }
 }
@@ -57,8 +62,7 @@ impl PluginProcess {
     ) -> Result<Self, PluginLaunchError> {
         let manifest = StreamDeckManifest::load(plugin_dir)?;
         let strategy = PluginLaunchStrategy::detect(&manifest, plugin_dir)?;
-        let info =
-            build_registration_info(&manifest.uuid, &manifest.version, devices).to_string();
+        let info = build_registration_info(&manifest.uuid, &manifest.version, devices).to_string();
         let register_event = "registerPlugin";
 
         match strategy {
@@ -101,6 +105,39 @@ impl PluginProcess {
                 })
             }
             PluginLaunchStrategy::HtmlWebView { html } => {
+                // Browser plugins need a real DOM, so prefer the installed WebView
+                // host. Without one (headless tests, library consumers) keep the
+                // previous Boa fallback instead of failing to load the plugin.
+                if let Some(host) = webview_plugin_host() {
+                    let plugin_uuid = manifest.uuid.clone();
+                    let request = WebviewPluginRequest {
+                        plugin_uuid: plugin_uuid.clone(),
+                        plugin_name: manifest.name.clone(),
+                        plugin_dir: plugin_dir.to_path_buf(),
+                        html_path: html.clone(),
+                        port,
+                        register_event: register_event.to_string(),
+                        info: info.clone(),
+                        window_size: default_window_size(plugin_dir),
+                    };
+                    if let Err(e) = host.open(request) {
+                        error!("WebView SD plugin failed to open: {e:#}");
+                        return Err(PluginLaunchError::Other(format!(
+                            "webview plugin start failed: {e:#}"
+                        )));
+                    }
+                    return Ok(Self {
+                        plugin_uuid,
+                        plugin_dir: plugin_dir.to_path_buf(),
+                        port,
+                        runtime: PluginRuntime::Webview,
+                    });
+                }
+
+                warn!(
+                    "no WebView plugin host installed; running HTML plugin {} in Boa",
+                    html.display()
+                );
                 let engine = spawn_embedded_plugin(
                     plugin_dir,
                     &html,

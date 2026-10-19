@@ -2,6 +2,7 @@
 
 mod embedded;
 mod native;
+mod webview;
 
 use std::path::{Path, PathBuf};
 
@@ -26,7 +27,10 @@ pub enum LaunchStrategyError {
 }
 
 impl PluginLaunchStrategy {
-    pub fn detect(manifest: &StreamDeckManifest, plugin_dir: &Path) -> Result<Self, LaunchStrategyError> {
+    pub fn detect(
+        manifest: &StreamDeckManifest,
+        plugin_dir: &Path,
+    ) -> Result<Self, LaunchStrategyError> {
         let code_path = manifest.resolve_code_path(plugin_dir).ok_or_else(|| {
             LaunchStrategyError::Unsupported(format!(
                 "no supported entry found in {}",
@@ -51,15 +55,13 @@ impl PluginLaunchStrategy {
             return Ok(Self::NativeBinary { exe: code_path });
         }
 
-        Err(LaunchStrategyError::Unsupported(code_path.display().to_string()))
+        Err(LaunchStrategyError::Unsupported(
+            code_path.display().to_string(),
+        ))
     }
 }
 
-pub fn build_registration_info(
-    plugin_uuid: &str,
-    version: &str,
-    devices: Value,
-) -> Value {
+pub fn build_registration_info(plugin_uuid: &str, version: &str, devices: Value) -> Value {
     let platform = if cfg!(target_os = "macos") {
         "mac"
     } else {
@@ -88,3 +90,7 @@ pub fn build_registration_info(
 
 pub use embedded::{spawn_embedded_plugin, SdEntryMode};
 pub use native::spawn_native;
+pub use webview::{
+    close_webview_plugin, default_window_size, install_webview_plugin_host, open_webview_plugin,
+    webview_plugin_host, WebviewPluginHost, WebviewPluginRequest,
+};

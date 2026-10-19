@@ -1,8 +1,8 @@
 use ideck_comp_host::CompModuleRuntime;
 use ideck_core::{PageId, Profile, SurfaceId, VariableStore};
 use ideck_sd_host::PluginSupervisor;
-use ideck_surface::{SurfaceInput, SurfaceManager};
 use ideck_surface::SurfaceDriverRegistry;
+use ideck_surface::{SurfaceInput, SurfaceManager};
 use tracing::warn;
 
 use std::collections::HashMap;
@@ -36,11 +36,7 @@ fn resolve_sd_key_target(
 }
 
 /// Forward physical input to Stream Deck plugins without holding the orchestrator write lock.
-pub async fn forward_sd_input(
-    inner: &AppStateInner,
-    surface_id: SurfaceId,
-    input: &SurfaceInput,
-) {
+pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, input: &SurfaceInput) {
     match input {
         SurfaceInput::KeyDown { address } => {
             let Some((plugin_uuid, context)) =
