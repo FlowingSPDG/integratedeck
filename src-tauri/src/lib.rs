@@ -69,6 +69,7 @@ pub fn run() {
             commands::load_sd_plugin,
             commands::bind_slot_sd,
             commands::bind_slot_companion,
+            commands::update_companion_options,
             commands::bind_encoder_companion,
             commands::simulate_encoder,
             commands::simulate_encoder_rotate,

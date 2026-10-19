@@ -2922,6 +2922,41 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub async fn update_companion_options(
+        &mut self,
+        slot_id: SlotId,
+        options: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+        let mut found = false;
+        if let Some(page) = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+        {
+            if let Some(slot) = page.slots.get_mut(&slot_id) {
+                if let Some(binding) = slot.binding.as_mut() {
+                    if let BindingKind::Companion {
+                        options: current, ..
+                    } = &mut binding.kind
+                    {
+                        *current = options;
+                        found = true;
+                    }
+                }
+            }
+        }
+        if !found {
+            anyhow::bail!("slot is not bound to a Companion action");
+        }
+        self.save_profile().await?;
+        Ok(())
+    }
+
     pub async fn unbind_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)

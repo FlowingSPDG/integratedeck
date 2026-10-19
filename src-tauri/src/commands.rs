@@ -469,6 +469,26 @@ pub async fn unbind_encoder(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCompanionOptionsArgs {
+    pub slot_id: String,
+    pub options: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn update_companion_options(
+    state: State<'_, OrchState>,
+    args: UpdateCompanionOptionsArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .update_companion_options(slot_id, args.options)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn unbind_slot(state: State<'_, OrchState>, slot_id: String) -> Result<(), String> {
     let slot_id = parse_slot_id(&slot_id)?;

@@ -21,6 +21,7 @@ commands.allow = [
   "load_sd_plugin",
   "bind_slot_sd",
   "bind_slot_companion",
+  "update_companion_options",
   "bind_encoder_companion",
   "simulate_encoder",
   "simulate_encoder_rotate",
