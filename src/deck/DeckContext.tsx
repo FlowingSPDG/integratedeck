@@ -330,6 +330,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     bind("definitions-updated");
     bind("connection-status");
     bind("surfaces-changed");
+    bind("plugin-status");
+    bind("settings-changed");
     return () => {
       disposed = true;
       for (const unlisten of unlisteners) unlisten();
