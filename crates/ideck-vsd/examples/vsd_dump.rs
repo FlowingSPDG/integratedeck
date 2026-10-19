@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     for index in 0..12 {
-        match tokio::time::timeout(Duration::from_secs(3), client.recv_raw()).await {
+        match tokio::time::timeout(Duration::from_secs(30), client.recv_raw()).await {
             Ok(Ok(Some(bytes))) => {
                 println!("frame {index} len={} hex={}", bytes.len(), hex(&bytes));
                 match ideck_vsd::ServerMessage::decode(bytes.as_slice()) {
@@ -81,3 +81,4 @@ async fn main() -> anyhow::Result<()> {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
