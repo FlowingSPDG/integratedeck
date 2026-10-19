@@ -18,7 +18,9 @@ export const DialStrip = memo(function DialStrip() {
     ? normalizeBinding(selectedSlot.binding)
     : null;
   const canAssign =
-    selected?.type === "companion" || selected?.type === "stream_deck";
+    selected?.type === "companion" ||
+    selected?.type === "stream_deck" ||
+    selected?.type === "builtin";
 
   const assign = async (index: number) => {
     if (!selected || !selectedSurfaceId) return;
@@ -54,6 +56,22 @@ export const DialStrip = memo(function DialStrip() {
         r: 60,
         g: 90,
         b: 180,
+      });
+    } else if (selected.type === "builtin") {
+      await invoke("bind_encoder_builtin", {
+        args: {
+          surfaceId: selectedSurfaceId,
+          index,
+          actionId: selected.actionId,
+          settings: selected.settings ?? {},
+        },
+      });
+      await invoke("set_encoder_led", {
+        surfaceId: selectedSurfaceId,
+        index,
+        r: 60,
+        g: 160,
+        b: 90,
       });
     }
     await refresh({ surfaceId: selectedSurfaceId });

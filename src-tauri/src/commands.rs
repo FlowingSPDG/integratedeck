@@ -450,6 +450,30 @@ pub async fn simulate_encoder_rotate(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BindEncoderBuiltinArgs {
+    pub surface_id: String,
+    pub index: u32,
+    pub action_id: String,
+    #[serde(default)]
+    pub settings: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn bind_encoder_builtin(
+    state: State<'_, OrchState>,
+    args: BindEncoderBuiltinArgs,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .bind_encoder_builtin(surface_id, args.index, args.action_id, args.settings)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BindEncoderSdArgs {
     pub surface_id: String,
     pub index: u32,

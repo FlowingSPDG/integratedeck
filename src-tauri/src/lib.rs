@@ -72,6 +72,7 @@ pub fn run() {
             commands::update_companion_options,
             commands::bind_encoder_companion,
             commands::bind_encoder_sd,
+            commands::bind_encoder_builtin,
             commands::simulate_encoder,
             commands::simulate_encoder_rotate,
             commands::unbind_encoder,
