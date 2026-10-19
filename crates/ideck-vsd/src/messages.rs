@@ -66,13 +66,15 @@ pub struct Authenticate {
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Msg", tags = "2, 10, 20")]
+    #[prost(oneof = "server_message::Msg", tags = "1, 2, 10, 20")]
     pub msg: Option<server_message::Msg>,
 }
 
 pub mod server_message {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Msg {
+        #[prost(message, tag = "1")]
+        Error(super::Error),
         #[prost(message, tag = "2")]
         Ok(super::Ok),
         #[prost(message, tag = "10")]
@@ -80,6 +82,14 @@ pub mod server_message {
         #[prost(message, tag = "20")]
         VirtualDevices(super::VirtualDeviceList),
     }
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct Error {
+    #[prost(string, tag = "1")]
+    pub reason: String,
+    #[prost(int32, tag = "2")]
+    pub code: i32,
 }
 
 #[derive(Clone, PartialEq, Message)]
