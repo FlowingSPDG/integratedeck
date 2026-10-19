@@ -1,10 +1,57 @@
 import { memo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useDeck } from "../deck/DeckContext";
+import { normalizeBinding } from "../lib/binding";
 
 /** Encoder/dial view for surfaces that report dials. */
 export const DialStrip = memo(function DialStrip() {
-  const { encoderCount, deviceLabel, activePage } = useDeck();
+  const {
+    encoderCount,
+    deviceLabel,
+    activePage,
+    selectedSlot,
+    selectedSurfaceId,
+    refresh,
+  } = useDeck();
   const dials = Array.from({ length: Math.max(encoderCount, 1) }, (_, i) => i);
+  const selected = selectedSlot?.binding
+    ? normalizeBinding(selectedSlot.binding)
+    : null;
+  const canAssign =
+    selected?.type === "companion" || selected?.type === "stream_deck";
+
+  const assign = async (index: number) => {
+    if (!selected || !selectedSurfaceId) return;
+    if (selected.type === "companion") {
+      await invoke("bind_encoder_companion", {
+        args: {
+          surfaceId: selectedSurfaceId,
+          index,
+          connectionId: selected.connectionId,
+          actionId: selected.actionId,
+          options: selected.options ?? {},
+        },
+      });
+    } else if (selected.type === "stream_deck") {
+      await invoke("bind_encoder_sd", {
+        args: {
+          surfaceId: selectedSurfaceId,
+          index,
+          pluginUuid: selected.pluginUuid,
+          actionUuid: selected.actionUuid,
+        },
+      });
+    }
+    await refresh({ surfaceId: selectedSurfaceId });
+  };
+
+  const clear = async (index: number) => {
+    if (!selectedSurfaceId) return;
+    await invoke("unbind_encoder", {
+      args: { surfaceId: selectedSurfaceId, index },
+    });
+    await refresh({ surfaceId: selectedSurfaceId });
+  };
 
   return (
     <div className="dial-strip" role="group" aria-label={`${deviceLabel} エンコーダ`}>
@@ -33,11 +80,30 @@ export const DialStrip = memo(function DialStrip() {
             <div className="dial-press">
               プッシュ: {bound ? String(action) : "未割り当て"}
             </div>
+            <div className="dial-actions">
+              <button
+                type="button"
+                className="page-btn"
+                disabled={!canAssign || !selectedSurfaceId}
+                onClick={() => void assign(index)}
+              >
+                選択中を割当
+              </button>
+              {bound ? (
+                <button
+                  type="button"
+                  className="page-btn"
+                  onClick={() => void clear(index)}
+                >
+                  解除
+                </button>
+              ) : null}
+            </div>
           </div>
         );
       })}
       <p className="dial-hint">
-        ダイヤルはページごとのエンコーダバインディングを使用します。回転/押下はバインド済みアクションへ送られます。
+        キーパッドでアクションを選択してから「選択中を割当」を押すと、このダイヤルにバインドされます。
       </p>
     </div>
   );
