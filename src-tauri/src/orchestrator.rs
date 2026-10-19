@@ -374,6 +374,25 @@ impl Orchestrator {
         .await;
     }
 
+    pub async fn dispatch_simulate_encoder_rotate(
+        state: Arc<RwLock<Self>>,
+        surface_id: SurfaceId,
+        index: u32,
+        ticks: i32,
+        pressed: bool,
+    ) {
+        Self::dispatch_surface_input(
+            state,
+            surface_id,
+            SurfaceInput::EncoderRotate {
+                index,
+                ticks,
+                pressed,
+            },
+        )
+        .await;
+    }
+
     pub async fn new_core(app: &AppHandle) -> anyhow::Result<Self> {
         paths::ensure_dirs()?;
         let profile_path = paths::profiles_dir().join("default.json");
@@ -388,6 +407,15 @@ impl Orchestrator {
         for assignment in inner.profile.surfaces.clone() {
             let mock = MockSurface::with_id(assignment.surface_id, assignment.label.clone());
             inner.surfaces.register_mock(mock).await;
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            let id = SurfaceId(uuid::Uuid::new_v4());
+            inner
+                .surfaces
+                .register_mock(MockSurface::with_encoders(id, "Mock Studio (2 dials)", 2))
+                .await;
         }
 
         Ok(Self {

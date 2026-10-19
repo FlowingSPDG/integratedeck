@@ -68,6 +68,7 @@ pub fn run() {
             commands::bind_slot_companion,
             commands::bind_encoder_companion,
             commands::simulate_encoder,
+            commands::simulate_encoder_rotate,
             commands::unbind_encoder,
             commands::bind_slot_builtin,
             commands::update_slot_appearance,

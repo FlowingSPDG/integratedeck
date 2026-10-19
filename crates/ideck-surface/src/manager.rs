@@ -37,7 +37,25 @@ impl MockSurface {
     }
 
     pub fn with_id(id: SurfaceId, name: impl Into<String>) -> Arc<Self> {
-        let caps = SurfaceCapabilities::mock_3x5();
+        Self::with_capabilities(id, name, SurfaceCapabilities::mock_3x5())
+    }
+
+    /// Mock surface with physical encoders, for dial UI/backend tests.
+    pub fn with_encoders(
+        id: SurfaceId,
+        name: impl Into<String>,
+        encoders: u32,
+    ) -> Arc<Self> {
+        let mut caps = SurfaceCapabilities::mock_3x5();
+        caps.encoders = encoders;
+        Self::with_capabilities(id, name, caps)
+    }
+
+    fn with_capabilities(
+        id: SurfaceId,
+        name: impl Into<String>,
+        caps: SurfaceCapabilities,
+    ) -> Arc<Self> {
         Arc::new(Self {
             descriptor: SurfaceDescriptor {
                 id,

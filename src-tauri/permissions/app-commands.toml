@@ -20,6 +20,7 @@ commands.allow = [
   "bind_slot_companion",
   "bind_encoder_companion",
   "simulate_encoder",
+  "simulate_encoder_rotate",
   "unbind_encoder",
   "bind_slot_builtin",
   "update_slot_appearance",
