@@ -225,7 +225,7 @@ fn plugin_url(request: &WebviewPluginRequest) -> anyhow::Result<Url> {
         "info": request.info,
         "actionInfo": request.action_info(),
     });
-    let encoded_path = encode_uri_component(&request.html_path.to_string_lossy());
+    let encoded_path = encode_path_segments(&request.html_path.to_string_lossy());
     let encoded_config = encode_uri_component(&config.to_string());
 
     // Mirrors `@tauri-apps/api/core` `convertFileSrc` for the `asset` protocol.
@@ -240,9 +240,18 @@ fn plugin_url(request: &WebviewPluginRequest) -> anyhow::Result<Url> {
     .map_err(Into::into)
 }
 
+/// Encode each path segment separately, keeping `/` separators so the browser
+/// resolves relative URLs (`libs/js/stream-deck.js`) inside the plugin bundle.
+fn encode_path_segments(path: &str) -> String {
+    path.replace('\\', "/")
+        .split('/')
+        .map(encode_uri_component)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Equivalent of JavaScript `encodeURIComponent`.
-fn encode_uri_component(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
+fn encode_uri_component(input: &str) -> String {    let mut out = String::with_capacity(input.len());
     for byte in input.bytes() {
         match byte {
             b'A'..=b'Z'
@@ -311,6 +320,14 @@ mod tests {
             "C%3A%5CProgram%20Files%5Cx.html"
         );
         assert_eq!(encode_uri_component("a+b/c?d=é"), "a%2Bb%2Fc%3Fd%3D%C3%A9");
+    }
+
+    #[test]
+    fn keeps_path_segments_for_relative_urls() {
+        assert_eq!(
+            encode_path_segments(r"C:\plugins\com.elgato.tutorial.sdPlugin\app.html"),
+            "C%3A/plugins/com.elgato.tutorial.sdPlugin/app.html"
+        );
     }
 
     #[test]
