@@ -49,7 +49,7 @@ function runUpgradeScripts(lastUpgradeIndex, scripts, config, secrets) {
 
 class ActionManager {
   constructor(setActionDefinitions) {
-    this.setActionDefinitions = setActionDefinitions
+    this.emitDefinitions = setActionDefinitions
     this.actionDefinitions = new Map()
   }
 
@@ -74,7 +74,7 @@ class ActionManager {
       })
       this.actionDefinitions.set(actionId, action)
     }
-    this.setActionDefinitions(hostActions)
+    this.emitDefinitions(hostActions)
   }
 
   subscribeActions() {}
@@ -117,12 +117,14 @@ class ActionManager {
 
 class FeedbackManager {
   constructor(setFeedbackDefinitions, updateFeedbackValues) {
-    this.setFeedbackDefinitions = setFeedbackDefinitions
+    this.emitDefinitions = setFeedbackDefinitions
     this.updateFeedbackValues = updateFeedbackValues
+    this.feedbackDefinitions = new Map()
   }
 
   setFeedbackDefinitions(feedbacks) {
     const hostFeedbacks = []
+    this.feedbackDefinitions.clear()
     for (const [feedbackId, feedback] of Object.entries(feedbacks ?? {})) {
       if (!feedback) continue
       if (BANNED_PROPS.has(feedbackId)) {
@@ -136,8 +138,9 @@ class FeedbackManager {
         options: feedback.options,
         hasLifecycleFunctions: !!(feedback.subscribe || feedback.unsubscribe),
       })
+      this.feedbackDefinitions.set(feedbackId, feedback)
     }
-    this.setFeedbackDefinitions(hostFeedbacks)
+    this.emitDefinitions(hostFeedbacks)
   }
 
   unsubscribeFeedbacks() {}
@@ -155,6 +158,7 @@ class ConnectionHost {
     this.variableDefinitions = new Map()
     this.variableValues = new Map()
     this.actionManager = new ActionManager((actions) => host.setActionDefinitions(actions))
+    this.presets = []
     this.feedbackManager = new FeedbackManager(
       (feedbacks) => host.setFeedbackDefinitions(feedbacks),
       (values) => host.updateFeedbackValues(values),
@@ -190,7 +194,10 @@ class ConnectionHost {
       checkFeedbacksById: (feedbackIds) =>
         this.feedbackManager.checkFeedbacksById(feedbackIds),
 
-      setPresetDefinitions: () => {},
+      setPresetDefinitions: (presets) => {
+        this.presets = Object.values(presets ?? {})
+        host.setPresetDefinitions(this.presets)
+      },
       setCompositeElementDefinitions: () => {},
 
       setVariableDefinitions: (variables) => {
@@ -281,6 +288,20 @@ class ConnectionHost {
     this.initialized = false
   }
 
+  async updateConfig(config, secrets) {
+    if (config !== undefined) this.lastConfig = config
+    if (secrets !== undefined) this.lastSecrets = secrets
+    if (typeof this.instance.configUpdated === 'function') {
+      await this.instance.configUpdated(this.lastConfig, this.lastSecrets)
+    } else if (typeof this.instance.updateConfig === 'function') {
+      await this.instance.updateConfig(this.lastConfig, this.lastSecrets)
+    }
+  }
+
+  getConfigFields() {
+    return this.instance.getConfigFields?.() ?? []
+  }
+
   async executeAction(action, surfaceId) {
     return this.actionManager.handleExecuteAction(action, surfaceId)
   }
@@ -294,10 +315,12 @@ function cacheDefinitions(connectionId, patch) {
     actions: [],
     feedbacks: [],
     variables: [],
+    presets: [],
   }
   if (patch.actions) entry.actions = patch.actions
   if (patch.feedbacks) entry.feedbacks = patch.feedbacks
   if (patch.variables) entry.variables = patch.variables
+  if (patch.presets) entry.presets = patch.presets
   definitionsCache.set(connectionId, entry)
 }
 
@@ -323,6 +346,10 @@ function createRustHost(connectionId, onConfigSave) {
       emit('definitions.updated', { connectionId, kind: 'variables', definitions, values })
     },
     setVariableValues: (values) => emit('variable.updated', { connectionId, values }),
+    setPresetDefinitions: (presets) => {
+      cacheDefinitions(connectionId, { presets })
+      emit('definitions.updated', { connectionId, kind: 'presets', definitions: presets })
+    },
     updateFeedbackValues: (values) => emit('feedback.updated', { connectionId, values }),
     saveConfig: (config, secrets) => {
       onConfigSave(config, secrets)
@@ -452,7 +479,47 @@ globalThis.__ideckHandle = async function __ideckHandle(method, params, modulesR
     case 'connection.getDefinitions': {
       const { connectionId } = params
       const cached = definitionsCache.get(connectionId)
-      return cached ?? { actions: [], feedbacks: [], variables: [] }
+      return cached ?? { actions: [], feedbacks: [], variables: [], presets: [] }
+    }
+
+    case 'connection.updateConfig': {
+      const { connectionId, config, secrets } = params
+      const conn = connections.get(connectionId)
+      if (!conn?.host) {
+        throw new Error(`unknown connection ${connectionId}`)
+      }
+      await conn.host.updateConfig(config, secrets)
+      conn.config = config ?? conn.config
+      conn.secrets = secrets ?? conn.secrets
+      emit('connection.config', { connectionId, config: conn.config, secrets: conn.secrets })
+      return { connectionId }
+    }
+
+    case 'connection.getConfigFields': {
+      const { connectionId } = params
+      const conn = connections.get(connectionId)
+      if (!conn?.host) {
+        throw new Error(`unknown connection ${connectionId}`)
+      }
+      return { fields: conn.host.getConfigFields() }
+    }
+
+    case 'connection.getVariableValue': {
+      const { connectionId, variableId } = params
+      const conn = connections.get(connectionId)
+      return { value: conn?.host?.instanceContext?.getVariableValue(variableId) ?? undefined }
+    }
+
+    case 'connection.setVariableValue': {
+      const { connectionId, variableId, value } = params
+      const conn = connections.get(connectionId)
+      conn?.host?.instanceContext?.setVariableValues({ [variableId]: value })
+      return { connectionId, variableId, value }
+    }
+
+    case 'connection.getPresets': {
+      const { connectionId } = params
+      return { presets: definitionsCache.get(connectionId)?.presets ?? [] }
     }
 
     default:

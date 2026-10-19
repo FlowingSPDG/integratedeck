@@ -12,6 +12,7 @@ pub fn normalize_specifier(spec: &str) -> String {
         "fs" => "node:fs".into(),
         "url" => "node:url".into(),
         "ws" => "ws".into(),
+        s if s.starts_with("@companion-module/base") => "@companion-module/base".into(),
         s if s.starts_with("node:") => s.to_string(),
         s => s.to_string(),
     }
@@ -20,7 +21,7 @@ pub fn normalize_specifier(spec: &str) -> String {
 pub fn is_builtin_shim(spec: &str) -> bool {
     matches!(
         spec,
-        "node:path" | "node:url" | "node:fs" | "node:events" | "ws"
+        "node:path" | "node:url" | "node:fs" | "node:events" | "ws" | "@companion-module/base"
     )
 }
 
@@ -72,9 +73,7 @@ pub fn resolve_specifier(specifier: &str, ctx: &ResolveContext) -> Result<PathBu
         return Err(format!("built-in shim specifier: {normalized}"));
     }
 
-    if normalized.starts_with('.')
-        || normalized.starts_with('/')
-        || normalized.starts_with("file:")
+    if normalized.starts_with('.') || normalized.starts_with('/') || normalized.starts_with("file:")
     {
         let base_path = ctx
             .referrer_path
@@ -151,17 +150,16 @@ fn resolve_exports(exports: &serde_json::Value) -> Option<String> {
             if let Some(require) = map.get("require").and_then(|v| v.as_str()) {
                 return Some(require.to_string());
             }
-            map.get(".")
-                .and_then(|v| {
-                    if let Some(s) = v.as_str() {
-                        Some(s.to_string())
-                    } else {
-                        v.get("import")
-                            .or_else(|| v.get("require"))
-                            .and_then(|x| x.as_str())
-                            .map(str::to_string)
-                    }
-                })
+            map.get(".").and_then(|v| {
+                if let Some(s) = v.as_str() {
+                    Some(s.to_string())
+                } else {
+                    v.get("import")
+                        .or_else(|| v.get("require"))
+                        .and_then(|x| x.as_str())
+                        .map(str::to_string)
+                }
+            })
         }
         _ => None,
     }

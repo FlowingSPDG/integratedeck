@@ -5,7 +5,9 @@ use std::rc::Rc;
 
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::module::{Module, ModuleLoader, Referrer};
-use boa_engine::{Context, JsNativeError, JsObject, JsResult, JsString, JsValue, Source, js_string};
+use boa_engine::{
+    js_string, Context, JsNativeError, JsObject, JsResult, JsString, JsValue, Source,
+};
 
 use crate::resolver::{is_builtin_shim, normalize_specifier, resolve_specifier, ResolveContext};
 
@@ -34,6 +36,10 @@ impl IdeckModuleLoader {
             include_str!("../assets/shims/node_events.js").into(),
         );
         shims.insert("ws".into(), include_str!("../assets/shims/ws.js").into());
+        shims.insert(
+            "@companion-module/base".into(),
+            include_str!("../assets/shims/companion_module_base.js").into(),
+        );
 
         Self {
             modules_root,
@@ -41,11 +47,7 @@ impl IdeckModuleLoader {
         }
     }
 
-    fn parse_source(
-        source: &str,
-        path: Option<&Path>,
-        context: &mut Context,
-    ) -> JsResult<Module> {
+    fn parse_source(source: &str, path: Option<&Path>, context: &mut Context) -> JsResult<Module> {
         let mut bytes = source.as_bytes();
         Module::parse(Source::from_reader(&mut bytes, path), None, context)
     }
@@ -89,10 +91,7 @@ impl ModuleLoader for IdeckModuleLoader {
         context: &mut Context,
     ) {
         if let Some(path) = module.path() {
-            let url = format!(
-                "file:///{}",
-                path.to_string_lossy().replace('\\', "/")
-            );
+            let url = format!("file:///{}", path.to_string_lossy().replace('\\', "/"));
             let _ = import_meta.create_data_property_or_throw(
                 js_string!("url"),
                 JsValue::from(JsString::from(url)),
