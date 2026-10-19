@@ -54,6 +54,7 @@ pub struct Orchestrator {
     hid_task_handles: std::collections::HashMap<SurfaceId, Vec<tokio::task::JoinHandle<()>>>,
     last_pi_context: Option<String>,
     last_pi_plugin_uuid: Option<String>,
+    nfc: std::collections::HashMap<SurfaceId, Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -326,6 +327,10 @@ impl Orchestrator {
                     warn!("encoder rotate: {e}");
                 }
             }
+            SurfaceInput::Nfc { uid } => {
+                let mut o = state.write().await;
+                o.nfc.insert(surface_id, uid.clone());
+            }
             _ => {}
         }
     }
@@ -495,6 +500,7 @@ impl Orchestrator {
             hid_task_handles: std::collections::HashMap::new(),
             last_pi_context: None,
             last_pi_plugin_uuid: None,
+            nfc: std::collections::HashMap::new(),
         })
     }
 
@@ -2223,8 +2229,16 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub fn set_studio_lcd(
-        &self,
+    pub fn last_nfc(&self, surface_id: SurfaceId) -> Option<String> {
+        self.nfc.get(&surface_id).map(|uid| {
+            uid.iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join(":")
+        })
+    }
+
+    pub fn set_studio_lcd(        &self,
         surface_id: SurfaceId,
         image: &ideck_core::ImagePayload,
     ) -> Result<(), String> {

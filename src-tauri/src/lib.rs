@@ -64,6 +64,7 @@ pub fn run() {
             commands::ensure_surface_slots,
             commands::set_encoder_led,
             commands::set_studio_lcd,
+            commands::get_last_nfc,
             commands::get_runtime_status,
             commands::unload_sd_plugin,
             commands::list_action_library,

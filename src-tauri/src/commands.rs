@@ -986,6 +986,17 @@ pub async fn set_encoder_led(
 }
 
 #[tauri::command]
+pub async fn get_last_nfc(
+    state: State<'_, OrchState>,
+    surface_id: String,
+) -> Result<Option<String>, String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let orchestrator = state.read().await;
+    Ok(orchestrator.last_nfc(surface_id))
+}
+
+#[tauri::command]
 pub async fn set_studio_lcd(
     state: State<'_, OrchState>,
     surface_id: String,
