@@ -15,6 +15,7 @@ use rand_core::OsRng;
 
 pub mod client;
 pub mod messages;
+pub mod server;
 
 pub use messages::*;
 
