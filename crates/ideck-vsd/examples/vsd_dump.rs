@@ -34,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let mut created = false;
+    let mut pressed = false;
     for index in 0..12 {
         match tokio::time::timeout(Duration::from_secs(30), client.recv_raw()).await {
             Ok(Ok(Some(bytes))) => {
@@ -41,6 +42,26 @@ async fn main() -> anyhow::Result<()> {
                 match ideck_vsd::ServerMessage::decode(bytes.as_slice()) {
                     Ok(message) => {
                         println!("  decoded={message:?}");
+                        if !pressed
+                            && matches!(
+                                message.msg,
+                                Some(ideck_vsd::server_message::Msg::ButtonImage(_))
+                            )
+                        {
+                            pressed = true;
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            let event = ideck_vsd::ClientMessage {
+                                msg: Some(ideck_vsd::client_message::Msg::KeyEvent(
+                                    ideck_vsd::messages::KeyEvent {
+                                        index: 0,
+                                        pressed: true,
+                                    },
+                                )),
+                            };
+                            if let Err(error) = client.send(&event).await {
+                                eprintln!("  key event failed: {error}");
+                            }
+                        }
                         if !created
                             && matches!(
                                 message.msg,
