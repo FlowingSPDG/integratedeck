@@ -2320,12 +2320,16 @@ impl Orchestrator {
             .surfaces
             .physical(surface_id)
             .ok_or_else(|| "surface is not physical".to_string())?;
-        let studio = physical
-            .as_any()
-            .downcast::<ideck_surface::StudioLanSurface>()
-            .map_err(|_| "surface is not a Studio LAN surface".to_string())?;
-        studio.set_encoder_led(index, r, g, b);
-        Ok(())
+        let any = physical.as_any();
+        if let Ok(lan) = any.clone().downcast::<ideck_surface::StudioLanSurface>() {
+            lan.set_encoder_led(index, r, g, b);
+            return Ok(());
+        }
+        if let Ok(usb) = any.downcast::<ideck_surface::StudioUsbSurface>() {
+            usb.set_encoder_led(index, r, g, b);
+            return Ok(());
+        }
+        Err("surface is not a Studio surface".to_string())
     }
 
     pub fn last_nfc(&self, surface_id: SurfaceId) -> Option<String> {
