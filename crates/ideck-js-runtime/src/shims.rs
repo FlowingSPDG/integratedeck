@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use boa_engine::native_function::NativeFunction;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, Context, JsArgs, JsObject, JsResult, JsString, JsValue};
+use boa_engine::{js_string, Context, JsArgs, JsObject, JsResult, JsString, JsValue, Source};
 
 use crate::loader::IdeckModuleLoader;
 use crate::resolver::normalize_specifier;
@@ -21,6 +21,11 @@ pub fn install_globals(context: &mut Context, event_emitter: Option<EventEmitter
     EVENT_EMITTER.with(|slot| {
         *slot.borrow_mut() = event_emitter;
     });
+
+    // Globals the plugin ecosystem assumes exist (Buffer first: many libraries
+    // decode base64 while loading).
+    const BUFFER_PRELUDE: &str = include_str!("../assets/shims/buffer.js");
+    context.eval(Source::from_bytes(BUFFER_PRELUDE))?;
 
     let fs = JsObject::with_null_proto();
     fs.set(

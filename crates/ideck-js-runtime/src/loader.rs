@@ -35,6 +35,33 @@ impl IdeckModuleLoader {
             "node:events".into(),
             include_str!("../assets/shims/node_events.js").into(),
         );
+        shims.insert(
+            "node:https".into(),
+            include_str!("../assets/shims/node_https.js").into(),
+        );
+        shims.insert(
+            "node:http".into(),
+            include_str!("../assets/shims/node_https.js").into(),
+        );
+        shims.insert(
+            "node:process".into(),
+            include_str!("../assets/shims/node_process.js").into(),
+        );
+        shims.insert(
+            "node:os".into(),
+            include_str!("../assets/shims/node_os.js").into(),
+        );
+        shims.insert(
+            "node:stream".into(),
+            include_str!("../assets/shims/node_stream.js").into(),
+        );
+        // Built-ins we cannot implement load as throwing stubs so a plugin that
+        // only requires them on an optional path still starts.
+        for name in crate::resolver::UNSUPPORTED_BUILTINS {
+            let source = include_str!("../assets/shims/node_unsupported.js")
+                .replace("__IDECK_MODULE_NAME__", name);
+            shims.insert(format!("node:{name}"), source);
+        }
         shims.insert("ws".into(), include_str!("../assets/shims/ws.js").into());
         shims.insert(
             "@companion-module/base".into(),

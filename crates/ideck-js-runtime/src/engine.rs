@@ -126,7 +126,12 @@ fn run_worker(
 
         if let Some((function_name, params)) = config.startup_call {
             if let Err(e) = handle_call(&mut context, &function_name, params) {
-                error!("JS engine startup call failed: {e:#}");
+                // Name the entry so a failing shim is easy to trace back.
+                error!(
+                    root = %config.module_root.display(),
+                    function = %function_name,
+                    "JS engine startup call failed: {e:#}"
+                );
             }
         }
 

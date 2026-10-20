@@ -80,6 +80,7 @@
 | Studio LCD の復元 | 実機 | [x] | `studio LCD restored bytes=17367`、`cache/lcd/<surface>.jpg` を再送 |
 | 重複サーフェスの自動削除 | 実機 | [x] | 接続時にスロット0の同名サーフェスを除去（Plus の重複が消え 1台に） |
 | プラグイン用WebViewの遅延生成 | 実機 | [x] | 起動時の4枚一括生成をやめ、初回表示時に生成（起動ブロック104秒→実質0） |
+| JSプラグインのNode互換シム | ユニット | [x] | events/ws をコンストラクタ化、https・http・net・process・os・stream・Buffer を追加（記録: docs/js-shims.md） |
 | 起動順の最適化 | 実機 | [x] | 設定ウィンドウ生成前にオーケストレータ起動。起動〜デバイス接続が115秒→約36秒 |
 | Studio の明るさ | 実装 | [x] | LAN のみ `brightness_packet` を送信（USB は WriteFile が拒否するため未対応） |
 | プラグインの SVG setImage | ユニット | [x] | `plugin_payload_rasterizes_svg`（144px PNGへ変換） |

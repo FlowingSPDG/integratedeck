@@ -45,4 +45,9 @@ export class EventEmitter {
   }
 }
 
-export default EventEmitter
+// Node's `events` module is the constructor itself and also exposes
+// `.EventEmitter`; plugins rely on both shapes.
+EventEmitter.EventEmitter = EventEmitter;
+EventEmitter.default = EventEmitter;
+
+export default EventEmitter;

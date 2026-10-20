@@ -11,18 +11,63 @@ pub fn normalize_specifier(spec: &str) -> String {
         "path" => "node:path".into(),
         "fs" => "node:fs".into(),
         "url" => "node:url".into(),
+        "https" => "node:https".into(),
+        "http" => "node:http".into(),
+        "process" => "node:process".into(),
+        "os" => "node:os".into(),
+        "stream" => "node:stream".into(),
         "ws" => "ws".into(),
         s if s.starts_with("@companion-module/base") => "@companion-module/base".into(),
+        s if is_unsupported_builtin(s) => {
+            format!("node:{s}", s = s.strip_prefix("node:").unwrap_or(s))
+        }
         s if s.starts_with("node:") => s.to_string(),
         s => s.to_string(),
     }
 }
 
+/// Node built-ins we stub out (loaded successfully, but using them throws).
+pub const UNSUPPORTED_BUILTINS: &[&str] = &[
+    "net",
+    "tls",
+    "dns",
+    "crypto",
+    "child_process",
+    "util",
+    "zlib",
+    "buffer",
+    "querystring",
+    "assert",
+    "readline",
+    "tty",
+    "string_decoder",
+    "timers",
+    "http2",
+    "perf_hooks",
+    "worker_threads",
+    "async_hooks",
+];
+
+pub fn is_unsupported_builtin(spec: &str) -> bool {
+    let bare = spec.strip_prefix("node:").unwrap_or(spec);
+    UNSUPPORTED_BUILTINS.contains(&bare)
+}
+
 pub fn is_builtin_shim(spec: &str) -> bool {
     matches!(
         spec,
-        "node:path" | "node:url" | "node:fs" | "node:events" | "ws" | "@companion-module/base"
-    )
+        "node:path"
+            | "node:url"
+            | "node:fs"
+            | "node:events"
+            | "node:https"
+            | "node:http"
+            | "node:process"
+            | "node:os"
+            | "node:stream"
+            | "ws"
+            | "@companion-module/base"
+    ) || is_unsupported_builtin(spec)
 }
 
 pub fn url_to_path(url: &str) -> PathBuf {
