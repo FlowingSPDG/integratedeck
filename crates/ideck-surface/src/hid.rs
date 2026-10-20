@@ -275,6 +275,31 @@ impl StreamDeckHidSurface {
                                     pressed: false,
                                 })
                             }
+                            DeviceStateUpdate::TouchPointDown(index) => {
+                                Some(SurfaceInput::EncoderPress {
+                                    index: index as u32,
+                                    pressed: true,
+                                })
+                            }
+                            DeviceStateUpdate::TouchPointUp(index) => {
+                                Some(SurfaceInput::EncoderPress {
+                                    index: index as u32,
+                                    pressed: false,
+                                })
+                            }
+                            DeviceStateUpdate::TouchScreenPress(x, _)
+                            | DeviceStateUpdate::TouchScreenLongPress(x, _) => {
+                                let points = usize::from(kind.touchpoint_count()).max(1);
+                                let width = kind
+                                    .lcd_strip_size()
+                                    .map(|(width, _)| width)
+                                    .unwrap_or(800);
+                                let index = (usize::from(x) * points / width).min(points - 1);
+                                Some(SurfaceInput::EncoderPress {
+                                    index: index as u32,
+                                    pressed: true,
+                                })
+                            }
                             _ => None,
                         };
                         if let Some(input) = input {
