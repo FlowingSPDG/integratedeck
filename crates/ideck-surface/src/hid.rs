@@ -262,9 +262,16 @@ impl StreamDeckHidSurface {
 
     pub async fn run_input_loop(surface: Arc<Self>, poll_rate: f32) {
         let reader = surface.device().get_reader();
+        // A single failed read used to kill the loop and silence the device for
+        // good. Reads can fail transiently (ERROR_OPERATION_ABORTED when
+        // another process re-enumerates HID, wake from sleep), so retry a few
+        // times before giving up.
+        const MAX_CONSECUTIVE_FAILURES: u32 = 10;
+        let mut failures = 0u32;
         loop {
             match reader.read(poll_rate).await {
                 Ok(updates) => {
+                    failures = 0;
                     for update in updates {
                         let kind = surface.kind();
                         let input = match update {
@@ -336,8 +343,15 @@ impl StreamDeckHidSurface {
                     }
                 }
                 Err(e) => {
-                    warn!("HID input loop ended: {e}");
-                    break;
+                    failures += 1;
+                    if failures == 1 {
+                        warn!("HID input read failed, retrying: {e}");
+                    }
+                    if failures >= MAX_CONSECUTIVE_FAILURES {
+                        warn!("HID input loop ended after {failures} failed reads: {e}");
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 }
             }
         }
