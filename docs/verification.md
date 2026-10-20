@@ -14,8 +14,9 @@
 | HTML 複数同時ホスト | 実機 | [x] | tutorial slot=0 + tomato slot=1 を同時接続 |
 | Property Inspector 表示 | 実機 | [x] | Advanced HTTP の PI フィールド描画 |
 | PI setSettings 永続化 | 実機 | [x] | `url_press` がスロット設定へ保存 |
-| Node SDK プラグイン起動 | ユニット | [x] | `PluginLaunchStrategy::NodeScript` |
-| Node 実プラグイン動作 | 実機 | [ ] | Node 製プラグイン未検証 |
+| Node SDK プラグイン起動 | 実機 | [x] | Elgato hello-world をロード、nodeプロセスが公式引数で起動 |
+| Node 実プラグイン動作 | 実機 | [x] | ブローカー接続 Established、action `newstring` を取得 |
+| Node plugin のタイトル反映 | 実機 | [ ] | setTitle後の表示は未確認 |
 
 ## Companion
 
@@ -23,6 +24,9 @@
 |---|---|---|---|
 | モジュール load / init / destroy | 実機 | [x] | vMix モジュール読込 |
 | definitions（actions/feedbacks/variables/presets） | 実機 | [x] | 214 actions / 39 feedbacks |
+| vMix実接続 | 実機 | [x] | vMix 4K 29.0.0.48 / TCP 8099 / status ok |
+| vMix action実行 | 実機 | [x] | `transitionMix` 実行がエラーなし |
+| vMix feedback表示 | 実機 | [ ] | `inputPreview` のstyle反映を確認中 |
 | config fields / secrets | 実機 | [x] | vMix の host/tcpPort/checkbox/static-text を取得 |
 | action options | ユニット | [x] | `options` が callback へ到達 |
 | feedback instance（control 単位） | ユニット | [x] | `connection.setFeedback` |
