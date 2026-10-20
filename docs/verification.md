@@ -102,6 +102,29 @@
 | ButtonImage配信 | 実機 | [x] | `ensure_surface_slots` 後に index 0/7/8/11... のJPEGを受信 |
 | Pi GPIO | 実装 | [x] | `ideck-vsd-gpio`（Linux + `--features gpio`、実機未検証） |
 
+## 総合スモークテスト（2026-10-21 実機）
+
+CDP（`--remote-debugging-port=9222`）経由でアプリのコマンドを叩いて確認した結果。
+
+| 手順 | 結果 |
+|---|---|
+| 物理サーフェス接続 | streamdeck-hid + studio-usb の2台 |
+| キー画像 | Studio 32/32、Plus は7/8（1つは未割当のため空白＝正常） |
+| 設定ウィンドウを開く | ok |
+| Companion 接続（vMix 29.0.0.48 / TCP 8099） | `status: ok` |
+| Companion アクション実行（`transitionMix`） | エラーなし |
+| Companion フィードバック（`inputPreview`, mix=1, input=2, bg=0x00ff00） | セルが **緑** に |
+| Studio LCD のダイヤル表示 | Page名 + ダイヤル値（12ノッチ→"12"） |
+| Plus タッチストリップ描画 | 800x100 / 4ゾーンへ送信 |
+| ダイヤル→SDプラグイン | dialRotate 1回配送、setTitle 反映 |
+
+### 注意: Companion フィードバックのオプション形式
+
+vMix のフィードバックは **モジュール固有のオプション形式**を要求する。
+`inputPreview` は `{ mix: 1, input: "2", fg: 0xffffff, bg: 0x00ff00, tally: "" }` の形。
+`fg`/`bg` は **数値**（`#00ff00` 文字列では空スタイルが返る）、`mix` も必須。
+UI（SettingsEditor）から設定する場合はプリセット経由が確実。
+
 ## 再現コマンド
 
 ```bash
