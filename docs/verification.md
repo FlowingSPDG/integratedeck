@@ -47,6 +47,9 @@
 | プリセットの feedback 自動登録 | 実機 | [x] | `feedbacks[0]` を `companion_feedbacks` に登録し `connection.setFeedback` を送信。`inputPreview` を当てるとセルが緑 (0,255,0) に |
 | プリセット割当先のダイヤル表示 | 実装 | [x] | style.bgcolor を LED へ、style.text をストリップ/LCD へ反映。style は binding に保存し再起動後も復元（再起動後に `get_dial_visuals` が `title: "Cut"`） |
 | スロット解除時の feedback 破棄 | ユニット | [x] | `unbind_slot` が `removeFeedback` を送りブリッジ登録も解除。`unregistering_a_cell_drops_every_index` |
+| モジュール一覧の検出 | 実機 | [x] | npm名のモジュール（`studiocoast-vmix`）を検出し、接続追加のドロップダウンに表示 |
+| 接続の追加/削除 | 実機 | [x] | 追加→`status: ok`→config fields 取得→削除 をIPC経由で確認（設定画面のCompanionタブと同一コマンド） |
+| 設定画面のタブ描画 | 実機 | [x] | General / Devices / Presets / Companion の4タブが実データで描画 |
 | Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |
 
 ## Studio
