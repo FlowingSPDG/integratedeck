@@ -26,7 +26,7 @@
 | definitions（actions/feedbacks/variables/presets） | 実機 | [x] | 214 actions / 39 feedbacks |
 | vMix実接続 | 実機 | [x] | vMix 4K 29.0.0.48 / TCP 8099 / status ok |
 | vMix action実行 | 実機 | [x] | `transitionMix` 実行がエラーなし |
-| vMix feedback表示 | 実機 | [ ] | `inputPreview` のstyle反映を確認中 |
+| vMix feedback表示 | 実機 | [x] | `inputPreview`(input=3) が bgcolor green でXLセルへ反映 |
 | config fields / secrets | 実機 | [x] | vMix の host/tcpPort/checkbox/static-text を取得 |
 | action options | ユニット | [x] | `options` が callback へ到達 |
 | feedback instance（control 単位） | ユニット | [x] | `connection.setFeedback` |
