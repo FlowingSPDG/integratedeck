@@ -17,6 +17,8 @@
 | Node SDK プラグイン起動 | 実機 | [x] | Elgato hello-world をロード、nodeプロセスが公式引数で起動 |
 | Node 実プラグイン動作 | 実機 | [x] | ブローカー接続 Established、action `newstring` を取得 |
 | Node plugin のタイトル反映 | 実機 | [x] | setTitle `English\n\nClick Me` → keyDown後 `On` をログ確認 |
+| Node plugin の画像反映 | 実機 | [x] | cat-keys keyDown後に 69,896 byte のPNGへ更新 |
+| Node plugin のsetState | 実機 | [ ] | 未確認 |
 
 ## Companion
 
