@@ -54,9 +54,38 @@ const METHODS = [
   "pipeline",
 ];
 
+// Classes must exist as constructors: libraries write
+// `class Client extends net.Socket` while loading.
+const CLASS_NAMES = [
+  "Socket",
+  "Server",
+  "Agent",
+  "ClientRequest",
+  "IncomingMessage",
+  "TLSSocket",
+  "Hash",
+  "Hmac",
+  "Cipher",
+  "Decipher",
+  "Transform",
+  "Readable",
+  "Writable",
+  "Duplex",
+  "Stream",
+];
+
 const shim = { supported: false, moduleName: MODULE_NAME };
 for (const method of METHODS) {
   shim[method] = unsupported(method);
+}
+for (const className of CLASS_NAMES) {
+  // Subclasses call super(), so construction must succeed; record the gap on the
+  // instance instead of throwing so the rest of the plugin can still start.
+  shim[className] = class {
+    constructor() {
+      this.__unsupported = MODULE_NAME + "." + className;
+    }
+  };
 }
 
 export default shim;

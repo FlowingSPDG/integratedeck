@@ -1,7 +1,19 @@
 // Minimal `ws` shim: Node plugins `require('ws')` and often `class X extends
 // WebSocket` or read `.Server`. The runtime has a global WebSocket, so wrap it
 // in an extendable class and expose the usual statics.
-const Base = globalThis.WebSocket;
+// The embedded runtime may not define a global WebSocket; `extends undefined`
+// would throw at load time, so fall back to an inert base class.
+const Base =
+  globalThis.WebSocket ||
+  class {
+    constructor() {
+      this.__ideckNoop = true;
+    }
+    addEventListener() {}
+    removeEventListener() {}
+    send() {}
+    close() {}
+  };
 
 class WebSocket extends Base {
   constructor(address, protocols, options) {

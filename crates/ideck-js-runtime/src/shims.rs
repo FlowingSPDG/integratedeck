@@ -119,6 +119,7 @@ pub fn install_require(context: &mut Context, loader: Rc<IdeckModuleLoader>) -> 
                 .to_string(ctx)?
                 .to_std_string_escaped();
             let normalized = normalize_specifier(&id);
+            tracing::debug!(module = %id, "js require");
             MODULE_LOADER.with(|slot| {
                 let loader = slot.borrow();
                 let Some(loader) = loader.as_ref() else {

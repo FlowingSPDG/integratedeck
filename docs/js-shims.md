@@ -39,8 +39,12 @@ Boa には Node の標準モジュールが無いため、プラグインが読�
 
 ## 既知の残件
 
-- 1つのプラグインで `TypeError: superclass must be a constructor` が残る。
-  どのクラスを継承しているか特定するため、起動失敗ログに `root=<module_root>` を
-  追加した（次段で原因モジュールを特定する）。
+- `com.elgato.volume-controller` だけが `TypeError: superclass must be a constructor`
+  で起動に失敗する（他3本は起動OK）。原因究明のため:
+  - 失敗ログに `root=<module_root>` を追加済み（プラグイン特定は完了）
+  - `require` を debug ログで出力（`RUST_LOG=ideck_js_runtime=debug`）
+  - 直前に読まれるのは `bufferutil` / `utf-8-validate`（`ws` のオプション依存）
+  - 次段: UIを介さず検証できるよう、ランタイムを直接叩く統合テスト
+    （`crates/ideck-js-runtime/tests/`）を用意し、スタックトレースを取る
 - `crypto` は本実装が必要（認証系モジュールはハッシュ/乱数を使う）。
 - `net` は本実装が必要（TCP で機器と話すモジュールは WebSocket では代替できない）。

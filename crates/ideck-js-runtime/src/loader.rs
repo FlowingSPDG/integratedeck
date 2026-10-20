@@ -62,6 +62,10 @@ impl IdeckModuleLoader {
                 .replace("__IDECK_MODULE_NAME__", name);
             shims.insert(format!("node:{name}"), source);
         }
+        shims.insert(
+            "node:buffer".into(),
+            include_str!("../assets/shims/node_buffer.js").into(),
+        );
         shims.insert("ws".into(), include_str!("../assets/shims/ws.js").into());
         shims.insert(
             "@companion-module/base".into(),

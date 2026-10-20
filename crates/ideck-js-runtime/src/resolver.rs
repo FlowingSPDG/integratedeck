@@ -16,6 +16,7 @@ pub fn normalize_specifier(spec: &str) -> String {
         "process" => "node:process".into(),
         "os" => "node:os".into(),
         "stream" => "node:stream".into(),
+        "buffer" => "node:buffer".into(),
         "ws" => "ws".into(),
         s if s.starts_with("@companion-module/base") => "@companion-module/base".into(),
         s if is_unsupported_builtin(s) => {
@@ -35,7 +36,6 @@ pub const UNSUPPORTED_BUILTINS: &[&str] = &[
     "child_process",
     "util",
     "zlib",
-    "buffer",
     "querystring",
     "assert",
     "readline",
@@ -65,6 +65,7 @@ pub fn is_builtin_shim(spec: &str) -> bool {
             | "node:process"
             | "node:os"
             | "node:stream"
+            | "node:buffer"
             | "ws"
             | "@companion-module/base"
     ) || is_unsupported_builtin(spec)
