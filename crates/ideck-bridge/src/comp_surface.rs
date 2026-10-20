@@ -42,6 +42,14 @@ impl CompSurfaceBridge {
         self.surface_by_control.get(control_id).copied()
     }
 
+    /// Forget whatever control was registered for a cell (slot unbound).
+    pub fn unregister_cell(&mut self, row: u32, column: u32) {
+        if let Some(control_id) = self.control_by_cell.remove(&(row, column)) {
+            self.cell_by_control.remove(&control_id);
+            self.surface_by_control.remove(&control_id);
+        }
+    }
+
     pub fn control_for_input(&self, address: &CellAddress) -> Option<&str> {
         self.control_by_cell
             .get(&(address.row, address.column))
@@ -111,6 +119,24 @@ impl Default for CompSurfaceBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unregistering_a_cell_drops_every_index() {
+        let mut bridge = CompSurfaceBridge::new();
+        let surface = SurfaceId(Default::default());
+        bridge.register_cell_for_surface(surface, 2, 3, "conn:ctl".into());
+        assert_eq!(bridge.surface_for_control("conn:ctl"), Some(surface));
+
+        bridge.unregister_cell(2, 3);
+
+        assert!(bridge.surface_for_control("conn:ctl").is_none());
+        assert!(bridge
+            .feedback_to_update("conn:ctl", VisualState::default())
+            .is_none());
+        assert!(bridge
+            .control_for_input(&CellAddress { row: 2, column: 3 })
+            .is_none());
+    }
 
     #[test]
     fn parses_numeric_and_hex_feedback_colors() {

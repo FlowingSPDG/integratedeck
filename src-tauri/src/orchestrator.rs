@@ -3567,7 +3567,36 @@ impl Orchestrator {
 
         self.clear_cell_at(page_id, surface_id, row, col).await;
 
-        let title = label.unwrap_or_else(|| preset_id.clone());
+        // Presets carry their own button style and feedbacks; applying them is
+        // what makes a dragged preset look like the Companion original.
+        let preset = self
+            .companion_preset_definition(&connection_id, &preset_id)
+            .await;
+        let style = preset
+            .as_ref()
+            .and_then(|preset| preset.get("style"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let style_text = style
+            .get("text")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        let title = style_text.or(label).unwrap_or_else(|| preset_id.clone());
+        let background = style
+            .get("bgcolor")
+            .and_then(|value| value.as_u64())
+            .map(|color| {
+                (
+                    ((color >> 16) & 0xff) as u8,
+                    ((color >> 8) & 0xff) as u8,
+                    (color & 0xff) as u8,
+                )
+            })
+            .unwrap_or((58, 42, 74));
+        let control_id = format!("{connection_id}:{preset_id}");
+
         if let Some(page) = self
             .inner
             .profile
@@ -3576,20 +3605,120 @@ impl Orchestrator {
             .find(|p| p.id == page_id)
         {
             if let Some(slot) = page.slots.get_mut(&slot_id) {
-                slot.binding = Some(Binding::companion_preset(connection_id, preset_id));
-                slot.appearance.default_image = Some(solid_key_png(96, 96, 58, 42, 74));
+                slot.binding = Some(Binding::companion_preset(
+                    connection_id.clone(),
+                    preset_id.clone(),
+                ));
+                slot.appearance.default_image = Some(solid_key_png(
+                    96,
+                    96,
+                    background.0,
+                    background.1,
+                    background.2,
+                ));
                 slot.appearance.title = Some(title);
             }
         }
-        // A new preset binding invalidates any feedback instance on the slot.
+
+        // Feedback styles from the module update the cell through the bridge, so
+        // the control id has to be registered for this slot.
+        if self.inner.comp_bridge.is_none() {
+            self.inner.comp_bridge = Some(CompSurfaceBridge::new());
+        }
+        if let Some(bridge) = self.inner.comp_bridge.as_mut() {
+            bridge.register_cell_for_surface(surface_id, row, col, control_id.clone());
+        }
+
+        // A new preset binding replaces any feedback instance on the slot with
+        // the preset's own (Companion applies the first one to the button).
         self.inner
             .profile
             .companion_feedbacks
             .remove(&slot_id.0.to_string());
+        let first_feedback = preset
+            .as_ref()
+            .and_then(|preset| preset.get("feedbacks"))
+            .and_then(|feedbacks| feedbacks.as_array())
+            .and_then(|feedbacks| feedbacks.first())
+            .cloned();
+        if let Some(feedback) = first_feedback {
+            let feedback_id = feedback
+                .get("feedbackId")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if !feedback_id.is_empty() {
+                let options = feedback
+                    .get("options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                self.inner.profile.companion_feedbacks.insert(
+                    slot_id.0.to_string(),
+                    CompanionFeedbackConfig {
+                        connection_id: connection_id.clone(),
+                        feedback_id: feedback_id.clone(),
+                        action_id: preset_id.clone(),
+                        options: options.clone(),
+                    },
+                );
+                if let Some(runtime) = &self.inner.comp_runtime {
+                    let _ = runtime
+                        .request(
+                            "connection.setFeedback",
+                            json!({
+                                "connectionId": connection_id,
+                                "controlId": control_id,
+                                "feedbackId": feedback_id,
+                                "options": options
+                            }),
+                        )
+                        .await;
+                }
+            }
+        }
 
         self.persist_slot_changes(surface_id).await?;
         self.refresh_page_visuals(page_id, surface_id).await;
         Ok(())
+    }
+
+    /// Look a preset up in the connected module's definitions.
+    async fn companion_preset_definition(
+        &self,
+        connection_id: &str,
+        preset_id: &str,
+    ) -> Option<serde_json::Value> {
+        let runtime = self.inner.comp_runtime.as_ref()?;
+        let response = runtime
+            .request(
+                "connection.getDefinitions",
+                json!({ "connectionId": connection_id }),
+            )
+            .await
+            .ok()?;
+        if !response.ok {
+            return None;
+        }
+        let presets = response.result?.get("presets")?.clone();
+        let entries: Vec<serde_json::Value> = match presets {
+            serde_json::Value::Array(items) => items,
+            serde_json::Value::Object(map) => map
+                .into_iter()
+                .map(|(id, mut value)| {
+                    if let Some(object) = value.as_object_mut() {
+                        object
+                            .entry("presetId")
+                            .or_insert(serde_json::Value::String(id));
+                    }
+                    value
+                })
+                .collect(),
+            _ => return None,
+        };
+        entries.into_iter().find(|entry| {
+            entry.get("presetId").and_then(|value| value.as_str()) == Some(preset_id)
+                || entry.get("id").and_then(|value| value.as_str()) == Some(preset_id)
+        })
     }
 
     /// Attach a Companion feedback instance to a slot already bound to a
@@ -3625,6 +3754,13 @@ impl Orchestrator {
                             ..
                         },
                 }) => (connection_id.clone(), action_id.clone()),
+                Some(Binding {
+                    kind:
+                        BindingKind::CompanionPreset {
+                            connection_id,
+                            preset_id,
+                        },
+                }) => (connection_id.clone(), preset_id.clone()),
                 _ => anyhow::bail!("slot is not bound to a Companion action"),
             }
         };
@@ -3868,10 +4004,29 @@ impl Orchestrator {
             .iter_mut()
             .find(|page| page.id == page_id)
             .ok_or_else(|| anyhow::anyhow!("page not found"))?;
-        page.encoders
-            .insert(index, Binding::companion_preset(connection_id, preset_id));
+        page.encoders.insert(
+            index,
+            Binding::companion_preset(connection_id.clone(), preset_id.clone()),
+        );
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
+        // The preset's own style colours the dial LED, like Companion does with
+        // the preset's button colour.
+        if let Some(background) = self
+            .companion_preset_definition(&connection_id, &preset_id)
+            .await
+            .as_ref()
+            .and_then(|preset| preset.get("style"))
+            .and_then(|style| style.get("bgcolor"))
+            .and_then(|value| value.as_u64())
+        {
+            let r = ((background >> 16) & 0xff) as u8;
+            let g = ((background >> 8) & 0xff) as u8;
+            let b = (background & 0xff) as u8;
+            if background != 0 {
+                let _ = self.set_encoder_led(surface_id, index as u8, r, g, b);
+            }
+        }
         Ok(())
     }
 
@@ -4033,8 +4188,7 @@ impl Orchestrator {
             }
         }
 
-        self.persist_slot_changes(surface_id).await?;
-        let (row, col, configured) = {
+        let (row, col) = {
             let page = self
                 .inner
                 .profile
@@ -4046,11 +4200,47 @@ impl Orchestrator {
                 .slots
                 .get(&slot_id)
                 .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
-            (
-                slot.locator.row,
-                slot.locator.column,
-                is_slot_configured(slot),
-            )
+            (slot.locator.row, slot.locator.column)
+        };
+
+        // Drop the Companion feedback instance too, otherwise it keeps being
+        // evaluated (and can keep painting a slot that has no binding).
+        if let Some(removed) = self
+            .inner
+            .profile
+            .companion_feedbacks
+            .remove(&slot_id.0.to_string())
+        {
+            if let Some(runtime) = &self.inner.comp_runtime {
+                let _ = runtime
+                    .request(
+                        "connection.removeFeedback",
+                        json!({
+                            "connectionId": removed.connection_id,
+                            "controlId": format!("{}:{}", removed.connection_id, removed.action_id)
+                        }),
+                    )
+                    .await;
+            }
+        }
+        if let Some(bridge) = self.inner.comp_bridge.as_mut() {
+            bridge.unregister_cell(row, col);
+        }
+
+        self.persist_slot_changes(surface_id).await?;
+        let configured = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            is_slot_configured(slot)
         };
         self.sync_slot_cell_display(page_id, surface_id, row, col, configured, true)
             .await;

@@ -41,6 +41,10 @@
 | プリセットのダイヤル割当 | 実機 | [x] | ダイヤル欄のプリセット選択→「プリセット割当」→ 押下で down/up 実行（active 1→2） |
 | プリセットのマルチアクション step | 実機 | [x] | `companion_preset` step を含む Multi Action の押下で `transitionMix` 実行（active 2→1） |
 | プリセットの回転 step | ユニット | [x] | `module_fixture_roundtrip` が `rotate_left` phase の実行を検証（vMix は down/up のみのため実機では未確認） |
+| プリセットの style 適用 | 実機 | [x] | `audio_audioToggle` でタイトルが style.text「Toggle Audio」に、背景色が style.bgcolor に（未指定時は従来色） |
+| プリセットの feedback 自動登録 | 実機 | [x] | `feedbacks[0]` を `companion_feedbacks` に登録し `connection.setFeedback` を送信。`inputPreview` を当てるとセルが緑 (0,255,0) に |
+| プリセット割当先のダイヤルLED | 実装 | [x] | style.bgcolor を LED へ反映（0 の場合は変更しない） |
+| スロット解除時の feedback 破棄 | ユニット | [x] | `unbind_slot` が `removeFeedback` を送りブリッジ登録も解除。`unregistering_a_cell_drops_every_index` |
 
 ## Studio
 
