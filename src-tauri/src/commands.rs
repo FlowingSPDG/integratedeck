@@ -1023,10 +1023,7 @@ pub async fn connect_surface_device(
     driver_id: String,
     device_id: String,
 ) -> Result<ConnectHidResult, String> {
-    let mut orchestrator = state.write().await;
-    orchestrator
-        .connect_surface_device(driver_id, device_id)
-        .await
+    Orchestrator::connect_driver_with_loops(state.inner().clone(), driver_id, device_id).await
 }
 
 #[tauri::command]

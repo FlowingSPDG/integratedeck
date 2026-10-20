@@ -175,11 +175,14 @@ impl Orchestrator {
                 .collect()
         };
         for (driver_id, device_id) in studio_targets {
+            let result = Self::connect_driver_with_loops(
+                state.clone(),
+                driver_id.clone(),
+                device_id.clone(),
+            )
+            .await;
             let mut o = state.write().await;
-            match o
-                .connect_surface_device(driver_id.clone(), device_id.clone())
-                .await
-            {
+            match result {
                 Ok(result) => {
                     if let Ok(surface_id) = uuid::Uuid::parse_str(&result.surface_id) {
                         if let Err(error) = o.ensure_surface_slots(SurfaceId(surface_id)).await {
@@ -280,8 +283,7 @@ impl Orchestrator {
         state: &Arc<RwLock<Self>>,
         surface_id: SurfaceId,
         surface: Arc<dyn PhysicalSurface>,
-    ) {
-        let state_clone = state.clone();
+    ) {        let state_clone = state.clone();
         let mut input_rx = surface.subscribe_inputs();
         let reader = surface.clone().spawn_input_loop();
 
@@ -296,6 +298,28 @@ impl Orchestrator {
 
         let mut o = state.write().await;
         o.store_hid_tasks(surface_id, vec![reader, forward]);
+    }
+
+    /// Connect a driver-registered surface and attach its input forwarding.
+    pub async fn connect_driver_with_loops(
+        state: Arc<RwLock<Self>>,
+        driver_id: String,
+        device_id: String,
+    ) -> Result<ConnectHidResult, String> {
+        let result = {
+            let mut orchestrator = state.write().await;
+            orchestrator
+                .connect_surface_device(driver_id, device_id)
+                .await?
+        };
+        if let Ok(uuid) = uuid::Uuid::parse_str(&result.surface_id) {
+            let surface_id = SurfaceId(uuid);
+            let surface = { state.read().await.inner.surfaces.physical(surface_id) };
+            if let Some(surface) = surface {
+                Self::attach_hid_input_loop(&state, surface_id, surface).await;
+            }
+        }
+        Ok(result)
     }
 
     /// Process one input event without blocking the HID receive loop.
