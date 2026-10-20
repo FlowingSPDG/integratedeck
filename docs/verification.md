@@ -47,8 +47,9 @@
 | LAN キー / エンコーダ入力 | モック | [x] | `studio_lan.rs` integration test |
 | LAN NFC（01 04） | ユニット | [x] | `studio_protocol` test |
 | USB HID 列挙（0fd9:00aa） | ユニット | [x] | `studio_usb` ドライバ |
-| USB 自動再接続 | 実装 | [x] | 5秒間隔で再列挙 |
-| USB キー画像 / 入力 / LED | 実機 | [ ] | Studio USB未列挙（Plusのみ 0fd9:0084） |
+| USB 自動接続 | 実機 | [x] | `0fd9:00aa A9IJA53330GUMR` を検出、32スロット自動作成 |
+| USB キー画像 / LED / LCD | 実機 | [x] | key0赤・LED緑・LCD赤を送信 |
+| USB キー / エンコーダ / NFC 入力 | 実機 | [ ] | 押下・タッチ確認待ち |
 | USB/LAN 重複排除 | ユニット | [x] | `scan_all` |
 | LCD パネル画像（02 0c） | 実機 | [x] | `set_studio_lcd` が LAN Studio へ送信成功 |
 | NFC UID 取得 | 実機 | [x] | `get_last_nfc` が null（未タッチ）を返す |
