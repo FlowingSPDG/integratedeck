@@ -79,6 +79,11 @@ pub fn cache_dir() -> PathBuf {
     data_dir().join("cache")
 }
 
+/// Last image pushed to a Studio LCD, so it can be restored on reconnect.
+pub fn studio_lcd_file(surface_id: &str) -> PathBuf {
+    cache_dir().join("lcd").join(format!("{surface_id}.jpg"))
+}
+
 pub fn ensure_dirs() -> std::io::Result<()> {
     std::fs::create_dir_all(profiles_dir())?;
     std::fs::create_dir_all(sd_plugins_dir())?;

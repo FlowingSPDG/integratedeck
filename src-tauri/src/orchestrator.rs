@@ -1236,6 +1236,17 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Number of keys assigned to a surface across every page.
+    pub fn surface_slot_count(&self, surface_id: SurfaceId) -> usize {
+        self.inner
+            .profile
+            .pages
+            .iter()
+            .flat_map(|page| page.slots.values())
+            .filter(|slot| slot.locator.surface_id == surface_id)
+            .count()
+    }
+
     pub fn page_id_for_slot(&self, slot_id: SlotId) -> Option<PageId> {
         self.inner
             .profile
@@ -2048,6 +2059,7 @@ impl Orchestrator {
             }
         }
         self.render_surface_visuals(surface_id).await;
+        self.restore_surface_display(surface_id).await;
         Ok(())
     }
 
@@ -2257,7 +2269,11 @@ impl Orchestrator {
             .map(|d| (d.rows, d.columns))
             .unwrap_or((3, 5));
 
-        let surface_id = saved
+        // Prefer the profile surface that actually owns this device's keys.
+        // A stale registry entry (or an auto-connect that raced profile restore)
+        // can point at a duplicate surface with no slots, which renders nothing.
+        let expected_label = format!("{DRIVER_ID} ({device_id})");
+        let registry_id = saved
             .and_then(|r| r.surface_id.as_ref())
             .and_then(|id| uuid::Uuid::parse_str(id).ok())
             .map(SurfaceId)
@@ -2267,7 +2283,19 @@ impl Orchestrator {
                     .surfaces
                     .iter()
                     .any(|s| s.surface_id == *id)
-            })
+            });
+        let label_id = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .find(|s| s.label == expected_label)
+            .map(|s| s.surface_id);
+        let surface_id = registry_id
+            .filter(|id| self.surface_slot_count(*id) > 0)
+            .or_else(|| label_id.filter(|id| self.surface_slot_count(*id) > 0))
+            .or(registry_id)
+            .or(label_id)
             .unwrap_or_default();
 
         let surface = self
@@ -2524,6 +2552,7 @@ impl Orchestrator {
     ) -> Result<(), String> {
         let jpeg = ideck_surface::encode_lcd_jpeg(image, 1424, 280)
             .ok_or_else(|| "failed to encode LCD image".to_string())?;
+        self.cache_studio_lcd(surface_id, &jpeg);
         let physical = self
             .inner
             .surfaces
@@ -2539,6 +2568,79 @@ impl Orchestrator {
             return Ok(());
         }
         Err("surface is not a Studio surface".to_string())
+    }
+
+    /// Persist the LCD frame so it comes back after a reconnect or restart.
+    fn cache_studio_lcd(&self, surface_id: SurfaceId, jpeg: &[u8]) {
+        let path = paths::studio_lcd_file(&surface_id.0.to_string());
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, jpeg);
+    }
+
+    /// Re-apply the last LCD frame, or draw a placeholder so the panel is never
+    /// left blank after a reconnect or restart.
+    pub async fn restore_surface_display(&self, surface_id: SurfaceId) {
+        let Some(physical) = self.inner.surfaces.physical_async(surface_id).await else {
+            return;
+        };
+        let any = physical.as_any();
+        let is_studio = any
+            .clone()
+            .downcast::<ideck_surface::StudioLanSurface>()
+            .is_ok()
+            || any
+                .clone()
+                .downcast::<ideck_surface::StudioUsbSurface>()
+                .is_ok();
+        if !is_studio {
+            return;
+        }
+
+        let cached = std::fs::read(paths::studio_lcd_file(&surface_id.0.to_string())).ok();
+        let jpeg = cached.or_else(|| {
+            let placeholder = self.studio_lcd_placeholder(surface_id)?;
+            let encoded = ideck_surface::encode_lcd_jpeg(&placeholder, 1424, 280)?;
+            self.cache_studio_lcd(surface_id, &encoded);
+            Some(encoded)
+        });
+        let Some(jpeg) = jpeg else {
+            return;
+        };
+
+        if let Ok(lan) = any.clone().downcast::<ideck_surface::StudioLanSurface>() {
+            lan.set_lcd_image(&jpeg);
+        } else if let Ok(usb) = any.downcast::<ideck_surface::StudioUsbSurface>() {
+            usb.set_lcd_image(&jpeg);
+        }
+        tracing::info!(surface = %surface_id.0, bytes = jpeg.len(), "studio LCD restored");
+    }
+
+    /// Default LCD content: app name plus the page this surface shows.
+    fn studio_lcd_placeholder(&self, surface_id: SurfaceId) -> Option<ideck_core::ImagePayload> {
+        let page_name = self
+            .inner
+            .page_for_surface(surface_id)
+            .and_then(|page_id| {
+                self.inner
+                    .profile
+                    .pages
+                    .iter()
+                    .find(|page| page.id == page_id)
+                    .map(|page| page.name.clone())
+            })
+            .unwrap_or_else(|| "integratedeck".into());
+        let visual = ideck_core::VisualState {
+            title: Some(format!("{page_name}\nintegratedeck")),
+            ..Default::default()
+        };
+        ideck_core::render_touch_strip(
+            1424,
+            280,
+            &[ideck_core::TouchStripSegment { index: 0, visual }],
+            1,
+        )
     }
 
     pub fn store_hid_tasks(

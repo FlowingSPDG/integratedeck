@@ -77,7 +77,11 @@ pub fn image_from_plugin_payload(
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed.starts_with("data:image/") || trimmed.len() > 260 {
+    if trimmed.starts_with("data:image/") {
+        // Plugins commonly send SVG; the device needs a bitmap.
+        return image_from_data_url(trimmed, 144);
+    }
+    if trimmed.len() > 260 {
         return image_from_base64(trimmed, ImageFormat::Png);
     }
     if looks_like_image_path(trimmed) {
@@ -138,6 +142,20 @@ fn detect_image_format(bytes: &[u8]) -> Option<ImageFormat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_payload_rasterizes_svg() {
+        // Plugins commonly send SVG in setImage; it must not be dropped.
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144"><rect width="144" height="144" fill="#3366ff"/></svg>"##;
+        use base64::Engine;
+        let url = format!(
+            "data:image/svg+xml;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(svg)
+        );
+        let image = image_from_plugin_payload(&url, None).expect("rasterized svg");
+        assert_eq!(image.format, ImageFormat::Png);
+        assert!(image.data.starts_with(&[0x89, b'P', b'N', b'G']));
+    }
 
     #[test]
     fn rasterizes_svg_icon_to_png() {

@@ -76,6 +76,9 @@
 | Encoder JSON（layout / StackColor / TriggerDescription） | ユニット | [x] | `parses_encoder_layout_and_stack_color`、StackColorはダイヤルLEDへ反映 |
 | Plus タッチスワイプ | 実装 | [ ] | `TouchScreenSwipe` は未処理（Elgato公式もプラグインへ非公開） |
 | Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送、ストリップ描画を確認 |
+| Plus のキー画像が実機に出る | 実機 | [x] | 再起動後にスロットを持つサーフェスへ接続（8セル全て画像あり） |
+| Studio LCD の復元 | 実機 | [x] | `studio LCD restored bytes=17367`、`cache/lcd/<surface>.jpg` を再送 |
+| プラグインの SVG setImage | ユニット | [x] | `plugin_payload_rasterizes_svg`（144px PNGへ変換） |
 
 ## VSD2
 

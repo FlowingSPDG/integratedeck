@@ -169,6 +169,12 @@ impl SurfaceManager {
             .insert(surface_id, Arc::new(ErasedPhysicalSurface(surface)));
     }
 
+    /// Awaiting variant of [`Self::physical`]; avoids dropping the lookup when a
+    /// concurrent task briefly holds the registry write lock.
+    pub async fn physical_async(&self, id: SurfaceId) -> Option<Arc<dyn PhysicalSurface>> {
+        self.physical.read().await.get(&id).cloned()
+    }
+
     pub fn physical(&self, id: SurfaceId) -> Option<Arc<dyn PhysicalSurface>> {
         self.physical
             .try_read()
