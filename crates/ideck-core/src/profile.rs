@@ -104,18 +104,19 @@ impl Profile {
             return None;
         }
         // Skip pages that hold nothing: swiping onto one blanks the device, and
-        // empty pages are usually placeholders. Keep them reachable as long as
-        // no sibling has content (a profile that is still being built).
+        // empty pages are usually placeholders. A profile where every page is
+        // still empty keeps the old behaviour so it stays navigable while it is
+        // being built.
         let populated: Vec<PageId> = self
             .pages
             .iter()
             .filter(|page| page.parent_page_id == parent && !page.slots.is_empty())
             .map(|page| page.id)
             .collect();
-        let candidates = if populated.len() >= 2 {
-            populated
-        } else {
+        let candidates = if populated.is_empty() {
             siblings
+        } else {
+            populated
         };
         if candidates.len() < 2 {
             return None;
@@ -228,5 +229,18 @@ mod tests {
         // Starting from an empty page enters the populated pages.
         assert_eq!(profile.swipe_target_page(empty_id, -1), Some(a));
         assert_eq!(profile.swipe_target_page(empty_id, 1), Some(c));
+    }
+
+    #[test]
+    fn swipe_does_nothing_when_the_current_page_is_the_only_one_with_content() {
+        let only = with_slot(page("Only", None));
+        let empty_one = page("Empty One", None);
+        let empty_two = page("Empty Two", None);
+        let only_id = only.id;
+        let profile = profile_with(vec![only, empty_one, empty_two]);
+
+        // Nothing to move to, and blanking the device is worse than ignoring it.
+        assert_eq!(profile.swipe_target_page(only_id, -1), None);
+        assert_eq!(profile.swipe_target_page(only_id, 1), None);
     }
 }
