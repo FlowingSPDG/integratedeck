@@ -57,6 +57,26 @@ pub struct ManifestAction {
     /// Controllers the action supports (`Keypad`, `Encoder`).
     #[serde(default, rename = "Controllers")]
     pub controllers: Option<Vec<String>>,
+    /// Dial configuration declared for encoder actions.
+    #[serde(default, rename = "Encoder")]
+    pub encoder: Option<ManifestEncoder>,
+    /// Encoder display states (`States` entries carry `Title`/`Image`).
+    #[serde(default, rename = "States")]
+    pub states: Option<Vec<Value>>,
+}
+
+/// `Encoder` block of a Stream Deck manifest action.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManifestEncoder {
+    /// Layout id the plugin renders on the touch strip (`$B1`, `$B2`, …).
+    #[serde(default, rename = "layout")]
+    pub layout: Option<String>,
+    /// Colour of the LED ring / stack indicator (`#rrggbb`).
+    #[serde(default, rename = "StackColor")]
+    pub stack_color: Option<String>,
+    /// What each trigger does, as shown in the app's dial hints.
+    #[serde(default, rename = "TriggerDescription")]
+    pub trigger_description: Option<Value>,
 }
 
 impl ManifestAction {
@@ -74,6 +94,11 @@ impl ManifestAction {
             None => true,
             Some(list) => list.iter().any(|c| c.eq_ignore_ascii_case("Keypad")),
         }
+    }
+
+    /// Feedback layout the dial expects, when the manifest declares one.
+    pub fn encoder_layout(&self) -> Option<&str> {
+        self.encoder.as_ref()?.layout.as_deref()
     }
 }
 
@@ -499,6 +524,12 @@ fn collect_actions(items: &[Value], out: &mut Vec<ManifestAction>) {
             property_inspector,
             icon,
             controllers: pick_controllers(item),
+            encoder: pick_encoder(item),
+            states: item
+                .get("States")
+                .or_else(|| item.get("states"))
+                .and_then(|v| v.as_array())
+                .cloned(),
         });
     }
 }
@@ -520,6 +551,12 @@ fn actions_from_localization(value: &Value) -> Vec<ManifestAction> {
             ),
             icon: pick_string(value, &["Icon", "icon"]),
             controllers: pick_controllers(value),
+            encoder: pick_encoder(value),
+            states: value
+                .get("States")
+                .or_else(|| value.get("states"))
+                .and_then(|v| v.as_array())
+                .cloned(),
         })
         .collect();
     actions.sort_by(|a, b| {
@@ -698,6 +735,22 @@ fn pick_controllers(value: &Value) -> Option<Vec<String>> {
     } else {
         Some(list)
     }
+}
+
+/// Parse the `Encoder` block of an action, tolerating a missing or odd shape.
+fn pick_encoder(value: &Value) -> Option<ManifestEncoder> {
+    let raw = value.get("Encoder").or_else(|| value.get("encoder"))?;
+    if !raw.is_object() {
+        return None;
+    }
+    Some(ManifestEncoder {
+        layout: pick_string(raw, &["layout", "Layout"]),
+        stack_color: pick_string(raw, &["StackColor", "stackColor", "stack_color"]),
+        trigger_description: raw
+            .get("TriggerDescription")
+            .or_else(|| raw.get("triggerDescription"))
+            .cloned(),
+    })
 }
 
 #[cfg(test)]
@@ -920,7 +973,54 @@ mod tests {
     }
 
     #[test]
-    fn resolves_obs_style_source_main_js() {
+    fn parses_encoder_layout_and_stack_color() {
+        let json = r##"{
+            "Name": "Dial",
+            "UUID": "com.vendor.dial",
+            "Version": "1",
+            "Actions": [
+                {
+                    "UUID": "com.vendor.dial.volume",
+                    "Name": "Volume",
+                    "Controllers": ["Encoder"],
+                    "Encoder": {
+                        "layout": "$B1",
+                        "StackColor": "#10a2f0",
+                        "TriggerDescription": { "Rotate": "Adjust", "Push": "Mute" }
+                    },
+                    "States": [{ "Name": "Default" }]
+                },
+                {
+                    "UUID": "com.vendor.dial.key",
+                    "Name": "Key"
+                }
+            ]
+        }"##;
+        let value: Value = serde_json::from_str(json).expect("json");
+        let actions = flatten_actions(&value);
+        let volume = actions
+            .iter()
+            .find(|a| a.uuid.as_deref() == Some("com.vendor.dial.volume"))
+            .expect("volume action");
+        assert!(volume.supports_encoder());
+        assert_eq!(volume.encoder_layout(), Some("$B1"));
+        let encoder = volume.encoder.as_ref().expect("encoder block");
+        assert_eq!(encoder.stack_color.as_deref(), Some("#10a2f0"));
+        assert!(encoder.trigger_description.is_some());
+        assert_eq!(volume.states.as_ref().map(Vec::len), Some(1));
+
+        // An action without an Encoder block must not pretend to have one.
+        let key = actions
+            .iter()
+            .find(|a| a.uuid.as_deref() == Some("com.vendor.dial.key"))
+            .expect("key action");
+        assert!(key.encoder.is_none());
+        assert!(key.encoder_layout().is_none());
+        assert!(!key.supports_encoder());
+    }
+
+    #[test]
+    fn parses_obs_style_source_main_js() {
         let dir = std::env::temp_dir().join(format!(
             "ideck-codepath-obs-{}",
             std::time::SystemTime::now()

@@ -104,6 +104,10 @@ impl SdSurfaceBridge {
                 let ctx = self.encoder_context(surface_id, *index)?;
                 Some((ctx, "dialPress"))
             }
+            SurfaceInput::TouchTap { index, .. } => {
+                let ctx = self.encoder_context(surface_id, *index)?;
+                Some((ctx, "dialTouch"))
+            }
             _ => None,
         }
     }
@@ -265,6 +269,17 @@ impl SdSurfaceBridge {
                             visual.image = Some(image);
                         }
                     }
+                    // SDK dials report a 0-100 indicator for bar layouts.
+                    if let Some(value) = payload
+                        .get("indicator")
+                        .and_then(|indicator| indicator.get("value"))
+                        .and_then(|value| value.as_f64())
+                    {
+                        visual.indicator = Some(value.clamp(0.0, 100.0).round() as u8);
+                    }
+                }
+                BrokerEvent::SetFeedbackLayout { layout, .. } => {
+                    visual.layout = Some(layout.clone());
                 }
                 _ => return Vec::new(),
             }
@@ -445,6 +460,65 @@ mod tests {
             dials.get(&(surface, 0)).and_then(|v| v.title.as_deref()),
             Some("3")
         );
+    }
+
+    #[test]
+    fn touch_tap_resolves_the_dial_under_the_finger() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        bridge.register_encoder(surface, 2, "dial-2".into());
+
+        let event = bridge.surface_input_to_sd_event(
+            surface,
+            &SurfaceInput::TouchTap {
+                index: 2,
+                x: 502,
+                y: 40,
+                hold: false,
+            },
+        );
+        assert_eq!(event, Some(("dial-2".to_string(), "dialTouch")));
+
+        // A tap on a dial without a binding must not fall through to another dial.
+        let unbound = bridge.surface_input_to_sd_event(
+            surface,
+            &SurfaceInput::TouchTap {
+                index: 3,
+                x: 700,
+                y: 40,
+                hold: true,
+            },
+        );
+        assert!(unbound.is_none());
+    }
+
+    #[test]
+    fn dial_feedback_carries_indicator_and_layout() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        bridge.register_encoder(surface, 0, "dial-ctx".into());
+
+        let feedback = BrokerEvent::SetFeedback {
+            context: "dial-ctx".into(),
+            payload: serde_json::json!({
+                "title": "Volume",
+                "value": "42",
+                "indicator": { "value": 63 }
+            }),
+        };
+        let mut dials = HashMap::new();
+        let updates = bridge.apply_encoder_event(&feedback, &mut dials);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].2.indicator, Some(63));
+        assert_eq!(updates[0].2.title.as_deref(), Some("Volume"));
+
+        let layout = BrokerEvent::SetFeedbackLayout {
+            context: "dial-ctx".into(),
+            layout: "$B1".into(),
+        };
+        let updates = bridge.apply_encoder_event(&layout, &mut dials);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].2.layout.as_deref(), Some("$B1"));
     }
 
     #[test]

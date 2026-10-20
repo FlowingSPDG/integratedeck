@@ -305,12 +305,20 @@ impl StreamDeckHidSurface {
                                     pressed: false,
                                 })
                             }
-                            DeviceStateUpdate::TouchScreenPress(x, _)
-                            | DeviceStateUpdate::TouchScreenLongPress(x, _) => {
-                                let index = touch_strip_index(kind, x);
-                                Some(SurfaceInput::EncoderPress {
-                                    index: index as u32,
-                                    pressed: true,
+                            DeviceStateUpdate::TouchScreenPress(x, y) => {
+                                Some(SurfaceInput::TouchTap {
+                                    index: touch_strip_index(kind, x) as u32,
+                                    x: u32::from(x),
+                                    y: u32::from(y),
+                                    hold: false,
+                                })
+                            }
+                            DeviceStateUpdate::TouchScreenLongPress(x, y) => {
+                                Some(SurfaceInput::TouchTap {
+                                    index: touch_strip_index(kind, x) as u32,
+                                    x: u32::from(x),
+                                    y: u32::from(y),
+                                    hold: true,
                                 })
                             }
                             _ => None,
@@ -344,6 +352,8 @@ impl super::Surface for StreamDeckHidSurface {
                 .touch_strip_ready
                 .swap(true, std::sync::atomic::Ordering::SeqCst)
         {
+            // First paint: blank the strip so stale firmware content is gone.
+            // Dial feedback replaces it through `render_touch_strip`.
             if let Some((w, h)) = self.kind().lcd_strip_size() {
                 let image = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
                     w as u32,
@@ -422,6 +432,49 @@ impl super::Surface for StreamDeckHidSurface {
             .flush()
             .await
             .map_err(|e| SurfaceError::Other(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn render_touch_strip(
+        &self,
+        segments: &[ideck_core::TouchStripSegment],
+    ) -> Result<(), SurfaceError> {
+        let kind = self.kind();
+        tracing::debug!(?kind, segments = segments.len(), "touch strip requested");
+        let Some((w, h)) = kind.lcd_strip_size() else {
+            tracing::debug!(?kind, "touch strip: kind has no strip");
+            return Ok(());
+        };
+        let zones = u32::from(kind.encoder_count()).max(1);
+        let Some(payload) = ideck_core::render_touch_strip(w as u32, h as u32, segments, zones)
+        else {
+            return Ok(());
+        };
+        let Ok(image) = ImageReader::new(Cursor::new(&payload.data))
+            .with_guessed_format()
+            .and_then(|reader| reader.decode().map_err(std::io::Error::other))
+        else {
+            return Ok(());
+        };
+        let Some(format) = kind.lcd_image_format() else {
+            return Ok(());
+        };
+        let data = convert_image_with_format(format, image)
+            .map_err(|e| SurfaceError::Other(e.to_string()))?;
+        self.device()
+            .write_lcd_fill(&data)
+            .await
+            .map_err(|e| SurfaceError::Other(e.to_string()))?;
+        self.touch_strip_ready
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        tracing::debug!(
+            width = w,
+            height = h,
+            zones,
+            segments = segments.len(),
+            bytes = data.len(),
+            "touch strip rendered"
+        );
         Ok(())
     }
 }

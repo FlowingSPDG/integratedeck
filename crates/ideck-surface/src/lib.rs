@@ -15,7 +15,7 @@ pub use manager::*;
 pub use update::CellUpdate;
 
 use async_trait::async_trait;
-use ideck_core::SurfaceId;
+use ideck_core::{SurfaceId, TouchStripSegment};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -32,6 +32,14 @@ pub enum SurfaceError {
 pub trait Surface: Send + Sync {
     fn descriptor(&self) -> &SurfaceDescriptor;
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError>;
+
+    /// Push dial feedback to a touch strip. Surfaces without a strip ignore it.
+    async fn render_touch_strip(
+        &self,
+        _segments: &[TouchStripSegment],
+    ) -> Result<(), SurfaceError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

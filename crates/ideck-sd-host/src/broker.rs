@@ -378,7 +378,12 @@ impl StreamDeckBroker {
         Ok(())
     }
 
-    pub async fn touch_tap(&self, context: &str, tap_pos: (i32, i32)) -> anyhow::Result<()> {
+    pub async fn touch_tap(
+        &self,
+        context: &str,
+        tap_pos: (i32, i32),
+        hold: bool,
+    ) -> anyhow::Result<()> {
         let ctx = self
             .contexts
             .read()
@@ -386,6 +391,7 @@ impl StreamDeckBroker {
             .get(context)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        tracing::debug!(context, ?tap_pos, hold, "touchTap -> plugin");
         let payload = json!({
             "event": "touchTap",
             "action": ctx.action_uuid,
@@ -397,7 +403,7 @@ impl StreamDeckBroker {
                 "isInMultiAction": false,
                 "controller": "Encoder",
                 "tapPos": [tap_pos.0, tap_pos.1],
-                "hold": false
+                "hold": hold
             }
         });
         self.plugin_tx

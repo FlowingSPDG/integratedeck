@@ -15,6 +15,12 @@ pub struct VisualState {
     pub state_index: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bgcolor: Option<Color>,
+    /// Dial/touch strip indicator fill (SDK `setFeedback.indicator.value`, 0-100).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub indicator: Option<u8>,
+    /// SDK feedback layout id (`$B1`, `$A0`, …) for dials and touch controls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub variable_overlays: HashMap<String, String>,
 }
@@ -70,6 +76,19 @@ pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+/// Parse `#rrggbb` / `rrggbb` (the form Stream Deck manifests use).
+pub fn parse_hex_color(text: &str) -> Option<Color> {
+    let text = text.trim().trim_start_matches('#');
+    if text.len() != 6 {
+        return None;
+    }
+    Some(Color {
+        r: u8::from_str_radix(&text[0..2], 16).ok()?,
+        g: u8::from_str_radix(&text[2..4], 16).ok()?,
+        b: u8::from_str_radix(&text[4..6], 16).ok()?,
+    })
 }
 
 /// Parse Stream Deck SDK `titleParams` from a setTitle payload object.

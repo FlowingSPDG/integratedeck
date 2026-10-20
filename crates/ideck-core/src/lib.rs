@@ -6,6 +6,7 @@ mod builtin;
 mod key_render;
 mod profile;
 mod slot;
+mod touch_strip;
 mod variables;
 mod visual;
 
@@ -15,6 +16,7 @@ pub use builtin::*;
 pub use key_render::*;
 pub use profile::*;
 pub use slot::{Slot, SlotId};
+pub use touch_strip::*;
 pub use variables::*;
 pub use visual::*;
 

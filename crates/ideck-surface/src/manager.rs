@@ -22,6 +22,13 @@ impl Surface for ErasedPhysicalSurface {
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         Surface::render(self.0.as_ref(), updates).await
     }
+
+    async fn render_touch_strip(
+        &self,
+        segments: &[ideck_core::TouchStripSegment],
+    ) -> Result<(), SurfaceError> {
+        Surface::render_touch_strip(self.0.as_ref(), segments).await
+    }
 }
 
 /// Mock surface for development and tests.
@@ -185,6 +192,18 @@ impl SurfaceManager {
     pub async fn render(&self, id: SurfaceId, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         let surface = self.get(id).await.ok_or(SurfaceError::NotFound(id))?;
         surface.render(updates).await
+    }
+
+    /// Push dial feedback to the surface's touch strip, when it has one.
+    pub async fn render_touch_strip(
+        &self,
+        id: SurfaceId,
+        segments: &[ideck_core::TouchStripSegment],
+    ) -> Result<(), SurfaceError> {
+        let Some(surface) = self.get(id).await else {
+            return Ok(());
+        };
+        surface.render_touch_strip(segments).await
     }
 
     pub fn subscribe_mock_inputs(

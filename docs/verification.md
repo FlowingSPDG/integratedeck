@@ -68,9 +68,14 @@
 | ダイヤルfeedbackがキーを汚染しない | ユニット | [x] | `dial_feedback_does_not_render_to_key_cells` |
 | 同一ページ共有時のダイヤル状態 | ユニット | [x] | `shared_dial_context_updates_every_surface` |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
+| Plus タッチストリップ描画（800x100 / 4分割） | 実機 | [x] | `render_touch_strip` が `write_lcd_fill` へ5416バイト送信（ログ `touch strip rendered`） |
+| ストリップ描画のタイトル/値/インジケータ | ユニット | [x] | `ideck-core::touch_strip` の描画テスト4件 |
 | Plus タッチタップ→ダイヤル割当 | ユニット | [x] | `touch_strip_index`（800px を4分割）。実機タップは次段 |
+| Plus タッチタップ→プラグイン（touchTap） | ユニット | [x] | `touch_tap_resolves_the_dial_under_the_finger`、`broker.touch_tap` が `tapPos`/`hold` を送信 |
+| ダイヤルfeedbackの indicator / layout | ユニット | [x] | `dial_feedback_carries_indicator_and_layout` |
+| Encoder JSON（layout / StackColor / TriggerDescription） | ユニット | [x] | `parses_encoder_layout_and_stack_color`、StackColorはダイヤルLEDへ反映 |
 | Plus タッチスワイプ | 実装 | [ ] | `TouchScreenSwipe` は未処理（Elgato公式もプラグインへ非公開） |
-| Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送を確認 |
+| Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送、ストリップ描画を確認 |
 
 ## VSD2
 

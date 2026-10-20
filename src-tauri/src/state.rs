@@ -74,7 +74,9 @@ pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, inpu
                 warn!("SD keyUp ({context}): {e}");
             }
         }
-        SurfaceInput::EncoderRotate { .. } | SurfaceInput::EncoderPress { .. } => {
+        SurfaceInput::EncoderRotate { .. }
+        | SurfaceInput::EncoderPress { .. }
+        | SurfaceInput::TouchTap { .. } => {
             for (plugin_uuid, bridge) in &inner.bridges {
                 let Some(broker) = inner.sd_supervisor.get(plugin_uuid) else {
                     continue;
@@ -99,6 +101,18 @@ pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, inpu
                         };
                         if let Err(e) = result {
                             warn!("SD dial press ({context}): {e}");
+                        }
+                        return;
+                    }
+                    Some((context, "dialTouch")) => {
+                        if let SurfaceInput::TouchTap { x, y, hold, .. } = input {
+                            // Plugins receive `touchTap` with the strip position.
+                            if let Err(e) = broker
+                                .touch_tap(&context, (*x as i32, *y as i32), *hold)
+                                .await
+                            {
+                                warn!("SD touchTap ({context}): {e}");
+                            }
                         }
                         return;
                     }

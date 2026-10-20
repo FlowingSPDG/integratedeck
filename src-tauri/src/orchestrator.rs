@@ -3528,6 +3528,16 @@ impl Orchestrator {
             &serde_json::json!({}),
         )
         .await;
+        // Dial LED ring: use the colour the plugin declares, when it does.
+        let stack_color = self
+            .list_plugin_actions(None, Some(plugin_uuid.clone()))
+            .await
+            .ok()
+            .and_then(|actions| actions.into_iter().find(|a| a.id == action_uuid))
+            .and_then(|action| action.encoder_stack_color);
+        if let Some(color) = stack_color.as_deref().and_then(ideck_core::parse_hex_color) {
+            let _ = self.set_encoder_led(surface_id, index as u8, color.r, color.g, color.b);
+        }
         Ok(())
     }
 
@@ -4246,6 +4256,8 @@ impl Orchestrator {
                     source: "companion".into(),
                     icon: None,
                     controllers: None,
+                    encoder_layout: None,
+                    encoder_stack_color: None,
                 })
             })
             .collect())
@@ -4293,6 +4305,8 @@ impl Orchestrator {
                         source: "companion".into(),
                         icon: None,
                         controllers: None,
+                        encoder_layout: None,
+                        encoder_stack_color: None,
                     })
                 })
                 .collect());
@@ -4883,6 +4897,28 @@ impl Orchestrator {
                 state_index: visual.state_index,
             },
         );
+        // Repaint the whole strip: every dial shares one 800x100 surface.
+        let segments: Vec<ideck_core::TouchStripSegment> = self
+            .inner
+            .dial_visuals
+            .iter()
+            .filter(|((sid, _), _)| *sid == surface_id)
+            .map(|((_, index), visual)| ideck_core::TouchStripSegment {
+                index: *index,
+                visual: visual.clone(),
+            })
+            .collect();
+        if segments.is_empty() {
+            return;
+        }
+        if let Err(e) = self
+            .inner
+            .surfaces
+            .render_touch_strip(surface_id, &segments)
+            .await
+        {
+            warn!("touch strip render failed: {e}");
+        }
     }
 
     async fn flash_cell_feedback(
@@ -5550,6 +5586,8 @@ impl Orchestrator {
                                     source: "builtin".into(),
                                     icon: None,
                                     controllers: None,
+                                    encoder_layout: None,
+                                    encoder_stack_color: None,
                                 })
                             })
                             .collect(),
@@ -5718,6 +5756,11 @@ fn sd_manifest_actions(
     actions
         .into_iter()
         .filter_map(|a| {
+            let encoder_layout = a.encoder_layout().map(str::to_string);
+            let encoder_stack_color = a
+                .encoder
+                .as_ref()
+                .and_then(|encoder| encoder.stack_color.clone());
             let id = a.uuid?;
             let name = a.name.unwrap_or_else(|| id.clone());
             let icon = plugin_dir
@@ -5730,6 +5773,8 @@ fn sd_manifest_actions(
                 source: "streamdeck".into(),
                 icon,
                 controllers,
+                encoder_layout,
+                encoder_stack_color,
             })
         })
         .collect()
@@ -5747,6 +5792,12 @@ pub struct PluginActionInfo {
     /// Controllers the plugin declares for this action (`Keypad`, `Encoder`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub controllers: Option<Vec<String>>,
+    /// Dial feedback layout declared by the manifest (`$B1`, `$B2`, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder_layout: Option<String>,
+    /// LED ring / stack colour declared by the manifest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder_stack_color: Option<String>,
 }
 
 #[derive(serde::Serialize)]

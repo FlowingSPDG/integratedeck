@@ -25,6 +25,14 @@ pub enum SurfaceInput {
         x: f32,
         y: f32,
     },
+    /// Touch strip tap / long press. `index` is the dial the tap landed on, so
+    /// drivers can resolve it without knowing the surface geometry again.
+    TouchTap {
+        index: u32,
+        x: u32,
+        y: u32,
+        hold: bool,
+    },
     PageChange {
         page_index: u32,
     },
