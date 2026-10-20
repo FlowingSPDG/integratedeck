@@ -271,7 +271,7 @@ impl StreamDeckBroker {
             "event": "deviceDidDisconnect",
             "device": self.device_id,
         });
-        debug!(device = %self.device_id, "notify plugin: deviceDidDisconnect");
+        info!(device = %self.device_id, "notify plugin: deviceDidDisconnect");
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
         Ok(())
