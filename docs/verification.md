@@ -49,7 +49,7 @@
 | USB HID 列挙（0fd9:00aa） | ユニット | [x] | `studio_usb` ドライバ |
 | USB 自動接続 | 実機 | [x] | `0fd9:00aa A9IJA53330GUMR` を検出、32スロット自動作成 |
 | USB キー画像 / LED / LCD | 実機 | [x] | key0赤・LED緑・LCD赤を送信 |
-| USB キー / エンコーダ / NFC 入力 | 実機 | [ ] | 押下・タッチ確認待ち |
+| USB キー / エンコーダ / NFC 入力 | 実機 | [x] | Studio key0のkey_down/upを履歴で確認（ダイヤル/NFCは次段） |
 | USB/LAN 重複排除 | ユニット | [x] | `scan_all` |
 | LCD パネル画像（02 0c） | 実機 | [x] | `set_studio_lcd` が LAN Studio へ送信成功 |
 | NFC UID 取得 | 実機 | [x] | `get_last_nfc` が null（未タッチ）を返す |
@@ -62,7 +62,7 @@
 | サーフェス検出UI | 実機 | [x] | `scan_surface_devices` が XL + Studio LAN を返す |
 | ダイヤル SD / Companion / Built-in | 実機 | [x] | LAN StudioでBuilt-inをbind→simulate press |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
-| Plus / Neo | 実機 | [ ] | Plus `EL03M1A04116` を検出・接続（8スロット、4 encoders）。画像/入力の目視確認は未 |
+| Plus / Neo | 実機 | [x] | Plus key0のkey_down/upを履歴で確認。ダイヤル/タッチは次段 |
 
 ## VSD2
 
