@@ -989,22 +989,54 @@ impl Orchestrator {
 
         // Dials have no slot id, so they are restored after the key slots.
         for (surface_id, index, binding) in encoder_bindings {
-            if let BindingKind::StreamDeck {
-                plugin_uuid,
-                action_uuid,
-                instance_id,
-                settings,
-            } = binding.kind
-            {
-                self.register_sd_encoder_context(
-                    surface_id,
-                    index,
-                    &plugin_uuid,
-                    &action_uuid,
-                    &instance_id,
-                    &settings,
-                )
-                .await;
+            match binding.kind {
+                BindingKind::StreamDeck {
+                    plugin_uuid,
+                    action_uuid,
+                    instance_id,
+                    settings,
+                } => {
+                    self.register_sd_encoder_context(
+                        surface_id,
+                        index,
+                        &plugin_uuid,
+                        &action_uuid,
+                        &instance_id,
+                        &settings,
+                    )
+                    .await;
+                }
+                // A preset dial keeps its style in the binding, so the strip can
+                // be labelled before the module engine is up.
+                BindingKind::CompanionPreset {
+                    label: Some(label),
+                    color,
+                    ..
+                } => {
+                    let visual = VisualState {
+                        title: Some(label),
+                        bgcolor: color.map(|color| ideck_core::Color {
+                            r: ((color >> 16) & 0xff) as u8,
+                            g: ((color >> 8) & 0xff) as u8,
+                            b: (color & 0xff) as u8,
+                        }),
+                        ..Default::default()
+                    };
+                    self.inner
+                        .dial_visuals
+                        .insert((surface_id, index), visual.clone());
+                    self.render_dial_display(surface_id, index, visual).await;
+                    if let Some(color) = color.filter(|color| *color != 0) {
+                        let _ = self.set_encoder_led(
+                            surface_id,
+                            index as u8,
+                            ((color >> 16) & 0xff) as u8,
+                            ((color >> 8) & 0xff) as u8,
+                            (color & 0xff) as u8,
+                        );
+                    }
+                }
+                _ => {}
             }
         }
         Ok(())
