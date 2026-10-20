@@ -43,3 +43,4 @@ ideck-bridge = { path = "crates/ideck-bridge" }
 ideck-vsd = { path = "crates/ideck-vsd" }
 boa_engine = { version = "0.21.1" }
 boa_runtime = "0.21.1"
+
