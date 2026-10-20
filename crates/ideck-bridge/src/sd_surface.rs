@@ -66,6 +66,19 @@ impl SdSurfaceBridge {
         }
     }
 
+    /// Drop a dial binding so input no longer resolves to the old action.
+    pub fn unregister_encoder(&mut self, surface_id: SurfaceId, index: u32) {
+        let key = (surface_id, index);
+        if let Some(context) = self.context_by_encoder.remove(&key) {
+            if let Some(list) = self.encoder_by_context.get_mut(&context) {
+                list.retain(|entry| *entry != key);
+                if list.is_empty() {
+                    self.encoder_by_context.remove(&context);
+                }
+            }
+        }
+    }
+
     pub fn encoders_for_context(&self, context: &str) -> &[(SurfaceId, u32)] {
         self.encoder_by_context
             .get(context)
@@ -460,6 +473,36 @@ mod tests {
             dials.get(&(surface, 0)).and_then(|v| v.title.as_deref()),
             Some("3")
         );
+    }
+
+    #[test]
+    fn unregistering_a_dial_stops_resolving_its_context() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        bridge.register_encoder(surface, 1, "dial-ctx".into());
+        assert!(bridge
+            .surface_input_to_sd_event(
+                surface,
+                &SurfaceInput::EncoderRotate {
+                    index: 1,
+                    ticks: 1,
+                    pressed: false,
+                },
+            )
+            .is_some());
+
+        bridge.unregister_encoder(surface, 1);
+        assert!(bridge
+            .surface_input_to_sd_event(
+                surface,
+                &SurfaceInput::EncoderRotate {
+                    index: 1,
+                    ticks: 1,
+                    pressed: false,
+                },
+            )
+            .is_none());
+        assert!(bridge.encoders_for_context("dial-ctx").is_empty());
     }
 
     #[test]

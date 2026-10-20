@@ -64,6 +64,7 @@
 | ダイヤル押下（dialDown/dialUp） | 実機 | [x] | `simulate_encoder` で dialDown/dialUp をログ確認 |
 | ダイヤル設定（setSettings）の保存 | 実機 | [x] | 回転後に `settings.value` がエンコーダbindingへ保存 |
 | ダイヤルbindingの再起動復元 | 実機 | [x] | 再起動＋再接続のみ（再バインド無し）で回転が配送、値が継続 |
+| ダイヤル解除でコンテキスト解放 | 実機 | [x] | 解除後の回転が配送されない（dispatch が増えない）ことをログで確認 |
 | ダイヤルfeedbackがキーを汚染しない | ユニット | [x] | `dial_feedback_does_not_render_to_key_cells` |
 | 同一ページ共有時のダイヤル状態 | ユニット | [x] | `shared_dial_context_updates_every_surface` |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |

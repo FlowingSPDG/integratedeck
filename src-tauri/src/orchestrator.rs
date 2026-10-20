@@ -3761,6 +3761,13 @@ impl Orchestrator {
         page.encoders.remove(&index);
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
+        // Release the plugin context; otherwise the dial keeps firing the action
+        // that was just removed until the app restarts.
+        for bridge in self.inner.bridges.values_mut() {
+            bridge.unregister_encoder(surface_id, index);
+        }
+        self.inner.dial_visuals.remove(&(surface_id, index));
+        let _ = self.set_encoder_led(surface_id, index as u8, 0, 0, 0);
         Ok(())
     }
 
