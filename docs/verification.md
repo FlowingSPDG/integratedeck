@@ -45,6 +45,7 @@
 | プリセットの feedback 自動登録 | 実機 | [x] | `feedbacks[0]` を `companion_feedbacks` に登録し `connection.setFeedback` を送信。`inputPreview` を当てるとセルが緑 (0,255,0) に |
 | プリセット割当先のダイヤル表示 | 実装 | [x] | style.bgcolor を LED へ、style.text をストリップ/LCD のダイヤル表示へ反映（`get_dial_visuals` が `title: "Cut"`、LCD キャッシュ更新を確認） |
 | スロット解除時の feedback 破棄 | ユニット | [x] | `unbind_slot` が `removeFeedback` を送りブリッジ登録も解除。`unregistering_a_cell_drops_every_index` |
+| Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |
 
 ## Studio
 

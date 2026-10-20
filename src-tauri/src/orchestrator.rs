@@ -562,6 +562,7 @@ impl Orchestrator {
             BindingKind::CompanionPreset {
                 connection_id,
                 preset_id,
+                ..
             } => {
                 if let Some(ticks) = ticks {
                     let phase = if ticks > 0 {
@@ -1490,6 +1491,20 @@ impl Orchestrator {
                 _ => None,
             })
             .collect();
+        // Companion presets carry their style in the binding, so a restart or a
+        // page switch can restore the dial label without asking the module.
+        let preset_dials: Vec<(u32, String, Option<u32>)> = page
+            .encoders
+            .iter()
+            .filter_map(|(index, binding)| match &binding.kind {
+                BindingKind::CompanionPreset {
+                    label: Some(label),
+                    color,
+                    ..
+                } => Some((*index, label.clone(), *color)),
+                _ => None,
+            })
+            .collect();
         for slot in page.slots.values() {
             if slot.locator.surface_id != surface_id {
                 continue;
@@ -1554,6 +1569,21 @@ impl Orchestrator {
                 &settings,
             )
             .await;
+        }
+        for (index, label, color) in preset_dials {
+            let visual = VisualState {
+                title: Some(label),
+                bgcolor: color.map(|color| ideck_core::Color {
+                    r: ((color >> 16) & 0xff) as u8,
+                    g: ((color >> 8) & 0xff) as u8,
+                    b: (color & 0xff) as u8,
+                }),
+                ..Default::default()
+            };
+            self.inner
+                .dial_visuals
+                .insert((surface_id, index), visual.clone());
+            self.render_dial_display(surface_id, index, visual).await;
         }
     }
 
@@ -1840,6 +1870,7 @@ impl Orchestrator {
             BindingKind::CompanionPreset {
                 connection_id,
                 preset_id,
+                ..
             } => {
                 self.run_companion_preset(connection_id, preset_id, "down", 0)
                     .await?;
@@ -3584,9 +3615,8 @@ impl Orchestrator {
             .filter(|text| !text.is_empty())
             .map(str::to_string);
         let title = style_text.or(label).unwrap_or_else(|| preset_id.clone());
-        let background = style
-            .get("bgcolor")
-            .and_then(|value| value.as_u64())
+        let style_color = style.get("bgcolor").and_then(|value| value.as_u64());
+        let background = style_color
             .map(|color| {
                 (
                     ((color >> 16) & 0xff) as u8,
@@ -3605,9 +3635,11 @@ impl Orchestrator {
             .find(|p| p.id == page_id)
         {
             if let Some(slot) = page.slots.get_mut(&slot_id) {
-                slot.binding = Some(Binding::companion_preset(
+                slot.binding = Some(Binding::companion_preset_styled(
                     connection_id.clone(),
                     preset_id.clone(),
+                    Some(title.clone()),
+                    style_color.map(|color| color as u32),
                 ));
                 slot.appearance.default_image = Some(solid_key_png(
                     96,
@@ -3759,6 +3791,7 @@ impl Orchestrator {
                         BindingKind::CompanionPreset {
                             connection_id,
                             preset_id,
+                            ..
                         },
                 }) => (connection_id.clone(), preset_id.clone()),
                 _ => anyhow::bail!("slot is not bound to a Companion action"),
@@ -3997,6 +4030,23 @@ impl Orchestrator {
             .profile
             .active_page_id
             .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        // The preset's own style colours the dial LED and names the strip
+        // segment, like Companion does for an encoder preset. It is also stored
+        // in the binding so the label survives a restart.
+        let style = self
+            .companion_preset_definition(&connection_id, &preset_id)
+            .await
+            .as_ref()
+            .and_then(|preset| preset.get("style"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let style_title = style
+            .get("text")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        let style_color = style.get("bgcolor").and_then(|value| value.as_u64());
         let page = self
             .inner
             .profile
@@ -4006,36 +4056,24 @@ impl Orchestrator {
             .ok_or_else(|| anyhow::anyhow!("page not found"))?;
         page.encoders.insert(
             index,
-            Binding::companion_preset(connection_id.clone(), preset_id.clone()),
+            Binding::companion_preset_styled(
+                connection_id.clone(),
+                preset_id.clone(),
+                style_title.clone(),
+                style_color.map(|color| color as u32),
+            ),
         );
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
-        // The preset's own style colours the dial LED and names the strip
-        // segment, like Companion does for an encoder preset.
-        if let Some(style) = self
-            .companion_preset_definition(&connection_id, &preset_id)
-            .await
-            .as_ref()
-            .and_then(|preset| preset.get("style"))
-            .cloned()
         {
-            let background = style
-                .get("bgcolor")
-                .and_then(|value| value.as_u64())
-                .unwrap_or(0);
+            let background = style_color.unwrap_or(0);
             if background != 0 {
                 let r = ((background >> 16) & 0xff) as u8;
                 let g = ((background >> 8) & 0xff) as u8;
                 let b = (background & 0xff) as u8;
                 let _ = self.set_encoder_led(surface_id, index as u8, r, g, b);
             }
-            let title = style
-                .get("text")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .map(str::to_string);
-            if let Some(title) = title {
+            if let Some(title) = style_title {
                 let color = if background == 0 {
                     None
                 } else {
@@ -6532,9 +6570,13 @@ fn fresh_binding_kind(kind: &BindingKind) -> BindingKind {
         BindingKind::CompanionPreset {
             connection_id,
             preset_id,
+            label,
+            color,
         } => BindingKind::CompanionPreset {
             connection_id: connection_id.clone(),
             preset_id: preset_id.clone(),
+            label: label.clone(),
+            color: *color,
         },
         BindingKind::StreamDeck {
             plugin_uuid,

@@ -330,6 +330,8 @@ pub async fn add_multi_action_step(
         "companion_preset" => BindingKind::CompanionPreset {
             connection_id: args.plugin_id,
             preset_id: args.action_id,
+            label: None,
+            color: None,
         },
         "builtin" => BindingKind::BuiltIn {
             action_id: args.action_id,

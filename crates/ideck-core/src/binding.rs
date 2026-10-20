@@ -25,6 +25,13 @@ pub enum BindingKind {
     CompanionPreset {
         connection_id: String,
         preset_id: String,
+        /// Preset style text, cached so the label survives a restart without
+        /// asking the module for its definitions again.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// Preset style background colour (0xRRGGBB) for the dial LED.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<u32>,
     },
     /// Built-in navigation actions (folder, back, page switch).
     BuiltIn {
@@ -138,10 +145,23 @@ impl Binding {
         connection_id: impl Into<String>,
         preset_id: impl Into<String>,
     ) -> Self {
+        Self::companion_preset_styled(connection_id, preset_id, None, None)
+    }
+
+    /// Preset binding that also remembers the preset's style, so dials and keys
+    /// look right again after a restart without querying the module.
+    pub fn companion_preset_styled(
+        connection_id: impl Into<String>,
+        preset_id: impl Into<String>,
+        label: Option<String>,
+        color: Option<u32>,
+    ) -> Self {
         Self {
             kind: BindingKind::CompanionPreset {
                 connection_id: connection_id.into(),
                 preset_id: preset_id.into(),
+                label,
+                color,
             },
         }
     }
