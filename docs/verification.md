@@ -19,6 +19,8 @@
 | Node plugin のタイトル反映 | 実機 | [x] | setTitle `English\n\nClick Me` → keyDown後 `On` をログ確認 |
 | Node plugin の画像反映 | 実機 | [x] | cat-keys keyDown後に 69,896 byte のPNGへ更新 |
 | Node plugin のsetState | 実機 | [x] | フィクスチャで setState(1) → state_index=1 |
+| `deviceDidDisconnect` | 実装 | [x] | サーフェス切断時に全プラグインへ通知（`notify plugin: deviceDidDisconnect` をログで確認） |
+| `unregisterEvent` | 実装 | [x] | プラグインの解除要求で `registered_events` から削除 |
 | インストール済みプラグイン全数起動 | 実機 | [x] | 22本すべて `running`（Discord / Tutorial / Advanced HTTP / vMix / ATEM / Plus Dial / Cat Keys / Control Center / Hello World / Lights-Out / OBS Studio / Streamlabs / Volume Controller / V-160HD / V-60HD / Tomato / Spotify / Kairos / OBS WebSocket / Lhm / Keycreator / Navigation）。action 数は manifest と一致（Lhm と Keycreator は 0 個） |
 
 ## Companion
@@ -155,6 +157,8 @@ UI（SettingsEditor）から設定する場合はプリセット経由が確実�
 | HTML プラグインのホスティング | 非対応 | ユーザー判断で対象外（Property Inspector の WebView は対応済み） |
 | `switchToProfile` | 非対応 | プロファイルは1つのみ編集するモデルのため。プラグインが呼ぶと警告ログを出す |
 | Stream Deck のプロファイル自動切替（アプリ連動） | 非対応 | 上記と同じ理由 |
+| `applicationDidLaunch` / `applicationDidTerminate` | 非対応 | プロファイル自動切替のためのプロセス監視。単一プロファイルモデルでは用途がない |
+| `systemDidWakeUp` | 非対応 | スリープ復帰イベントの購読が未実装（復帰後の HID 再試行は実装済み） |
 | Studio USB の明るさ変更 | 非対応 | USB の WriteFile が明るさフレームを拒否するため。LAN 接続時のみ対応 |
 | タッチスワイプのプラグイン配送 | 非対応 | Elgato もプラグインへ公開していない。アプリ内のページ移動に使用 |
 | Companion ダイヤルへの「アクション」直接割当 | 拡張 | Companion 本家はプリセットのみ。integratedeck では回転ごとに実行する拡張も選べる |

@@ -264,6 +264,19 @@ impl StreamDeckBroker {
         Ok(())
     }
 
+    /// Tell the plugin the device it was talking to is gone (surface unplugged
+    /// or disconnected from the app).
+    pub async fn device_did_disconnect(&self) -> anyhow::Result<()> {
+        let payload = json!({
+            "event": "deviceDidDisconnect",
+            "device": self.device_id,
+        });
+        debug!(device = %self.device_id, "notify plugin: deviceDidDisconnect");
+        self.plugin_tx
+            .send(Message::Text(payload.to_string().into()))?;
+        Ok(())
+    }
+
     async fn send_simple_plugin_event(&self, context: &str, event: &str) -> anyhow::Result<()> {
         let ctx = self
             .contexts
@@ -674,6 +687,14 @@ impl StreamDeckBroker {
                     }
                     _ => {}
                 }
+            }
+            "unregisterEvent" => {
+                let Some(event_name) = registered_event_name(&msg) else {
+                    debug!("unregisterEvent without eventName");
+                    return;
+                };
+                self.registered_events.write().await.remove(event_name);
+                debug!("plugin unregistered from {event_name}");
             }
             _ => debug!("unhandled plugin command: {event}"),
         }

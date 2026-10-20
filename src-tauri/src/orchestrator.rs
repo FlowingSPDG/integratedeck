@@ -2941,6 +2941,11 @@ impl Orchestrator {
             .remove(&surface_id)
             .ok_or("missing device meta")?;
         self.hid_serials.retain(|_, id| *id != surface_id);
+        for uuid in self.inner.sd_supervisor.plugin_uuids() {
+            if let Some(broker) = self.inner.sd_supervisor.get(&uuid) {
+                broker.device_did_disconnect().await.ok();
+            }
+        }
         self.inner.surfaces.unregister(surface_id).await;
 
         let device_key = settings_store::device_key(&meta.kind, &meta.serial);
@@ -6024,6 +6029,11 @@ impl Orchestrator {
 
     /// Remove a registered (mock) surface and its profile assignment/slots.
     pub async fn unregister_surface(&mut self, surface_id: SurfaceId) -> anyhow::Result<()> {
+        for uuid in self.inner.sd_supervisor.plugin_uuids() {
+            if let Some(broker) = self.inner.sd_supervisor.get(&uuid) {
+                broker.device_did_disconnect().await.ok();
+            }
+        }
         self.inner.surfaces.unregister(surface_id).await;
         self.inner
             .profile
