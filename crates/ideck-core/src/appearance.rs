@@ -53,9 +53,24 @@ pub fn image_from_data_url(data: &str, size: u32) -> Option<ImagePayload> {
     image_from_base64(data, ImageFormat::Png)
 }
 
+/// SVG options with the system font database loaded once.
+///
+/// Without fonts, plugin SVGs that draw labels lossily drop their text (usvg
+/// warns `No match for 'sans-serif' font-family`) and keys render unlabelled.
+fn svg_options() -> &'static resvg::usvg::Options<'static> {
+    static OPTIONS: std::sync::OnceLock<resvg::usvg::Options<'static>> = std::sync::OnceLock::new();
+    OPTIONS.get_or_init(|| {
+        let mut options = resvg::usvg::Options::default();
+        let mut fontdb = resvg::usvg::fontdb::Database::new();
+        fontdb.load_system_fonts();
+        options.fontdb = std::sync::Arc::new(fontdb);
+        options
+    })
+}
+
 fn rasterize_svg(bytes: &[u8], size: u32) -> Option<ImagePayload> {
-    let options = resvg::usvg::Options::default();
-    let tree = resvg::usvg::Tree::from_data(bytes, &options).ok()?;
+    let options = svg_options();
+    let tree = resvg::usvg::Tree::from_data(bytes, options).ok()?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)?;
     let source = tree.size();
     let scale = (size as f32 / source.width()).min(size as f32 / source.height());
