@@ -39,7 +39,7 @@
 | プリセットのキー割当 | 実機 | [x] | サイドバーから D&D → `companion_preset` バインド、押下で `transitionMix` 実行（active 2→1） |
 | プリセットのダイヤル割当 | 実機 | [x] | ダイヤル欄のプリセット選択→「プリセット割当」→ 押下で down/up 実行（active 1→2） |
 | プリセットのマルチアクション step | 実機 | [x] | `companion_preset` step を含む Multi Action の押下で `transitionMix` 実行（active 2→1） |
-| プリセットの回転 step | — | [ ] | vMix モジュールのプリセットは down/up のみ（rotate step 無し）のため未検証。回転 step を持つモジュールで要確認 |
+| プリセットの回転 step | ユニット | [x] | `module_fixture_roundtrip` が `rotate_left` phase の実行を検証（vMix は down/up のみのため実機では未確認） |
 
 ## Studio
 
@@ -121,11 +121,14 @@ CDP（`--remote-debugging-port=9222`）経由でアプリのコマンドを叩�
 | Companion 接続（vMix 29.0.0.48 / TCP 8099） | `status: ok` |
 | Companion アクション実行（`transitionMix`） | エラーなし |
 | Companion フィードバック（`inputPreview`, mix=1, input=2, bg=0x00ff00） | セルが **緑** に |
-| 変数式 $(var) の展開（オプション値・フィードバック） | ユニット | [x] | module_fixture_roundtrip で $(input_name) → Camera 2 を確認 |
-| Companion プリセット定義の取得（2引数API） | 実機 | [x] | vMix で 751件・うち750件が steps 付き |
-| プリセットをダイヤルに割当・押下で実行 | 実機 | [x] | `mix_1cut` → `transitionMix` 実行、vMix の active/preview が反転 |
-| プリセットのローテート位相 | ユニット | [x] | フィクスチャで `rotate_left` → アクション実行を確認 |
-| フィードバックstyle内の変数展開 | ユニット | [x] | フィクスチャの text が fb Camera 2 に解決することを確認 |
+| 変数式 $(var) の展開（オプション値・フィードバック） | module_fixture_roundtrip で $(input_name) → Camera 2 を確認 |
+| Companion プリセット定義の取得（2引数API） | vMix で 751件・うち750件が steps 付き |
+| プリセットをダイヤルに割当・押下で実行 | `mix_1cut` → `transitionMix` 実行、vMix の active/preview が反転 |
+| プリセットをキーへD&Dして実行 | サイドバーのプリセットをスロットへドラッグ→押下で active 2→1 |
+| Multi Action の step にプリセット | preset step 経由で `transitionMix` 実行 |
+| プリセットのローテート位相 | フィクスチャで `rotate_left` → アクション実行を確認 |
+| フィードバックstyle内の変数展開 | フィクスチャの text が fb Camera 2 に解決することを確認 |
+| タッチスワイプ（IPC注入） | Studio セルが 32→0→32 と往復、`touch swipe` ログ2件 |
 | Studio LCD のダイヤル表示 | Page名 + ダイヤル値（12ノッチ→"12"） |
 | Plus タッチストリップ描画 | 800x100 / 4ゾーンへ送信 |
 | ダイヤル→SDプラグイン | dialRotate 1回配送、setTitle 反映 |
@@ -136,6 +139,19 @@ vMix のフィードバックは **モジュール固有のオプション形式
 `inputPreview` は `{ mix: 1, input: "2", fg: 0xffffff, bg: 0x00ff00, tally: "" }` の形。
 `fg`/`bg` は **数値**（`#00ff00` 文字列では空スタイルが返る）、`mix` も必須。
 UI（SettingsEditor）から設定する場合はプリセット経由が確実。
+
+## 既知の制限（意図的な非対応）
+
+| 項目 | 状態 | 理由 |
+|---|---|---|
+| HTML プラグインのホスティング | 非対応 | ユーザー判断で対象外（Property Inspector の WebView は対応済み） |
+| `switchToProfile` | 非対応 | プロファイルは1つのみ編集するモデルのため。プラグインが呼ぶと警告ログを出す |
+| Stream Deck のプロファイル自動切替（アプリ連動） | 非対応 | 上記と同じ理由 |
+| Studio USB の明るさ変更 | 非対応 | USB の WriteFile が明るさフレームを拒否するため。LAN 接続時のみ対応 |
+| タッチスワイプのプラグイン配送 | 非対応 | Elgato もプラグインへ公開していない。アプリ内のページ移動に使用 |
+| Companion ダイヤルへの「アクション」直接割当 | 拡張 | Companion 本家はプリセットのみ。integratedeck では回転ごとに実行する拡張も選べる |
+| VSD2 `CreateVirtualDevice` | 未検証 | 公式アプリ側でのペアリング操作が必要 |
+| Pi GPIO 出力 | 未検証 | Linux + `gpio` feature。実機（Raspberry Pi）での確認が未実施 |
 
 ## 再現コマンド
 

@@ -643,6 +643,12 @@ impl StreamDeckBroker {
                     payload: extract_feedback_payload(&msg),
                 });
             }
+            // integratedeck edits a single profile, so a plugin that asks to
+            // switch profiles cannot be honoured. Warn instead of dropping the
+            // request silently.
+            "switchToProfile" => {
+                warn!("switchToProfile ignored: only one profile is supported");
+            }
             "registerEvent" => {
                 let Some(event_name) = registered_event_name(&msg) else {
                     debug!("registerEvent without eventName");
