@@ -55,10 +55,13 @@ pub fn run() {
                 }
             }
             windows::ensure_main_window(app)?;
-            windows::ensure_settings_window(app)?;
             plugin_host::ensure_plugin_host_window(app)?;
             app.manage(plugin_host::install(app.handle())?);
+            // Start the orchestrator before building the hidden settings webview:
+            // each WebView costs tens of seconds on a cold machine, and devices
+            // should connect (and light up) while that happens.
             start_orchestrator(app)?;
+            windows::ensure_settings_window(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
