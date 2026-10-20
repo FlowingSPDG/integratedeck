@@ -42,11 +42,13 @@ export interface Slot {
 }
 
 export interface NormalizedBinding {
-  type: "stream_deck" | "companion" | "builtin" | "multi_action";
+  type: "stream_deck" | "companion" | "companion_preset" | "builtin" | "multi_action";
   pluginUuid?: string;
   actionUuid?: string;
   connectionId?: string;
   actionId?: string;
+  presetId?: string;
+  label?: string;
   settings?: unknown;
   options?: unknown;
   steps?: MultiActionStep[];
@@ -117,11 +119,13 @@ export interface StartupConflictReport {
 }
 
 export interface DragActionPayload {
-  source: "streamdeck" | "companion" | "builtin";
+  source: "streamdeck" | "companion" | "companion_preset" | "builtin";
   pluginId: string;
   actionId: string;
   actionName: string;
   pluginPath?: string;
+  /** Set when `source` is `companion_preset`. */
+  presetId?: string;
 }
 
 export interface SlotDragPayload {

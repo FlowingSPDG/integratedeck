@@ -641,6 +641,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               actionUuid: payload.actionId,
             },
           });
+        } else if (payload.source === "companion_preset") {
+          await invoke("bind_slot_companion_preset", {
+            args: {
+              slotId: slot.id,
+              connectionId: payload.pluginId,
+              presetId: payload.presetId ?? payload.actionId,
+              label: payload.actionName,
+            },
+          });
         } else {
           await invoke("bind_slot_companion", {
             args: {

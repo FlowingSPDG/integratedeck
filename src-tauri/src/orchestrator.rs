@@ -3491,6 +3491,66 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Bind a key slot to a Companion preset. Presets are what Companion users
+    /// normally drag onto buttons, so pressing the key runs the preset's `down`
+    /// then `up` step.
+    pub async fn bind_slot_companion_preset(
+        &mut self,
+        slot_id: SlotId,
+        connection_id: String,
+        preset_id: String,
+        label: Option<String>,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+
+        let (row, col, surface_id) = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            let slot = page
+                .slots
+                .get(&slot_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            (
+                slot.locator.row,
+                slot.locator.column,
+                slot.locator.surface_id,
+            )
+        };
+
+        self.clear_cell_at(page_id, surface_id, row, col).await;
+
+        let title = label.unwrap_or_else(|| preset_id.clone());
+        if let Some(page) = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|p| p.id == page_id)
+        {
+            if let Some(slot) = page.slots.get_mut(&slot_id) {
+                slot.binding = Some(Binding::companion_preset(connection_id, preset_id));
+                slot.appearance.default_image = Some(solid_key_png(96, 96, 58, 42, 74));
+                slot.appearance.title = Some(title);
+            }
+        }
+        // A new preset binding invalidates any feedback instance on the slot.
+        self.inner
+            .profile
+            .companion_feedbacks
+            .remove(&slot_id.0.to_string());
+
+        self.persist_slot_changes(surface_id).await?;
+        self.refresh_page_visuals(page_id, surface_id).await;
+        Ok(())
+    }
+
     /// Attach a Companion feedback instance to a slot already bound to a
     /// Companion action. The feedback is evaluated with its own options and
     /// rendered into the slot.

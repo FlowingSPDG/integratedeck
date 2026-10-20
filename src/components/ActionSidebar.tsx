@@ -1,8 +1,10 @@
 import { memo, useCallback, useMemo } from "react";
 import { useDeck } from "../deck/DeckContext";
 import { filterActions, isRunningStatus, statusBadgeLabel } from "../lib/actions";
-import { actionListIcon } from "../lib/icons";
+import { actionListIcon, COMPANION_ICON } from "../lib/icons";
+import { filterCompanionPresets, presetLabel, type CompanionPresetEntry } from "../lib/presets";
 import type { DragActionPayload, PluginLibraryEntry } from "../lib/types";
+import { useCompanionPresets } from "../hooks/useCompanionPresets";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 
 export const ActionSidebar = memo(function ActionSidebar() {
@@ -66,16 +68,27 @@ export const ActionSidebar = memo(function ActionSidebar() {
         ) : (
           comp.map((entry) => {
             const groupKey = `comp:${entry.id || entry.path}`;
+            const presetGroupKey = `presets:${entry.id || entry.path}`;
             return (
-              <PluginGroup
-                key={groupKey}
-                entry={entry}
-                sectionKey="comp"
-                expanded={expandedGroups.has(groupKey)}
-                groupKey={groupKey}
-                onToggle={toggleGroup}
-                onDragStart={beginActionDrag}
-              />
+              <div key={groupKey}>
+                <PluginGroup
+                  entry={entry}
+                  sectionKey="comp"
+                  expanded={expandedGroups.has(groupKey)}
+                  groupKey={groupKey}
+                  onToggle={toggleGroup}
+                  onDragStart={beginActionDrag}
+                />
+                <CompanionPresetGroup
+                  connectionId={entry.id}
+                  connectionName={entry.name}
+                  search={debouncedSearch}
+                  expanded={expandedGroups.has(presetGroupKey)}
+                  groupKey={presetGroupKey}
+                  onToggle={toggleGroup}
+                  onDragStart={beginActionDrag}
+                />
+              </div>
             );
           })
         )}
@@ -191,6 +204,99 @@ const ActionItem = memo(function ActionItem({
         <img src={actionListIcon({ id: actionId, icon: actionIcon }, entry.source)} alt="" />
       </span>
       <span>{actionName}</span>
+    </div>
+  );
+});
+
+const CompanionPresetGroup = memo(function CompanionPresetGroup({
+  connectionId,
+  connectionName,
+  search,
+  expanded,
+  groupKey,
+  onToggle,
+  onDragStart,
+}: {
+  connectionId: string;
+  connectionName: string;
+  search: string;
+  expanded: boolean;
+  groupKey: string;
+  onToggle: (key: string) => void;
+  onDragStart: (e: React.PointerEvent, payload: DragActionPayload) => void;
+}) {
+  const { presets, loading } = useCompanionPresets(connectionId);
+  const filtered = useMemo(() => filterCompanionPresets(presets, search), [presets, search]);
+  const handleToggle = useCallback(() => onToggle(groupKey), [groupKey, onToggle]);
+
+  return (
+    <div className="plugin-group" data-group={groupKey}>
+      <div className="plugin-group-header" onClick={handleToggle}>
+        <span className="chevron">{expanded ? "▼" : "▶"}</span>
+        <span className="plugin-name">プリセット — {connectionName || connectionId}</span>
+        <span className="badge badge-stopped">
+          {loading ? "読込中" : `${filtered.length} 件`}
+        </span>
+      </div>
+      {expanded ? (
+        <div className="plugin-group-actions">
+          {filtered.length === 0 ? (
+            <p className="muted">プリセットなし</p>
+          ) : (
+            <>
+              {filtered.slice(0, 300).map((preset) => (
+                <PresetItem
+                  key={preset.id}
+                  connectionId={connectionId}
+                  preset={preset}
+                  onDragStart={onDragStart}
+                />
+              ))}
+              {filtered.length > 300 ? (
+                <p className="muted">
+                  先頭 300 件を表示中 — 検索で絞り込むと残りも選べます。
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+});
+
+const PresetItem = memo(function PresetItem({
+  connectionId,
+  preset,
+  onDragStart,
+}: {
+  connectionId: string;
+  preset: CompanionPresetEntry;
+  onDragStart: (e: React.PointerEvent, payload: DragActionPayload) => void;
+}) {
+  const payload = useMemo(
+    (): DragActionPayload => ({
+      source: "companion_preset",
+      pluginId: connectionId,
+      actionId: preset.id,
+      actionName: presetLabel(preset),
+      presetId: preset.id,
+    }),
+    [connectionId, preset],
+  );
+
+  return (
+    <div
+      className="action-item"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        onDragStart(e, payload);
+      }}
+    >
+      <span className="action-icon">
+        <img src={COMPANION_ICON} alt="" />
+      </span>
+      <span>{presetLabel(preset)}</span>
     </div>
   );
 });

@@ -35,6 +35,11 @@
 | feedback options UI | ユニット | [x] | ConfigPanel の SettingsEditor |
 | module saveConfig 永続化 | ユニット | [x] | `connection.config` で config+secrets 保存 |
 | 接続状態表示 | 実機 | [x] | vMix 接続直後に `status: ok` |
+| プリセット定義の取得 | 実機 | [x] | vMix 751 件（うち 750 件が step 持ち） |
+| プリセットのキー割当 | 実機 | [x] | サイドバーから D&D → `companion_preset` バインド、押下で `transitionMix` 実行（active 2→1） |
+| プリセットのダイヤル割当 | 実機 | [x] | ダイヤル欄のプリセット選択→「プリセット割当」→ 押下で down/up 実行（active 1→2） |
+| プリセットのマルチアクション step | 実機 | [x] | `companion_preset` step を含む Multi Action の押下で `transitionMix` 実行（active 2→1） |
+| プリセットの回転 step | — | [ ] | vMix モジュールのプリセットは down/up のみ（rotate step 無し）のため未検証。回転 step を持つモジュールで要確認 |
 
 ## Studio
 

@@ -185,6 +185,28 @@ pub async fn bind_slot_companion(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BindSlotCompanionPresetArgs {
+    pub slot_id: String,
+    pub connection_id: String,
+    pub preset_id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[tauri::command]
+pub async fn bind_slot_companion_preset(
+    state: State<'_, OrchState>,
+    args: BindSlotCompanionPresetArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.bind_slot_companion_preset(slot_id, args.connection_id, args.preset_id, args.label)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BindSlotBuiltinArgs {
     pub slot_id: String,
     pub action_id: String,
@@ -303,6 +325,11 @@ pub async fn add_multi_action_step(
             connection_id: args.plugin_id,
             action_id: args.action_id,
             options: serde_json::json!({}),
+        },
+        // `action_id` carries the preset id in this case.
+        "companion_preset" => BindingKind::CompanionPreset {
+            connection_id: args.plugin_id,
+            preset_id: args.action_id,
         },
         "builtin" => BindingKind::BuiltIn {
             action_id: args.action_id,

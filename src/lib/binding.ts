@@ -18,6 +18,14 @@ export function normalizeBinding(binding?: Record<string, unknown>): NormalizedB
         settings: binding.settings,
       };
     }
+    if (nested === "companion_preset" && binding.connection_id && binding.preset_id) {
+      return {
+        type: "companion_preset",
+        connectionId: String(binding.connection_id),
+        presetId: String(binding.preset_id),
+        label: typeof binding.label === "string" ? binding.label : undefined,
+      };
+    }
     if (nested === "companion" && binding.connection_id && binding.action_id) {
       return {
         type: "companion",
@@ -69,6 +77,17 @@ export function normalizeBinding(binding?: Record<string, unknown>): NormalizedB
         };
       }
     }
+    if (tag === "companion_preset") {
+      const n = nested as { connection_id?: string; preset_id?: string; label?: string };
+      if (n.connection_id && n.preset_id) {
+        return {
+          type: "companion_preset",
+          connectionId: n.connection_id,
+          presetId: n.preset_id,
+          label: n.label,
+        };
+      }
+    }
     if (tag === "companion") {
       const n = nested as { connection_id?: string; action_id?: string; options?: unknown };
       if (n.connection_id && n.action_id) {
@@ -90,6 +109,7 @@ export function bindingStepLabel(step: MultiActionStep): string {
   const kind = b.kind as string | undefined;
   if (kind === "stream_deck") return `SD: ${String(b.action_uuid ?? "?")}`;
   if (kind === "companion") return `Companion: ${String(b.action_id ?? "?")}`;
+  if (kind === "companion_preset") return `Companion preset: ${String(b.preset_id ?? "?")}`;
   if (kind === "built_in") return `Built-in: ${String(b.action_id ?? "?")}`;
   return "Step";
 }

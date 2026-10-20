@@ -92,6 +92,7 @@ pub fn run() {
             commands::load_sd_plugin,
             commands::bind_slot_sd,
             commands::bind_slot_companion,
+            commands::bind_slot_companion_preset,
             commands::update_companion_options,
             commands::set_slot_companion_feedback,
             commands::clear_slot_companion_feedback,

@@ -71,6 +71,7 @@ export function slotDragLabel(
   }
   if (b?.type === "stream_deck") return "Stream Deck";
   if (b?.type === "companion") return "Companion";
+  if (b?.type === "companion_preset") return b.label ?? "Companion preset";
   if (b?.type === "multi_action") return "Multi Action";
   return "Key";
 }
@@ -115,6 +116,7 @@ export function slotDisplayContent(
     }
     if (b?.type === "stream_deck") return { fallback: "SD" };
     if (b?.type === "companion") return { fallback: "Comp" };
+    if (b?.type === "companion_preset") return { fallback: "Preset" };
   }
   return {};
 }
