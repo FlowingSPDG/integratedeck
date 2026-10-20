@@ -107,6 +107,26 @@ impl IdeckModuleLoader {
         let ns = module.namespace(context);
         if let Ok(default_export) = ns.get(js_string!("default"), context) {
             if !default_export.is_undefined() {
+                // CommonJS code does `require('stream').Writable`, while ESM code
+                // imports the named export. Return the default with the named
+                // exports mixed in so both shapes work.
+                if let Some(target) = default_export.as_object() {
+                    if let Ok(keys) = ns.own_property_keys(context) {
+                        for key in keys {
+                            let name: String = key.to_string();
+                            if name == "default" {
+                                continue;
+                            }
+                            let Ok(value) = ns.get(key.clone(), context) else {
+                                continue;
+                            };
+                            if value.is_undefined() {
+                                continue;
+                            }
+                            let _ = target.set(key, value, false, context);
+                        }
+                    }
+                }
                 return Ok(default_export);
             }
         }

@@ -37,14 +37,24 @@ Boa には Node の標準モジュールが無いため、プラグインが読�
 `crates/ideck-js-runtime/assets/shims/node_unsupported.js` が汎用スタブ。
 呼ぶと `integratedeck: '<module>.<method>' is not supported` を投げる。
 
+## 重要な訂正: NodeプラグインはBoaではなくNodeで動かす
+
+`com.elgato.volume-controller` が Boa で起動できなかった本当の原因は、シムの不足ではなく
+**起動先の誤判定**だった。Elgato のマニフェストは暗号化されており `Nodejs` ブロックが
+読めないため、`bin/plugin.js` を持つ Node プラグインが「組み込みJSプラグイン」と
+誤判定され、TCP もネイティブ拡張も無い Boa に送られていた。
+
+`PluginLaunchStrategy::detect` は、マニフェストに `Nodejs` が無くても
+`node_modules/` か `bin/plugin.js` を持つバンドルを **NodeScript** として扱うように変更。
+実測: `node ...\bin/plugin.js -port 59508 -pluginUUID com.elgato.volume-controller
+-registerEvent registerPlugin -info {...}` で起動し、アクション11件を登録。
+
+したがってシムは「node_modules を持たない軽量JSプラグイン」用の保険であり、
+TCP/ネイティブ拡張を使うプラグインは Node 側で動く。
+
 ## 既知の残件
 
-- `com.elgato.volume-controller` だけが `TypeError: superclass must be a constructor`
-  で起動に失敗する（他3本は起動OK）。原因究明のため:
-  - 失敗ログに `root=<module_root>` を追加済み（プラグイン特定は完了）
-  - `require` を debug ログで出力（`RUST_LOG=ideck_js_runtime=debug`）
-  - 直前に読まれるのは `bufferutil` / `utf-8-validate`（`ws` のオプション依存）
-  - 次段: UIを介さず検証できるよう、ランタイムを直接叩く統合テスト
-    （`crates/ideck-js-runtime/tests/`）を用意し、スタックトレースを取る
+- WebView（HTML）プラグインのホスティングは**対象外**とする方針（PI の WebView は必要）。
+- 軽量JSプラグイン向けシムは未対応モジュール（crypto/net 等）で実行時エラーになる。
 - `crypto` は本実装が必要（認証系モジュールはハッシュ/乱数を使う）。
 - `net` は本実装が必要（TCP で機器と話すモジュールは WebSocket では代替できない）。

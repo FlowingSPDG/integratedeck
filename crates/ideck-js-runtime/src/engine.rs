@@ -198,7 +198,7 @@ fn handle_call(
 
     let result = callable
         .call(&JsValue::undefined(), &args, context)
-        .map_err(js_error)?;
+        .map_err(|err| js_error_with_stack(err, context))?;
 
     let value = if let Some(promise) = result.as_promise() {
         promise.await_blocking(context).map_err(js_error)?
@@ -246,4 +246,20 @@ fn js_to_json(value: JsValue, context: &mut Context) -> anyhow::Result<JsonValue
 
 fn js_error(err: boa_engine::JsError) -> anyhow::Error {
     anyhow::anyhow!("{err}")
+}
+
+/// Like [`js_error`], but appends the JS stack: plugin bundles are minified, so
+/// the message alone does not say where the failure happened.
+fn js_error_with_stack(err: boa_engine::JsError, context: &mut Context) -> anyhow::Error {
+    let stack = err
+        .to_opaque(context)
+        .as_object()
+        .and_then(|object| object.get(js_string!("stack"), context).ok())
+        .and_then(|value| value.as_string().map(|text| text.to_std_string_escaped()))
+        .unwrap_or_default();
+    if stack.trim().is_empty() {
+        anyhow::anyhow!("{err}")
+    } else {
+        anyhow::anyhow!("{err}\n{stack}")
+    }
 }

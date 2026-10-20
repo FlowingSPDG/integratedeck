@@ -60,7 +60,9 @@ impl PluginLaunchStrategy {
         }
 
         if matches!(ext.as_str(), "js" | "mjs" | "cjs") {
-            if manifest.nodejs.is_some() {
+            // Encrypted manifests hide the `Nodejs` block, so fall back to the
+            // bundle layout: a JS plugin that ships node_modules needs Node.
+            if manifest.nodejs.is_some() || bundle_ships_node_modules(plugin_dir) {
                 return Ok(Self::NodeScript { script: code_path });
             }
             return Ok(Self::JsPlugin { script: code_path });
@@ -78,6 +80,14 @@ impl PluginLaunchStrategy {
             code_path.display().to_string(),
         ))
     }
+}
+
+/// True when the plugin bundle has its own `node_modules` (or a `bin/plugin.js`),
+/// which means it expects a real Node runtime rather than the embedded JS engine.
+fn bundle_ships_node_modules(plugin_dir: &Path) -> bool {
+    plugin_dir.join("node_modules").is_dir()
+        || plugin_dir.join("bin").join("node_modules").is_dir()
+        || plugin_dir.join("bin").join("plugin.js").is_file()
 }
 
 pub fn build_registration_info(plugin_uuid: &str, version: &str, devices: Value) -> Value {

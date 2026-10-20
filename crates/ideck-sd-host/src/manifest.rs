@@ -973,6 +973,36 @@ mod tests {
     }
 
     #[test]
+    fn node_bundle_layout_is_detected_without_manifest_flag() {
+        // Encrypted manifests hide `Nodejs`; the bundle layout still says Node.
+        let dir = std::env::temp_dir().join(format!(
+            "ideck-node-layout-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bundle = dir.join("com.vendor.node.sdPlugin");
+        fs::create_dir_all(bundle.join("bin").join("node_modules")).unwrap();
+        fs::write(
+            bundle.join("manifest.json"),
+            r#"{"Name":"Node","UUID":"com.vendor.node","Version":"1","CodePath":"bin/plugin.js","Actions":[]}"#,
+        )
+        .unwrap();
+        fs::write(bundle.join("bin/plugin.js"), "// plugin").unwrap();
+
+        let manifest = StreamDeckManifest::load(&bundle).expect("load");
+        match crate::launch::PluginLaunchStrategy::detect(&manifest, &bundle) {
+            Ok(crate::launch::PluginLaunchStrategy::NodeScript { script }) => {
+                assert_eq!(script, bundle.join("bin/plugin.js"));
+            }
+            other => panic!("expected NodeScript, got {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn parses_encoder_layout_and_stack_color() {
         let json = r##"{
             "Name": "Dial",
