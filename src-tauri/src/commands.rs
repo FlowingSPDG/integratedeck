@@ -1070,6 +1070,18 @@ pub async fn get_last_surface_input(
 }
 
 #[tauri::command]
+pub async fn clear_surface_input_history(
+    state: State<'_, OrchState>,
+    surface_id: String,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator.clear_surface_input_history(surface_id);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_last_nfc(
     state: State<'_, OrchState>,
     surface_id: String,

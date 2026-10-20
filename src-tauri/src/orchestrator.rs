@@ -2367,6 +2367,11 @@ impl Orchestrator {
         }))
     }
 
+    pub fn clear_surface_input_history(&mut self, surface_id: SurfaceId) {
+        self.last_input.remove(&surface_id);
+        self.input_count.remove(&surface_id);
+    }
+
     pub fn set_studio_lcd(        &self,
         surface_id: SurfaceId,
         image: &ideck_core::ImagePayload,

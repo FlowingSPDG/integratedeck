@@ -80,6 +80,7 @@ pub fn run() {
             commands::set_studio_lcd,
             commands::get_last_nfc,
             commands::get_last_surface_input,
+            commands::clear_surface_input_history,
             commands::get_runtime_status,
             commands::unload_sd_plugin,
             commands::list_action_library,
