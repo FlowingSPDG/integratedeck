@@ -154,6 +154,41 @@ impl Orchestrator {
                 Err(e) => warn!("auto-connect HID {serial} failed: {e}"),
             }
         }
+
+        // Studio USB is not known to elgato-streamdeck, so connect it from the
+        // driver registry as soon as the device enumerates.
+        let studio_targets: Vec<(String, String)> = {
+            let o = state.read().await;
+            o.scan_surface_devices()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|device| device.driver_id == "studio-usb")
+                .filter(|device| {
+                    !o.inner.profile.surfaces.iter().any(|surface| {
+                        surface.label.contains(&device.device_id)
+                            && o.inner.surfaces.physical(surface.surface_id).is_some()
+                    })
+                })
+                .map(|device| (device.driver_id, device.device_id))
+                .collect()
+        };
+        for (driver_id, device_id) in studio_targets {
+            let mut o = state.write().await;
+            match o
+                .connect_surface_device(driver_id.clone(), device_id.clone())
+                .await
+            {
+                Ok(result) => {
+                    if let Ok(surface_id) = uuid::Uuid::parse_str(&result.surface_id) {
+                        if let Err(error) = o.ensure_surface_slots(SurfaceId(surface_id)).await {
+                            warn!("Studio USB slots failed: {error}");
+                        }
+                    }
+                    info!("auto-connected Studio USB {device_id}");
+                }
+                Err(error) => warn!("auto-connect Studio USB {device_id} failed: {error}"),
+            }
+        }
     }
 
     /// Merge USB scan results into the persisted device registry.
