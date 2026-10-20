@@ -79,7 +79,8 @@
 | Plus のキー画像が実機に出る | 実機 | [x] | 再起動後にスロットを持つサーフェスへ接続（8セル全て画像あり） |
 | Studio LCD の復元 | 実機 | [x] | `studio LCD restored bytes=17367`、`cache/lcd/<surface>.jpg` を再送 |
 | 重複サーフェスの自動削除 | 実機 | [x] | 接続時にスロット0の同名サーフェスを除去（Plus の重複が消え 1台に） |
-| Studio の明るさ | 実装 | [x] | `brightness_packet` を USB/LAN 双方で送信、接続時に保存値を適用 |
+| プラグイン用WebViewの遅延生成 | 実機 | [x] | 起動時の4枚一括生成をやめ、初回表示時に生成（起動ブロック104秒→実質0） |
+| Studio の明るさ | 実装 | [x] | LAN のみ `brightness_packet` を送信（USB は WriteFile が拒否するため未対応） |
 | プラグインの SVG setImage | ユニット | [x] | `plugin_payload_rasterizes_svg`（144px PNGへ変換） |
 
 ## VSD2

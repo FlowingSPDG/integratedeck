@@ -433,7 +433,15 @@ impl StreamDeckBroker {
                         Some(s) => match image_from_plugin_payload(s, Some(&self.plugin_dir)) {
                             Some(payload) => ImageSetResult::Set(payload),
                             None => {
-                                warn!("setImage failed to decode image for context {context}: {s}");
+                                // Never log the payload itself: plugin images are often 100 KB+
+                                // of base64 and a full stdout pipe stalls the app.
+                                let preview: String = s.chars().take(48).collect();
+                                warn!(
+                                    context,
+                                    len = s.len(),
+                                    preview,
+                                    "setImage failed to decode image"
+                                );
                                 ImageSetResult::Unchanged
                             }
                         },
@@ -443,7 +451,14 @@ impl StreamDeckBroker {
                     .pointer("/payload/state")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u8;
-                debug!("setImage context={context} image={image:?} state={state}");
+                let summary = match &image {
+                    ImageSetResult::Set(payload) => {
+                        format!("{:?}/{}B", payload.format, payload.data.len())
+                    }
+                    ImageSetResult::Cleared => "cleared".to_string(),
+                    ImageSetResult::Unchanged => "unchanged".to_string(),
+                };
+                debug!(context, image = %summary, state, "setImage");
                 let _ = self.event_tx.send(BrokerEvent::SetImage {
                     context: context.into(),
                     image,

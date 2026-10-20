@@ -675,7 +675,15 @@ impl Orchestrator {
                         visual.image = Some(transparent_key_png(96));
                     }
                     if let Some(update) = bridge.feedback_to_update(control_id, visual.clone()) {
-                        info!(control_id, ?visual, "companion feedback visual");
+                        // Summarise: companion feedback images are large PNGs.
+                        info!(
+                            control_id,
+                            title = ?visual.title,
+                            bgcolor = ?visual.bgcolor,
+                            indicator = ?visual.indicator,
+                            image_bytes = visual.image.as_ref().map(|image| image.data.len()),
+                            "companion feedback visual"
+                        );
                         let page_id = self.inner.profile.active_page_id.unwrap_or_default();
                         let surface_id =
                             bridge.surface_for_control(control_id).unwrap_or_else(|| {
@@ -2407,10 +2415,11 @@ impl Orchestrator {
             .find(|record| record.device_key == settings_store::device_key(&driver_id, &device_id))
             .map(|record| record.brightness)
             .unwrap_or(60);
+        // Only the LAN protocol documents a brightness frame; the USB HID path
+        // rejects it (WriteFile: parameter is incorrect), so USB keeps firmware
+        // defaults until the correct feature report is known.
         let any = surface.clone().as_any();
-        if let Ok(usb) = any.clone().downcast::<ideck_surface::StudioUsbSurface>() {
-            usb.set_brightness(brightness);
-        } else if let Ok(lan) = any.downcast::<ideck_surface::StudioLanSurface>() {
+        if let Ok(lan) = any.downcast::<ideck_surface::StudioLanSurface>() {
             lan.set_brightness(brightness);
         }
 
@@ -2978,9 +2987,7 @@ impl Orchestrator {
                 let any = physical.as_any();
                 if let Ok(hid) = any.clone().downcast::<StreamDeckHidSurface>() {
                     hid.set_brightness(brightness).await?;
-                } else if let Ok(usb) = any.clone().downcast::<ideck_surface::StudioUsbSurface>() {
-                    usb.set_brightness(brightness);
-                } else if let Ok(lan) = any.downcast::<ideck_surface::StudioLanSurface>() {
+                } else if let Ok(lan) = any.clone().downcast::<ideck_surface::StudioLanSurface>() {
                     lan.set_encoder_led(0, 0, 0, 0);
                     lan.set_brightness(brightness);
                 }

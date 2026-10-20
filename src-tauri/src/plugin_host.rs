@@ -46,31 +46,38 @@ const MIN_HEIGHT: f64 = 240.0;
 const CONFIG_QUERY_KEY: &str = "__ideckSd";
 
 /// Creates the reusable hidden plugin window pool during `setup`.
-pub fn ensure_plugin_host_window(app: &App) -> Result<(), String> {
-    for index in 0..PLUGIN_HOST_WINDOW_COUNT {
-        let label = plugin_host_window_label(index);
-        if app.get_webview_window(&label).is_some() {
-            continue;
-        }
+pub fn ensure_plugin_host_window(_app: &App) -> Result<(), String> {
+    // Nothing is created here: each plugin host window is built on first use by
+    // `PluginHost::window_for`, so startup does not block on four WebViews.
+    info!(
+        slots = PLUGIN_HOST_WINDOW_COUNT,
+        "plugin host window pool ready (created on demand)"
+    );
+    Ok(())
+}
 
-        let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
-        let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(blank))
-            .title("integratedeck plugin")
-            .inner_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
-            .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
-            .visible(false)
-            .skip_taskbar(true)
-            .initialization_script(SHIM);
-
-        #[cfg(debug_assertions)]
-        let builder = builder.devtools(true);
-
-        let window = builder
-            .build()
-            .map_err(|e| format!("failed to create plugin host window {label}: {e}"))?;
-        attach_hide_on_close(&window);
+/// Build one hidden plugin host window. Must run on the UI thread.
+fn build_plugin_host_window(app: &AppHandle, label: &str) -> Result<(), String> {
+    if app.get_webview_window(label).is_some() {
+        return Ok(());
     }
-    info!("plugin host window pool created (hidden)");
+    let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::External(blank))
+        .title("integratedeck plugin")
+        .inner_size(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+        .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
+        .visible(false)
+        .skip_taskbar(true)
+        .initialization_script(SHIM);
+
+    #[cfg(debug_assertions)]
+    let builder = builder.devtools(true);
+
+    let window = builder
+        .build()
+        .map_err(|e| format!("failed to create plugin host window {label}: {e}"))?;
+    attach_hide_on_close(&window);
+    info!(label, "plugin host window created on demand");
     Ok(())
 }
 
@@ -200,9 +207,29 @@ impl PluginHost {
     }
 
     fn window_for(&self, slot: usize) -> anyhow::Result<WebviewWindow> {
+        // Windows are created on demand: building four hidden WebViews during
+        // startup costs over a minute on a cold machine.
+        let label = plugin_host_window_label(slot);
+        if let Some(window) = self.app.get_webview_window(&label) {
+            return Ok(window);
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let app = self.app.clone();
+        let build_label = label.clone();
         self.app
-            .get_webview_window(&plugin_host_window_label(slot))
-            .ok_or_else(|| anyhow::anyhow!("plugin host window {slot} is not initialized"))
+            .run_on_main_thread(move || {
+                let _ = tx.send(build_plugin_host_window(&app, &build_label));
+            })
+            .map_err(|e| anyhow::anyhow!("queue plugin host window {slot}: {e}"))?;
+        match rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(anyhow::anyhow!("create plugin host window {slot}: {e}")),
+            Err(e) => return Err(anyhow::anyhow!("create plugin host window {slot}: {e}")),
+        }
+        self.app
+            .get_webview_window(&label)
+            .ok_or_else(|| anyhow::anyhow!("plugin host window {slot} was not created"))
     }
 }
 
