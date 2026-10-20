@@ -444,8 +444,49 @@ impl Orchestrator {
                 let mut o = state.write().await;
                 o.nfc.insert(surface_id, uid.clone());
             }
+            // The Plus touch strip swipes between pages, which is what the
+            // official software does with them.
+            SurfaceInput::TouchSwipe { start_x, end_x, .. } => {
+                let mut o = state.write().await;
+                if let Err(e) = o
+                    .swipe_surface_page(surface_id, i64::from(*end_x) - i64::from(*start_x))
+                    .await
+                {
+                    warn!("touch swipe: {e}");
+                }
+            }
             _ => {}
         }
+    }
+
+    /// Move to the next (`delta_x < 0`) or previous page of the current
+    /// sibling set. Siblings are the top-level pages, or the pages inside the
+    /// folder holding the current page.
+    async fn swipe_surface_page(
+        &mut self,
+        surface_id: SurfaceId,
+        delta_x: i64,
+    ) -> anyhow::Result<()> {
+        if delta_x == 0 {
+            return Ok(());
+        }
+        let current = self
+            .inner
+            .surface_pages
+            .get(&surface_id)
+            .copied()
+            .or(self.inner.profile.active_page_id)
+            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let Some(target) = self.inner.profile.swipe_target_page(current, delta_x) else {
+            return Ok(());
+        };
+        self.navigate_surface_to_page(surface_id, target, false)
+            .await?;
+        info!(
+            ?surface_id,
+            "touch swipe moved the surface to the next page"
+        );
+        Ok(())
     }
 
     async fn execute_encoder_builtin(
@@ -4916,24 +4957,15 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Feed an input that did not come from a HID driver (virtual surfaces and
+    /// the IPC test hook) through the same dispatcher as real hardware, so
+    /// bindings, history and plugin forwarding behave identically.
     pub async fn apply_surface_input(
-        &mut self,
+        state: Arc<RwLock<Self>>,
         surface_id: SurfaceId,
         input: SurfaceInput,
-    ) -> anyhow::Result<()> {
-        if let SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } = &input {
-            if let Some(slot_id) = self.sd_slot_id_at(surface_id, address) {
-                self.prepare_sd_slot_for_input_from_slot_id(slot_id, None)
-                    .await
-                    .ok();
-            }
-        }
-        self.inner.device_bus.publish(surface_id, input.clone());
-        crate::state::forward_sd_input(&self.inner, surface_id, &input).await;
-        if let SurfaceInput::KeyDown { address } = input {
-            self.trigger_keydown_bindings(surface_id, address).await?;
-        }
-        Ok(())
+    ) {
+        Self::dispatch_surface_input(state, surface_id, input).await;
     }
 
     async fn trigger_keydown_bindings(
@@ -5684,10 +5716,7 @@ impl Orchestrator {
                         SurfaceInput::KeyUp { address }
                     };
                     debug!(?surface_id, index, pressed, "vsd key event");
-                    let mut orchestrator = state.write().await;
-                    if let Err(error) = orchestrator.apply_surface_input(surface_id, input).await {
-                        warn!("vsd apply_surface_input failed: {error:#}");
-                    }
+                    Orchestrator::apply_surface_input(state.clone(), surface_id, input).await;
                 }
             }
         }

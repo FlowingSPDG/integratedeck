@@ -33,6 +33,14 @@ pub enum SurfaceInput {
         y: u32,
         hold: bool,
     },
+    /// Touch strip swipe. Elgato does not forward swipes to plugins, so the app
+    /// uses them for page navigation; the raw coordinates are kept for logging.
+    TouchSwipe {
+        start_x: u32,
+        start_y: u32,
+        end_x: u32,
+        end_y: u32,
+    },
     PageChange {
         page_index: u32,
     },

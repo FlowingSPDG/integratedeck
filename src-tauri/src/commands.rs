@@ -1196,10 +1196,8 @@ pub async fn apply_surface_input(
     let surface_id = SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
     let input: ideck_surface::SurfaceInput =
         serde_json::from_str(&input_json).map_err(|e| e.to_string())?;
-    let mut o = state.write().await;
-    o.apply_surface_input(surface_id, input)
-        .await
-        .map_err(|e| e.to_string())
+    Orchestrator::apply_surface_input(state.inner().clone(), surface_id, input).await;
+    Ok(())
 }
 
 #[derive(Deserialize)]

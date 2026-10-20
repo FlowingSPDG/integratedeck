@@ -321,7 +321,14 @@ impl StreamDeckHidSurface {
                                     hold: true,
                                 })
                             }
-                            _ => None,
+                            DeviceStateUpdate::TouchScreenSwipe((sx, sy), (ex, ey)) => {
+                                Some(SurfaceInput::TouchSwipe {
+                                    start_x: u32::from(sx),
+                                    start_y: u32::from(sy),
+                                    end_x: u32::from(ex),
+                                    end_y: u32::from(ey),
+                                })
+                            }
                         };
                         if let Some(input) = input {
                             surface.emit_input(input);
