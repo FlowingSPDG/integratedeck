@@ -43,6 +43,7 @@ commands.allow = [
   "trigger_slot",
   "simulate_slot_key",
   "list_connections",
+  "get_companion_definitions",
   "list_companion_status",
   "start_vsd_server",
   "stop_vsd_server",

@@ -4806,6 +4806,27 @@ impl Orchestrator {
         self.comp_status.values().cloned().collect()
     }
 
+    pub async fn companion_definitions(
+        &self,
+        connection_id: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let runtime = self
+            .inner
+            .comp_runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("companion module engine not running"))?;
+        let resp = runtime
+            .request(
+                "connection.getDefinitions",
+                json!({ "connectionId": connection_id }),
+            )
+            .await?;
+        if !resp.ok {
+            anyhow::bail!(resp.error.unwrap_or_else(|| "getDefinitions failed".into()));
+        }
+        Ok(resp.result.unwrap_or_else(|| json!({})))
+    }
+
     pub async fn start_vsd_server(
         &mut self,
         rows: u32,

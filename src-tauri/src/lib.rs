@@ -105,6 +105,7 @@ pub fn run() {
             commands::trigger_slot,
             commands::simulate_slot_key,
             commands::list_connections,
+            commands::get_companion_definitions,
             commands::list_companion_status,
             commands::start_vsd_server,
             commands::stop_vsd_server,

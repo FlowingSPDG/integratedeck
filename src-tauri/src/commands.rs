@@ -677,6 +677,17 @@ pub async fn unregister_surface(
 }
 
 #[tauri::command]
+pub async fn get_companion_definitions(
+    state: State<'_, OrchState>,
+    connection_id: String,
+) -> Result<serde_json::Value, String> {
+    let o = state.read().await;
+    o.companion_definitions(&connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_connections(
     state: State<'_, OrchState>,
 ) -> Result<Vec<ConnectionRecord>, String> {
