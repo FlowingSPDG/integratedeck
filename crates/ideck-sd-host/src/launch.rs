@@ -15,11 +15,19 @@ use crate::StreamDeckManifest;
 #[derive(Debug, Clone)]
 pub enum PluginLaunchStrategy {
     /// Simple script run inside the embedded Boa engine.
-    JsPlugin { script: PathBuf },
+    JsPlugin {
+        script: PathBuf,
+    },
     /// Node SDK plugin (`"Nodejs"` in the manifest) run by the real Node runtime.
-    NodeScript { script: PathBuf },
-    NativeBinary { exe: PathBuf },
-    HtmlWebView { html: PathBuf },
+    NodeScript {
+        script: PathBuf,
+    },
+    NativeBinary {
+        exe: PathBuf,
+    },
+    HtmlWebView {
+        html: PathBuf,
+    },
 }
 
 #[derive(Debug, Error)]

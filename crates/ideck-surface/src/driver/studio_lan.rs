@@ -5,9 +5,9 @@
 
 use std::sync::Arc;
 
+use crate::EmulationProfile;
 use async_trait::async_trait;
 use ideck_core::SurfaceId;
-use crate::EmulationProfile;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
@@ -260,6 +260,3 @@ impl Surface for StudioLanSurface {
         self.render_inner(updates).await
     }
 }
-
-
-

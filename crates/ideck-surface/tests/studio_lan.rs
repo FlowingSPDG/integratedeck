@@ -73,7 +73,11 @@ async fn decodes_keys_and_encoders_from_mock_server() {
     )));
     assert!(seen.iter().any(|input| matches!(
         input,
-        SurfaceInput::EncoderRotate { index: 0, ticks: 2, .. }
+        SurfaceInput::EncoderRotate {
+            index: 0,
+            ticks: 2,
+            ..
+        }
     )));
 
     server.await.unwrap();
@@ -167,5 +171,3 @@ async fn reconnects_after_server_close() {
 
     let _ = server.await;
 }
-
-

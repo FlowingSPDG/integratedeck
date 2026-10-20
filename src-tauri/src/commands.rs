@@ -490,12 +490,7 @@ pub async fn bind_encoder_sd(
         ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
     let mut orchestrator = state.write().await;
     orchestrator
-        .bind_encoder_sd(
-            surface_id,
-            args.index,
-            args.plugin_uuid,
-            args.action_uuid,
-        )
+        .bind_encoder_sd(surface_id, args.index, args.plugin_uuid, args.action_uuid)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1041,13 +1036,10 @@ pub async fn ensure_surface_slots(
     state: State<'_, OrchState>,
     surface_id: String,
 ) -> Result<usize, String> {
-    let surface_id = ideck_core::SurfaceId(
-        uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?,
-    );
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
     let mut orchestrator = state.write().await;
-    orchestrator
-        .ensure_surface_slots(surface_id)
-        .await
+    orchestrator.ensure_surface_slots(surface_id).await
 }
 
 #[tauri::command]

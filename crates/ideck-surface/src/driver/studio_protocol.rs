@@ -144,11 +144,8 @@ pub fn encode_key_jpeg(image: &ImagePayload, visual: &VisualState) -> Option<Vec
             *pixel = image::Rgba([color.r, color.g, color.b, 255]);
         }
     }
-    let resized = decoded.resize_to_fill(
-        KEY_WIDTH,
-        KEY_HEIGHT,
-        image::imageops::FilterType::Triangle,
-    );
+    let resized =
+        decoded.resize_to_fill(KEY_WIDTH, KEY_HEIGHT, image::imageops::FilterType::Triangle);
     image::imageops::overlay(&mut canvas, &resized.to_rgba8(), 0, 0);
     let mut jpeg = Vec::new();
     let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
@@ -159,11 +156,7 @@ pub fn encode_key_jpeg(image: &ImagePayload, visual: &VisualState) -> Option<Vec
 }
 
 /// Encode an image as a JPEG for a Studio fullscreen LCD panel.
-pub fn encode_lcd_jpeg(
-    image: &ImagePayload,
-    width: u32,
-    height: u32,
-) -> Option<Vec<u8>> {
+pub fn encode_lcd_jpeg(image: &ImagePayload, width: u32, height: u32) -> Option<Vec<u8>> {
     let decoded = image::load_from_memory(&image.data).ok()?;
     let mut canvas = image::RgbaImage::new(width, height);
     for pixel in canvas.pixels_mut() {
@@ -215,11 +208,7 @@ pub fn decode_input(
     let mut updates = Vec::new();
     match report[1] {
         0x00 => {
-            for (index, previous) in previous_keys
-                .iter_mut()
-                .take(len.min(KEYS))
-                .enumerate()
-            {
+            for (index, previous) in previous_keys.iter_mut().take(len.min(KEYS)).enumerate() {
                 let pressed = report.get(4 + index).copied().unwrap_or(0) != 0;
                 if pressed == *previous {
                     continue;
@@ -304,12 +293,16 @@ mod tests {
         key[4] = 1;
         assert!(matches!(
             decode_input(&key, &mut keys, &mut encoders).as_slice(),
-            [SurfaceInput::KeyDown { address: CellAddress { row: 0, column: 0 } }]
+            [SurfaceInput::KeyDown {
+                address: CellAddress { row: 0, column: 0 }
+            }]
         ));
         key[4] = 0;
         assert!(matches!(
             decode_input(&key, &mut keys, &mut encoders).as_slice(),
-            [SurfaceInput::KeyUp { address: CellAddress { row: 0, column: 0 } }]
+            [SurfaceInput::KeyUp {
+                address: CellAddress { row: 0, column: 0 }
+            }]
         ));
 
         let mut enc = [0u8; INPUT_REPORT_LEN];

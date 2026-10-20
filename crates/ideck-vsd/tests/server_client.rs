@@ -44,9 +44,11 @@ async fn server_accepts_client_and_creates_virtual_device() {
 
     client
         .send(&ClientMessage {
-            msg: Some(client_message::Msg::CreateVirtualDevice(CreateVirtualDevice {
-                name: "Software Deck".into(),
-            })),
+            msg: Some(client_message::Msg::CreateVirtualDevice(
+                CreateVirtualDevice {
+                    name: "Software Deck".into(),
+                },
+            )),
         })
         .await
         .expect("create");
@@ -56,10 +58,12 @@ async fn server_accepts_client_and_creates_virtual_device() {
 
     client
         .send(&ClientMessage {
-            msg: Some(client_message::Msg::KeyEvent(ideck_vsd::messages::KeyEvent {
-                index: 0,
-                pressed: true,
-            })),
+            msg: Some(client_message::Msg::KeyEvent(
+                ideck_vsd::messages::KeyEvent {
+                    index: 0,
+                    pressed: true,
+                },
+            )),
         })
         .await
         .expect("key event");

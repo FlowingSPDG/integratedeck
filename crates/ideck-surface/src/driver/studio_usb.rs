@@ -15,8 +15,8 @@ use ideck_core::SurfaceId;
 use tracing::{info, warn};
 
 use super::studio_protocol::{
-    decode_input, encode_key_jpeg, key_color_packet, key_image_packets, KEY_HEIGHT, KEY_WIDTH,
-    KEYS, ENCODERS, INPUT_REPORT_LEN, ROWS, COLS,
+    decode_input, encode_key_jpeg, key_color_packet, key_image_packets, COLS, ENCODERS,
+    INPUT_REPORT_LEN, KEYS, KEY_HEIGHT, KEY_WIDTH, ROWS,
 };
 use super::{DiscoveredDevice, PhysicalSurface, SurfaceDriverManifest, SurfaceDriverPlugin};
 use crate::{

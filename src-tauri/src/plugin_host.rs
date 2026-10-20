@@ -163,10 +163,7 @@ impl PluginHost {
             return Ok(());
         };
 
-        if let Some(window) = self
-            .app
-            .get_webview_window(&plugin_host_window_label(slot))
-        {
+        if let Some(window) = self.app.get_webview_window(&plugin_host_window_label(slot)) {
             let _ = window.set_skip_taskbar(true);
             let _ = window.hide();
             // Drop the page (and its WebSocket/timers) until the next HTML plugin.

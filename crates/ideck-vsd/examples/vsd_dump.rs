@@ -104,4 +104,3 @@ async fn main() -> anyhow::Result<()> {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
-

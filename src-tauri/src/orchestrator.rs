@@ -14,8 +14,8 @@ use ideck_core::{
 };
 use ideck_sd_host::{
     action_icon_data_url, close_webview_plugin, effective_plugin_uuid, scan_sd_plugins_roots,
-    ActionContext, BrokerEvent, ImageSetResult, LoadedSdPlugin, PluginSupervisor,
-    StreamDeckBroker, StreamDeckManifest,
+    ActionContext, BrokerEvent, ImageSetResult, LoadedSdPlugin, PluginSupervisor, StreamDeckBroker,
+    StreamDeckManifest,
 };
 use ideck_surface::{
     CellAddress, CellUpdate, DiscoveredDevice, HidDeviceDescriptor, MockSurface, PhysicalSurface,
@@ -86,8 +86,8 @@ impl Surface for VsdSurface {
             let Some(jpeg) = ideck_surface::encode_key_jpeg(image, &update.visual) else {
                 continue;
             };
-            let index = update.address.row * self.descriptor.capabilities.columns
-                + update.address.column;
+            let index =
+                update.address.row * self.descriptor.capabilities.columns + update.address.column;
             let _ = self.images.send(ideck_vsd::server::VsdImage {
                 device_id: self.device_id.clone(),
                 index,
@@ -285,7 +285,8 @@ impl Orchestrator {
         state: &Arc<RwLock<Self>>,
         surface_id: SurfaceId,
         surface: Arc<dyn PhysicalSurface>,
-    ) {        let state_clone = state.clone();
+    ) {
+        let state_clone = state.clone();
         let mut input_rx = surface.subscribe_inputs();
         let reader = surface.clone().spawn_input_loop();
 
@@ -323,8 +324,7 @@ impl Orchestrator {
             // Driver surfaces need the same page/binding setup as HID devices.
             {
                 let mut o = state.write().await;
-                o.finalize_hid_connection(surface_id, state.clone())
-                    .await?;
+                o.finalize_hid_connection(surface_id, state.clone()).await?;
             }
             let o = state.read().await;
             HubEvents::emit_surfaces_changed(&o.app, Some(result.surface_id.clone()));
@@ -340,18 +340,12 @@ impl Orchestrator {
     ) {
         {
             let mut orchestrator = state.write().await;
-            let history = orchestrator
-                .last_input
-                .entry(surface_id)
-                .or_default();
+            let history = orchestrator.last_input.entry(surface_id).or_default();
             history.push(input.clone());
             if history.len() > 64 {
                 history.remove(0);
             }
-            *orchestrator
-                .input_count
-                .entry(surface_id)
-                .or_default() += 1;
+            *orchestrator.input_count.entry(surface_id).or_default() += 1;
         }
         let sd_address = match &input {
             SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => Some(*address),
@@ -407,11 +401,7 @@ impl Orchestrator {
                         .or(o.inner.profile.active_page_id);
                     page_id
                         .and_then(|page_id| {
-                            o.inner
-                                .profile
-                                .pages
-                                .iter()
-                                .find(|page| page.id == page_id)
+                            o.inner.profile.pages.iter().find(|page| page.id == page_id)
                         })
                         .and_then(|page| page.encoders.get(index))
                         .and_then(|binding| match &binding.kind {
@@ -604,7 +594,8 @@ impl Orchestrator {
             nfc: std::collections::HashMap::new(),
             comp_status: std::collections::HashMap::new(),
             last_input: std::collections::HashMap::new(),
-            input_count: std::collections::HashMap::new(),            vsd_server: None,
+            input_count: std::collections::HashMap::new(),
+            vsd_server: None,
             vsd_addr: None,
             vsd_images: None,
         })
@@ -686,9 +677,8 @@ impl Orchestrator {
                     if let Some(update) = bridge.feedback_to_update(control_id, visual.clone()) {
                         info!(control_id, ?visual, "companion feedback visual");
                         let page_id = self.inner.profile.active_page_id.unwrap_or_default();
-                        let surface_id = bridge
-                            .surface_for_control(control_id)
-                            .unwrap_or_else(|| {
+                        let surface_id =
+                            bridge.surface_for_control(control_id).unwrap_or_else(|| {
                                 self.surface_id_for_cell(update.address.row, update.address.column)
                             });
                         self.inner.cell_visuals.insert(
@@ -1272,7 +1262,8 @@ impl Orchestrator {
         visual
     }
 
-    fn page_id_for_context(&self, context: &str) -> Option<PageId> {        let slot_id = self.slot_id_for_context(context)?;
+    fn page_id_for_context(&self, context: &str) -> Option<PageId> {
+        let slot_id = self.slot_id_for_context(context)?;
         self.page_id_for_slot(slot_id)
     }
 
@@ -2467,8 +2458,7 @@ impl Orchestrator {
                     .find(|page| page.id == page_id)
                 {
                     if let Some(slot) = page.slots.get_mut(&slot_id) {
-                        slot.appearance.default_image =
-                            Some(solid_key_png(144, 112, 28, 32, 42));
+                        slot.appearance.default_image = Some(solid_key_png(144, 112, 28, 32, 42));
                     }
                 }
                 count += 1;
@@ -2527,7 +2517,8 @@ impl Orchestrator {
         self.input_count.remove(&surface_id);
     }
 
-    pub fn set_studio_lcd(        &self,
+    pub fn set_studio_lcd(
+        &self,
         surface_id: SurfaceId,
         image: &ideck_core::ImagePayload,
     ) -> Result<(), String> {
@@ -3319,11 +3310,12 @@ impl Orchestrator {
                 .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
             match &slot.binding {
                 Some(Binding {
-                    kind: BindingKind::Companion {
-                        connection_id,
-                        action_id,
-                        ..
-                    },
+                    kind:
+                        BindingKind::Companion {
+                            connection_id,
+                            action_id,
+                            ..
+                        },
                 }) => (connection_id.clone(), action_id.clone()),
                 _ => anyhow::bail!("slot is not bound to a Companion action"),
             }
@@ -4371,7 +4363,13 @@ impl Orchestrator {
     }
 
     pub async fn delete_page(&mut self, page_id: PageId) -> anyhow::Result<()> {
-        if !self.inner.profile.pages.iter().any(|page| page.id == page_id) {
+        if !self
+            .inner
+            .profile
+            .pages
+            .iter()
+            .any(|page| page.id == page_id)
+        {
             anyhow::bail!("page not found");
         }
         if self.inner.profile.pages.len() <= 1 {
@@ -4638,7 +4636,8 @@ impl Orchestrator {
                     page = %page_id.0,
                     slots = page.slots.len(),
                     "keydown lookup"
-                );                for slot in page.slots.values() {
+                );
+                for slot in page.slots.values() {
                     if slot.locator.surface_id != surface_id {
                         continue;
                     }
@@ -4655,7 +4654,8 @@ impl Orchestrator {
             }
         }
         for kind in to_trigger {
-            debug!(?surface_id, action = ?kind, "keydown trigger");            match &kind {
+            debug!(?surface_id, action = ?kind, "keydown trigger");
+            match &kind {
                 BindingKind::BuiltIn {
                     action_id,
                     settings,
@@ -4873,12 +4873,7 @@ impl Orchestrator {
     /// Publish dial feedback so the editor can show what a plugin wrote to a
     /// dial. Physical dial displays (Plus touch strip) are driven by the surface
     /// driver from the same visual store.
-    async fn render_dial_display(
-        &self,
-        surface_id: SurfaceId,
-        index: u32,
-        visual: VisualState,
-    ) {
+    async fn render_dial_display(&self, surface_id: SurfaceId, index: u32, visual: VisualState) {
         HubEvents::emit_dial_visual(
             &self.app,
             DialVisualPayload {
@@ -5175,8 +5170,13 @@ impl Orchestrator {
         rows: u32,
         columns: u32,
         port: u16,
-    ) -> Result<(String, tokio::sync::broadcast::Receiver<ideck_vsd::server::VsdServerEvent>), String>
-    {
+    ) -> Result<
+        (
+            String,
+            tokio::sync::broadcast::Receiver<ideck_vsd::server::VsdServerEvent>,
+        ),
+        String,
+    > {
         self.stop_vsd_server();
         let config = ideck_vsd::server::VsdServerConfig {
             rows,
@@ -5291,7 +5291,8 @@ impl Orchestrator {
                     } else {
                         SurfaceInput::KeyUp { address }
                     };
-                    debug!(?surface_id, index, pressed, "vsd key event");                    let mut orchestrator = state.write().await;
+                    debug!(?surface_id, index, pressed, "vsd key event");
+                    let mut orchestrator = state.write().await;
                     if let Err(error) = orchestrator.apply_surface_input(surface_id, input).await {
                         warn!("vsd apply_surface_input failed: {error:#}");
                     }
@@ -5413,7 +5414,8 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub async fn remove_connection(&mut self, connection_id: String) -> anyhow::Result<()> {        self.inner.connections.remove(&connection_id);
+    pub async fn remove_connection(&mut self, connection_id: String) -> anyhow::Result<()> {
+        self.inner.connections.remove(&connection_id);
         let _ = self.save_connections();
         if let Some(runtime) = &self.inner.comp_runtime {
             let resp = runtime

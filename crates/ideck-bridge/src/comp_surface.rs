@@ -118,7 +118,10 @@ mod tests {
             "bgcolor": 0x00ff00,
             "text": "live"
         }));
-        assert_eq!(numeric.bgcolor, Some(ideck_core::Color { r: 0, g: 255, b: 0 }));
+        assert_eq!(
+            numeric.bgcolor,
+            Some(ideck_core::Color { r: 0, g: 255, b: 0 })
+        );
         assert_eq!(numeric.title.as_deref(), Some("live"));
 
         let hex = CompSurfaceBridge::parse_feedback_style(&serde_json::json!({

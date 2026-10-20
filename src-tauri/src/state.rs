@@ -90,10 +90,8 @@ pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, inpu
                     }
                     Some((context, "dialPress")) => {
                         // Dials use dialDown / dialUp, not keyDown / keyUp.
-                        let pressed = matches!(
-                            input,
-                            SurfaceInput::EncoderPress { pressed: true, .. }
-                        );
+                        let pressed =
+                            matches!(input, SurfaceInput::EncoderPress { pressed: true, .. });
                         let result = if pressed {
                             broker.dial_down(&context).await
                         } else {

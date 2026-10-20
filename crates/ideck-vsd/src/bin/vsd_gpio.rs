@@ -37,8 +37,7 @@ mod imp {
             .split(',')
             .filter_map(|value| value.trim().parse().ok())
             .collect();
-        let image_dir =
-            std::env::var("VSD_IMAGE_DIR").unwrap_or_else(|_| "/tmp/ideck-vsd".into());
+        let image_dir = std::env::var("VSD_IMAGE_DIR").unwrap_or_else(|_| "/tmp/ideck-vsd".into());
         std::fs::create_dir_all(&image_dir)?;
 
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<KeyEvent>();
@@ -86,7 +85,10 @@ mod imp {
             },
         )
         .await?;
-        println!("hello host={} needs_auth={}", hello.hostname, hello.client_needs_authentication);
+        println!(
+            "hello host={} needs_auth={}",
+            hello.hostname, hello.client_needs_authentication
+        );
         client
             .send(&ClientMessage {
                 msg: Some(client_message::Msg::OpenVirtualDevice(OpenVirtualDevice {

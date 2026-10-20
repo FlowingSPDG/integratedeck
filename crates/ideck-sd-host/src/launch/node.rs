@@ -21,11 +21,10 @@ pub fn node_binary() -> String {
         }
     }
     if let Ok(resource) = std::env::var("RESOURCE") {
-        let candidate = Path::new(&resource).join("node").join(if cfg!(windows) {
-            "node.exe"
-        } else {
-            "node"
-        });
+        let candidate =
+            Path::new(&resource)
+                .join("node")
+                .join(if cfg!(windows) { "node.exe" } else { "node" });
         if candidate.is_file() {
             return candidate.to_string_lossy().to_string();
         }

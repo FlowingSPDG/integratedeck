@@ -49,11 +49,7 @@ impl MockSurface {
     }
 
     /// Mock surface with physical encoders, for dial UI/backend tests.
-    pub fn with_encoders(
-        id: SurfaceId,
-        name: impl Into<String>,
-        encoders: u32,
-    ) -> Arc<Self> {
+    pub fn with_encoders(id: SurfaceId, name: impl Into<String>, encoders: u32) -> Arc<Self> {
         let mut caps = SurfaceCapabilities::mock_3x5();
         caps.encoders = encoders;
         Self::with_capabilities(id, name, caps)

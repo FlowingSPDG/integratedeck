@@ -224,9 +224,7 @@ impl SdSurfaceBridge {
         for (surface_id, index) in self.encoders_for_context(context).iter().copied() {
             let visual = visuals.entry((surface_id, index)).or_default();
             match event {
-                BrokerEvent::SetImage {
-                    image, state, ..
-                } => {
+                BrokerEvent::SetImage { image, state, .. } => {
                     visual.state_index = *state;
                     match image {
                         ImageSetResult::Set(payload) => visual.image = Some(payload.clone()),
@@ -417,10 +415,7 @@ mod tests {
 
         // The dial now owns index 0, so the stale key mapping must be gone.
         assert!(!bridge.cell_by_context.contains_key("key-ctx"));
-        assert_eq!(
-            bridge.encoders_for_context("dial-ctx"),
-            &[(surface, 0)][..]
-        );
+        assert_eq!(bridge.encoders_for_context("dial-ctx"), &[(surface, 0)][..]);
     }
 
     #[test]

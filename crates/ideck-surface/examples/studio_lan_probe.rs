@@ -94,7 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut packet = [0u8; 512];
         match tokio::time::timeout(Duration::from_secs(2), stream.read_exact(&mut packet)).await {
-            Ok(Ok(_)) => println!("query {id:#04x} response {index} head={}", hex(&packet[..32])),
+            Ok(Ok(_)) => println!(
+                "query {id:#04x} response {index} head={}",
+                hex(&packet[..32])
+            ),
             Ok(Err(error)) => {
                 println!("query {id:#04x} read error: {error}");
                 break;
