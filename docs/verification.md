@@ -114,6 +114,7 @@ CDP（`--remote-debugging-port=9222`）経由でアプリのコマンドを叩�
 | Companion 接続（vMix 29.0.0.48 / TCP 8099） | `status: ok` |
 | Companion アクション実行（`transitionMix`） | エラーなし |
 | Companion フィードバック（`inputPreview`, mix=1, input=2, bg=0x00ff00） | セルが **緑** に |
+| 変数式 $(var) の展開（オプション値・フィードバック） | ユニット | [x] | module_fixture_roundtrip で $(input_name) → Camera 2 を確認 |
 | Studio LCD のダイヤル表示 | Page名 + ダイヤル値（12ノッチ→"12"） |
 | Plus タッチストリップ描画 | 800x100 / 4ゾーンへ送信 |
 | ダイヤル→SDプラグイン | dialRotate 1回配送、setTitle 反映 |

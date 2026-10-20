@@ -153,6 +153,41 @@ async fn module_fixture_roundtrip() {
         .unwrap();
     assert_eq!(opted["value"], "opt");
 
+    // Companion substitutes `$(var)` in option values before the module runs.
+    runtime
+        .request(
+            "connection.setVariableValue",
+            json!({ "connectionId": "c1", "variableId": "input_name", "value": "Camera 2" }),
+        )
+        .await
+        .expect("set variable");
+    let substituted = runtime
+        .request(
+            "connection.executeAction",
+            json!({
+                "connectionId": "c1",
+                "actionId": "act2",
+                "options": { "value": "$(input_name)" }
+            }),
+        )
+        .await
+        .expect("execute with expression");
+    assert!(
+        substituted.ok,
+        "expression action failed: {:?}",
+        substituted.error
+    );
+    let resolved = runtime
+        .request(
+            "connection.getVariableValue",
+            json!({ "connectionId": "c1", "variableId": "state" }),
+        )
+        .await
+        .expect("var")
+        .result
+        .unwrap();
+    assert_eq!(resolved["value"], "Camera 2");
+
     let updated = runtime
         .request(
             "connection.updateConfig",

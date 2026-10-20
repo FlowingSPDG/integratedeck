@@ -20,8 +20,32 @@ function log(level, ...args) {
   emit({ event: 'log', level, message: args.map(String).join(' ') })
 }
 
+// Companion substitutes `$(var)` expressions in option values before a module
+// sees them; without it a module referencing a variable receives the literal.
+function substituteExpressions(value, variables) {
+  if (!variables) return value
+  if (typeof value === 'string') {
+    return value.replace(/\$\(([^)]+)\)/g, (match, name) => {
+      const resolved = variables.get(String(name).trim())
+      return resolved === undefined ? match : String(resolved)
+    })
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => substituteExpressions(item, variables))
+  }
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = substituteExpressions(item, variables)
+    }
+    return out
+  }
+  return value
+}
+
 function makeContext(id, cache) {
   const variableValues = new Map()
+  cache.variableValues = variableValues
 
   async function evaluateFeedback(controlId) {
     const instance = cache.feedbackInstances.get(controlId)
@@ -30,7 +54,7 @@ function makeContext(id, cache) {
     if (!definition?.callback) return null
     try {
       const style = await definition.callback(
-        { id: controlId, controlId, options: instance.options },
+        { id: controlId, controlId, options: substituteExpressions(instance.options, cache.variableValues) },
         {},
       )
       console.error(`[ideck] feedback ${instance.feedbackId} style=${JSON.stringify(style)}`)
@@ -155,6 +179,7 @@ function makeContext(id, cache) {
       const controlId = params.controlId ?? `${id}:${params.feedbackId}`
       cache.feedbackInstances.set(controlId, {
         feedbackId: params.feedbackId,
+        // Keep expressions raw: they are resolved when the feedback is evaluated.
         options: params.options ?? {},
       })
       return evaluateFeedback(controlId)
@@ -265,7 +290,7 @@ async function executeAction(params) {
     {
       id: `action-${params.actionId}`,
       actionId: params.actionId,
-      options: params.options ?? {},
+      options: substituteExpressions(params.options ?? {}, connection.cache.variableValues),
       controlId: `${params.connectionId}:${params.actionId}`,
     },
     {},
