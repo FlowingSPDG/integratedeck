@@ -57,15 +57,19 @@ function makeContext(id, cache) {
         { id: controlId, controlId, options: substituteExpressions(instance.options, cache.variableValues) },
         {},
       )
-      console.error(`[ideck] feedback ${instance.feedbackId} style=${JSON.stringify(style)}`)
-      if (style) {
+      // Modules often return text containing `$(var)`; the host resolves it.
+      const resolved = style
+        ? substituteExpressions(style, cache.variableValues)
+        : style
+      console.error(`[ideck] feedback ${instance.feedbackId} style=${JSON.stringify(resolved)}`)
+      if (resolved) {
         emit({
           event: 'feedback.updated',
           connectionId: id,
-          values: [{ id: controlId, style }],
+          values: [{ id: controlId, style: resolved }],
         })
       }
-      return style ?? null
+      return resolved ?? null
     } catch (error) {
       console.error(`[ideck] feedback ${instance.feedbackId} failed: ${error}`)
       log('debug', `feedback ${instance.feedbackId} failed: ${error}`)

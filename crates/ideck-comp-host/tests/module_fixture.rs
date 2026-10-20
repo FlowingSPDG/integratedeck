@@ -43,8 +43,8 @@ export default class Demo {
         type: 'boolean',
         options: [],
         callback: async (feedback) => {
-          this.context.setVariableValues({ state: String(feedback.options?.value ?? 'fb') })
-          return { color: 0x00ff00, text: 'fb' }
+          this.context.setVariableValues({ fb_state: String(feedback.options?.value ?? 'fb') })
+          return { color: 0x00ff00, text: "fb $(state)" }
         },
       },
     })
@@ -188,6 +188,23 @@ async fn module_fixture_roundtrip() {
         .unwrap();
     assert_eq!(resolved["value"], "Camera 2");
 
+    // A feedback style may also carry `$(var)`; the host resolves it before the
+    // style reaches the surface bridge.
+    let styled = runtime
+        .request(
+            "connection.setFeedback",
+            json!({
+                "connectionId": "c1",
+                "controlId": "c1:fb",
+                "feedbackId": "fb1",
+                "options": {}
+            }),
+        )
+        .await
+        .expect("set feedback");
+    let style = styled.result.expect("style");
+    assert_eq!(style["style"]["text"], "fb Camera 2");
+
     let updated = runtime
         .request(
             "connection.updateConfig",
@@ -229,7 +246,7 @@ async fn module_fixture_roundtrip() {
     let feedback_value = runtime
         .request(
             "connection.getVariableValue",
-            json!({ "connectionId": "c1", "variableId": "state" }),
+            json!({ "connectionId": "c1", "variableId": "fb_state" }),
         )
         .await
         .expect("var")
