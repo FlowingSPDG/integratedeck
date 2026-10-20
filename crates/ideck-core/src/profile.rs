@@ -103,13 +103,35 @@ impl Profile {
         if siblings.len() < 2 {
             return None;
         }
-        let index = siblings.iter().position(|id| *id == current).unwrap_or(0);
-        let next = if delta_x < 0 {
-            (index + 1) % siblings.len()
+        // Skip pages that hold nothing: swiping onto one blanks the device, and
+        // empty pages are usually placeholders. Keep them reachable as long as
+        // no sibling has content (a profile that is still being built).
+        let populated: Vec<PageId> = self
+            .pages
+            .iter()
+            .filter(|page| page.parent_page_id == parent && !page.slots.is_empty())
+            .map(|page| page.id)
+            .collect();
+        let candidates = if populated.len() >= 2 {
+            populated
         } else {
-            (index + siblings.len() - 1) % siblings.len()
+            siblings
         };
-        siblings.get(next).copied().filter(|id| *id != current)
+        if candidates.len() < 2 {
+            return None;
+        }
+        // A page that is not part of `candidates` was skipped (it is empty), so
+        // enter the list from the side matching the swipe direction.
+        let Some(index) = candidates.iter().position(|id| *id == current) else {
+            let entry = if delta_x < 0 { 0 } else { candidates.len() - 1 };
+            return candidates.get(entry).copied();
+        };
+        let next = if delta_x < 0 {
+            (index + 1) % candidates.len()
+        } else {
+            (index + candidates.len() - 1) % candidates.len()
+        };
+        candidates.get(next).copied().filter(|id| *id != current)
     }
 }
 
@@ -177,5 +199,34 @@ mod tests {
 
         assert_eq!(profile.swipe_target_page(only_id, -1), None);
         assert_eq!(profile.swipe_target_page(only_id, 0), None);
+    }
+
+    fn with_slot(mut page: Page) -> Page {
+        let locator = crate::SlotLocator {
+            surface_id: SurfaceId(uuid::Uuid::nil()),
+            page_id: page.id,
+            row: 0,
+            column: 0,
+        };
+        let slot = Slot::new(locator);
+        page.slots.insert(slot.id, slot);
+        page
+    }
+
+    #[test]
+    fn swipe_skips_pages_without_content() {
+        let first = with_slot(page("One", None));
+        let empty = page("Empty", None);
+        let third = with_slot(page("Three", None));
+        let (a, empty_id, c) = (first.id, empty.id, third.id);
+        let profile = profile_with(vec![first, empty, third]);
+
+        // The empty page is skipped in both directions, with wraparound.
+        assert_eq!(profile.swipe_target_page(a, -1), Some(c));
+        assert_eq!(profile.swipe_target_page(c, -1), Some(a));
+        assert_eq!(profile.swipe_target_page(a, 1), Some(c));
+        // Starting from an empty page enters the populated pages.
+        assert_eq!(profile.swipe_target_page(empty_id, -1), Some(a));
+        assert_eq!(profile.swipe_target_page(empty_id, 1), Some(c));
     }
 }

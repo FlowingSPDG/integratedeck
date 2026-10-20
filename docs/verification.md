@@ -82,7 +82,8 @@
 | ダイヤルfeedbackの indicator / layout | ユニット | [x] | `dial_feedback_carries_indicator_and_layout` |
 | Encoder JSON（layout / StackColor / TriggerDescription） | ユニット | [x] | `parses_encoder_layout_and_stack_color`、StackColorはダイヤルLEDへ反映 |
 | Plus タッチスワイプ | 実機 | [x] | `TouchScreenSwipe` を `TouchSwipe` として受け、左右スワイプでページ移動。IPC注入で 32→0→32 セルと往復を確認（実機スワイプは未実施） |
-| スワイプのページ選択 | ユニット | [x] | `swipe_walks_top_level_pages_in_both_directions`、`swipe_stays_inside_the_folder_of_the_current_page` |
+| スワイプのページ選択 | ユニット | [x] | `swipe_walks_top_level_pages_in_both_directions`、`swipe_stays_inside_the_folder_of_the_current_page`、`swipe_skips_pages_without_content` |
+| 空ページのスキップ | ユニット | [x] | スロットの無いページは飛ばす（全ページが空なら従来どおり循環）。空ページから開始した場合は最寄りの非空ページへ |
 | Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送、ストリップ描画を確認 |
 | Plus のキー画像が実機に出る | 実機 | [x] | 再起動後にスロットを持つサーフェスへ接続（8セル全て画像あり） |
 | Studio LCD の復元 | 実機 | [x] | `studio LCD restored bytes=17367`、`cache/lcd/<surface>.jpg` を再送 |
