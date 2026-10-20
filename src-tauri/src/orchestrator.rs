@@ -57,6 +57,8 @@ pub struct Orchestrator {
     last_pi_plugin_uuid: Option<String>,
     nfc: std::collections::HashMap<SurfaceId, Vec<u8>>,
     comp_status: std::collections::HashMap<String, serde_json::Value>,
+    last_input: std::collections::HashMap<SurfaceId, Vec<SurfaceInput>>,
+    input_count: std::collections::HashMap<SurfaceId, u64>,
     vsd_server: Option<tokio::task::JoinHandle<()>>,
     vsd_addr: Option<std::net::SocketAddr>,
     vsd_images: Option<tokio::sync::broadcast::Sender<ideck_vsd::server::VsdImage>>,
@@ -302,6 +304,21 @@ impl Orchestrator {
         surface_id: SurfaceId,
         input: SurfaceInput,
     ) {
+        {
+            let mut orchestrator = state.write().await;
+            let history = orchestrator
+                .last_input
+                .entry(surface_id)
+                .or_default();
+            history.push(input.clone());
+            if history.len() > 64 {
+                history.remove(0);
+            }
+            *orchestrator
+                .input_count
+                .entry(surface_id)
+                .or_default() += 1;
+        }
         let sd_address = match &input {
             SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => Some(*address),
             _ => None,
@@ -574,7 +591,8 @@ impl Orchestrator {
             last_pi_plugin_uuid: None,
             nfc: std::collections::HashMap::new(),
             comp_status: std::collections::HashMap::new(),
-            vsd_server: None,
+            last_input: std::collections::HashMap::new(),
+            input_count: std::collections::HashMap::new(),            vsd_server: None,
             vsd_addr: None,
             vsd_images: None,
         })
@@ -2339,6 +2357,14 @@ impl Orchestrator {
                 .collect::<Vec<_>>()
                 .join(":")
         })
+    }
+
+    pub fn last_surface_input(&self, surface_id: SurfaceId) -> Option<serde_json::Value> {
+        let inputs = self.last_input.get(&surface_id)?;
+        Some(json!({
+            "count": self.input_count.get(&surface_id).copied().unwrap_or(0),
+            "inputs": inputs,
+        }))
     }
 
     pub fn set_studio_lcd(        &self,

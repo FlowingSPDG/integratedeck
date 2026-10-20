@@ -16,6 +16,7 @@ commands.allow = [
   "set_encoder_led",
   "set_studio_lcd",
   "get_last_nfc",
+  "get_last_surface_input",
   "open_plugins_folder",
   "get_runtime_status",
   "unload_sd_plugin",
