@@ -19,6 +19,7 @@
 | Node plugin のタイトル反映 | 実機 | [x] | setTitle `English\n\nClick Me` → keyDown後 `On` をログ確認 |
 | Node plugin の画像反映 | 実機 | [x] | cat-keys keyDown後に 69,896 byte のPNGへ更新 |
 | Node plugin のsetState | 実機 | [x] | フィクスチャで setState(1) → state_index=1 |
+| インストール済みプラグイン全数起動 | 実機 | [x] | 22本すべて `running`（Discord / Tutorial / Advanced HTTP / vMix / ATEM / Plus Dial / Cat Keys / Control Center / Hello World / Lights-Out / OBS Studio / Streamlabs / Volume Controller / V-160HD / V-60HD / Tomato / Spotify / Kairos / OBS WebSocket / Lhm / Keycreator / Navigation）。action 数は manifest と一致（Lhm と Keycreator は 0 個） |
 
 ## Companion
 
@@ -72,7 +73,8 @@
 | ダイヤル解除でコンテキスト解放 | 実機 | [x] | 解除後の回転が配送されない（dispatch が増えない）ことをログで確認 |
 | ダイヤルfeedbackがキーを汚染しない | ユニット | [x] | `dial_feedback_does_not_render_to_key_cells` |
 | 同一ページ共有時のダイヤル状態 | ユニット | [x] | `shared_dial_context_updates_every_surface` |
-| ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
+| ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要（赤/緑を送信済み） |
+| HID 読み取り失敗からの復帰 | 実装 | [x] | 連続10回まで再試行。プラグイン起動時の `ERROR_OPERATION_ABORTED` で入力ループが止まる問題の対策 |
 | Studio LCD にダイヤル値を表示 | 実機 | [x] | 回転でLCDが再描画（cache/lcd/*.jpg 更新、Page名+ダイヤル値+区切りを確認） |
 | タッチストリップ文字のゾーン幅スケーリング | ユニット | [x] | 1424x280では拡大、800x100では従来サイズ |
 | Plus タッチストリップ描画（800x100 / 4分割） | 実機 | [x] | `render_touch_strip` が `write_lcd_fill` へ5416バイト送信（ログ `touch strip rendered`） |
