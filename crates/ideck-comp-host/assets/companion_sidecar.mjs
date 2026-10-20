@@ -127,8 +127,23 @@ function makeContext(id, cache) {
       return variableValues.get(variableId)
     },
 
-    setPresetDefinitions(presets) {
-      cache.presets = Object.values(presets ?? {})
+    setPresetDefinitions(structure, definitions) {
+      // Companion calls this with (structure, definitions). The definitions are
+      // what actually hold `steps`, so both shapes are accepted and the ids are
+      // kept for execution.
+      const fromDefinitions = definitions ?? (Array.isArray(structure) ? null : structure)
+      if (fromDefinitions) {
+        cache.presets = Object.entries(fromDefinitions).map(([presetId, preset]) => ({
+          presetId,
+          ...preset,
+        }))
+      } else {
+        cache.presets = Object.entries(structure ?? {}).map(([presetId, preset]) => ({
+          presetId,
+          ...preset,
+        }))
+      }
+      cache.presetStructure = structure ?? null
       emit({ event: 'definitions.updated', connectionId: id, kind: 'presets', definitions: cache.presets })
     },
 
@@ -302,6 +317,50 @@ async function executeAction(params) {
   return { executed: true, result: result ?? null }
 }
 
+// Presets arrive either as a flat map (id -> preset) or as sections that carry a
+// nested `definitions` list, so both shapes are searched.
+function findPreset(entries, presetId) {
+  for (const entry of entries ?? []) {
+    if (entry.presetId === presetId || (entry.id === presetId && entry.steps)) {
+      return entry
+    }
+    if (Array.isArray(entry.definitions)) {
+      const nested = entry.definitions.find((item) => item.id === presetId)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+// Runs the actions a preset defines for one phase (down/up/rotate_left/rotate_right).
+// Companion binds dials and keys to presets, so this is what a dial does when it
+// is bound to one.
+async function runPresetStep(params) {
+  const connection = connections.get(params.connectionId)
+  if (!connection) throw new Error(`unknown connection ${params.connectionId}`)
+  const preset = findPreset(connection.cache.presets ?? [], params.presetId)
+  if (!preset) throw new Error(`unknown preset ${params.presetId}`)
+  const step = (preset.steps ?? [])[params.step ?? 0] ?? {}
+  const actions = step[params.phase] ?? []
+  let executed = 0
+  for (const item of actions) {
+    const definition = connection.cache.actionDefinitions?.[item.actionId]
+    if (!definition?.callback) continue
+    if (item.delay) await new Promise((resolve) => setTimeout(resolve, item.delay))
+    await definition.callback(
+      {
+        id: `preset-${params.presetId}-${executed}`,
+        actionId: item.actionId,
+        options: substituteExpressions(item.options ?? {}, connection.cache.variableValues),
+        controlId: `${params.connectionId}:${params.presetId}`,
+      },
+      {},
+    )
+    executed += 1
+  }
+  return { executed }
+}
+
 async function handle(method, params, modulesRoot) {
   switch (method) {
     case 'ping':
@@ -324,6 +383,8 @@ async function handle(method, params, modulesRoot) {
       if (!connection) throw new Error(`unknown connection ${params.connectionId}`)
       return { fields: connection.configFields }
     }
+    case 'connection.runPresetStep':
+      return runPresetStep(params)
     case 'connection.executeAction':
       return executeAction(params)
     case 'connection.getVariableValue': {

@@ -484,8 +484,8 @@ impl Orchestrator {
         &self,
         surface_id: SurfaceId,
         index: u32,
-        _ticks: Option<i32>,
-        _pressed: bool,
+        ticks: Option<i32>,
+        pressed: bool,
     ) -> anyhow::Result<()> {
         let page_id = self
             .inner
@@ -515,6 +515,27 @@ impl Orchestrator {
             } => {
                 self.execute_companion_action(&connection_id, &action_id, options)
                     .await?;
+            }
+            // Companion presets define what a dial does per phase, which is how
+            // Companion itself models dials.
+            BindingKind::CompanionPreset {
+                connection_id,
+                preset_id,
+            } => {
+                if let Some(ticks) = ticks {
+                    let phase = if ticks > 0 {
+                        "rotate_right"
+                    } else {
+                        "rotate_left"
+                    };
+                    self.run_companion_preset(&connection_id, &preset_id, phase, 0)
+                        .await?;
+                } else if pressed {
+                    self.run_companion_preset(&connection_id, &preset_id, "down", 0)
+                        .await?;
+                    self.run_companion_preset(&connection_id, &preset_id, "up", 0)
+                        .await?;
+                }
             }
             // Stream Deck dials are delivered by `forward_sd_input` through the
             // action context registered for the dial. Handling them here as well
@@ -916,7 +937,10 @@ impl Orchestrator {
                 }
                 None => {}
                 Some(Binding {
-                    kind: BindingKind::BuiltIn { .. } | BindingKind::MultiAction { .. },
+                    kind:
+                        BindingKind::BuiltIn { .. }
+                        | BindingKind::MultiAction { .. }
+                        | BindingKind::CompanionPreset { .. },
                 }) => {}
             }
         }
@@ -1772,6 +1796,16 @@ impl Orchestrator {
 
     async fn execute_binding_leaf(&mut self, kind: &BindingKind) -> anyhow::Result<()> {
         match kind {
+            BindingKind::CompanionPreset {
+                connection_id,
+                preset_id,
+            } => {
+                self.run_companion_preset(connection_id, preset_id, "down", 0)
+                    .await?;
+                self.run_companion_preset(connection_id, preset_id, "up", 0)
+                    .await?;
+                Ok(())
+            }
             BindingKind::StreamDeck {
                 plugin_uuid,
                 action_uuid,
@@ -3714,6 +3748,32 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub async fn bind_encoder_companion_preset(
+        &mut self,
+        surface_id: SurfaceId,
+        index: u32,
+        connection_id: String,
+        preset_id: String,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .inner
+            .profile
+            .active_page_id
+            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        page.encoders
+            .insert(index, Binding::companion_preset(connection_id, preset_id));
+        self.inner.surface_pages.insert(surface_id, page_id);
+        self.save_profile().await?;
+        Ok(())
+    }
+
     pub async fn bind_encoder_companion(
         &mut self,
         surface_id: SurfaceId,
@@ -3969,7 +4029,9 @@ impl Orchestrator {
                         col,
                     );
                 }
-                BindingKind::BuiltIn { .. } | BindingKind::MultiAction { .. } => {}
+                BindingKind::BuiltIn { .. }
+                | BindingKind::MultiAction { .. }
+                | BindingKind::CompanionPreset { .. } => {}
             }
 
             if let Some(page) = self
@@ -4294,6 +4356,9 @@ impl Orchestrator {
         };
 
         match binding_kind {
+            Some(Binding {
+                kind: BindingKind::CompanionPreset { .. },
+            }) => {}
             Some(Binding {
                 kind:
                     BindingKind::StreamDeck {
@@ -5700,6 +5765,36 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Run one phase of a Companion preset (down/up/rotate_left/rotate_right).
+    pub async fn run_companion_preset(
+        &self,
+        connection_id: &str,
+        preset_id: &str,
+        phase: &str,
+        step: u32,
+    ) -> anyhow::Result<()> {
+        let runtime = self
+            .inner
+            .comp_runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("companion module engine not running"))?;
+        let resp = runtime
+            .request(
+                "connection.runPresetStep",
+                json!({
+                    "connectionId": connection_id,
+                    "presetId": preset_id,
+                    "phase": phase,
+                    "step": step,
+                }),
+            )
+            .await?;
+        if !resp.ok {
+            anyhow::bail!(resp.error.unwrap_or_else(|| "runPresetStep failed".into()));
+        }
+        Ok(())
+    }
+
     pub async fn execute_companion_action(
         &self,
         connection_id: &str,
@@ -6126,6 +6221,13 @@ fn parse_binding_kind(value: serde_json::Value) -> anyhow::Result<BindingKind> {
 
 fn fresh_binding_kind(kind: &BindingKind) -> BindingKind {
     match kind {
+        BindingKind::CompanionPreset {
+            connection_id,
+            preset_id,
+        } => BindingKind::CompanionPreset {
+            connection_id: connection_id.clone(),
+            preset_id: preset_id.clone(),
+        },
         BindingKind::StreamDeck {
             plugin_uuid,
             action_uuid,

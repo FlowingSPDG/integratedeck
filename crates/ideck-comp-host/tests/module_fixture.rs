@@ -36,7 +36,24 @@ export default class Demo {
     })
     this.context.setVariableDefinitions({ state: { name: 'State' } })
     this.context.setVariableValues({ state: 'ready' })
-    this.context.setPresetDefinitions({ p1: { type: 'button', name: 'Preset 1' } })
+    // Companion calls setPresetDefinitions(structure, definitions).
+    this.context.setPresetDefinitions(
+      { s1: { id: 's1', name: 'Section', definitions: [], presets: ['p1'] } },
+      {
+        p1: {
+          type: 'simple',
+          name: 'Preset 1',
+          steps: [
+            {
+              down: [{ actionId: 'act2', options: { value: 'from-preset' } }],
+              up: [],
+              rotate_left: [{ actionId: 'act2', options: { value: 'rotate-left' } }],
+              rotate_right: [],
+            },
+          ],
+        },
+      },
+    )
     this.context.setFeedbackDefinitions({
       fb1: {
         name: 'FB 1',
@@ -253,6 +270,45 @@ async fn module_fixture_roundtrip() {
         .result
         .unwrap();
     assert_eq!(feedback_value["value"], "fb-opt");
+
+    // Preset execution: a dial/key bound to a preset runs the preset's action list.
+    let preset_down = runtime
+        .request(
+            "connection.runPresetStep",
+            json!({ "connectionId": "c1", "presetId": "p1", "phase": "down" }),
+        )
+        .await
+        .expect("preset down");
+    assert_eq!(preset_down.result.unwrap()["executed"], 1);
+    let after_preset = runtime
+        .request(
+            "connection.getVariableValue",
+            json!({ "connectionId": "c1", "variableId": "state" }),
+        )
+        .await
+        .expect("var")
+        .result
+        .unwrap();
+    assert_eq!(after_preset["value"], "from-preset");
+
+    let preset_rotate = runtime
+        .request(
+            "connection.runPresetStep",
+            json!({ "connectionId": "c1", "presetId": "p1", "phase": "rotate_left" }),
+        )
+        .await
+        .expect("preset rotate");
+    assert_eq!(preset_rotate.result.unwrap()["executed"], 1);
+    let after_rotate = runtime
+        .request(
+            "connection.getVariableValue",
+            json!({ "connectionId": "c1", "variableId": "state" }),
+        )
+        .await
+        .expect("var")
+        .result
+        .unwrap();
+    assert_eq!(after_rotate["value"], "rotate-left");
 
     let removed = runtime
         .request("connection.remove", json!({ "connectionId": "c1" }))

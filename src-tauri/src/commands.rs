@@ -370,6 +370,29 @@ pub struct BindEncoderCompanionArgs {
     pub options: serde_json::Value,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindEncoderCompanionPresetArgs {
+    pub surface_id: String,
+    pub index: u32,
+    pub connection_id: String,
+    pub preset_id: String,
+}
+
+#[tauri::command]
+pub async fn bind_encoder_companion_preset(
+    state: State<'_, OrchState>,
+    args: BindEncoderCompanionPresetArgs,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .bind_encoder_companion_preset(surface_id, args.index, args.connection_id, args.preset_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn bind_encoder_companion(
     state: State<'_, OrchState>,

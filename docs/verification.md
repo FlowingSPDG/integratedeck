@@ -116,6 +116,9 @@ CDP（`--remote-debugging-port=9222`）経由でアプリのコマンドを叩�
 | Companion アクション実行（`transitionMix`） | エラーなし |
 | Companion フィードバック（`inputPreview`, mix=1, input=2, bg=0x00ff00） | セルが **緑** に |
 | 変数式 $(var) の展開（オプション値・フィードバック） | ユニット | [x] | module_fixture_roundtrip で $(input_name) → Camera 2 を確認 |
+| Companion プリセット定義の取得（2引数API） | 実機 | [x] | vMix で 751件・うち750件が steps 付き |
+| プリセットをダイヤルに割当・押下で実行 | 実機 | [x] | `mix_1cut` → `transitionMix` 実行、vMix の active/preview が反転 |
+| プリセットのローテート位相 | ユニット | [x] | フィクスチャで `rotate_left` → アクション実行を確認 |
 | フィードバックstyle内の変数展開 | ユニット | [x] | フィクスチャの text が fb Camera 2 に解決することを確認 |
 | Studio LCD のダイヤル表示 | Page名 + ダイヤル値（12ノッチ→"12"） |
 | Plus タッチストリップ描画 | 800x100 / 4ゾーンへ送信 |

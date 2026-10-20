@@ -96,6 +96,7 @@ pub fn run() {
             commands::set_slot_companion_feedback,
             commands::clear_slot_companion_feedback,
             commands::bind_encoder_companion,
+            commands::bind_encoder_companion_preset,
             commands::bind_encoder_sd,
             commands::bind_encoder_builtin,
             commands::simulate_encoder,

@@ -20,6 +20,12 @@ pub enum BindingKind {
         #[serde(default)]
         options: JsonValue,
     },
+    /// Companion preset: a dial/key bound to it runs the preset's action list for
+    /// the matching phase (down/up/rotate_left/rotate_right).
+    CompanionPreset {
+        connection_id: String,
+        preset_id: String,
+    },
     /// Built-in navigation actions (folder, back, page switch).
     BuiltIn {
         action_id: String,
@@ -124,6 +130,18 @@ impl Binding {
                 connection_id: connection_id.into(),
                 action_id: action_id.into(),
                 options,
+            },
+        }
+    }
+
+    pub fn companion_preset(
+        connection_id: impl Into<String>,
+        preset_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: BindingKind::CompanionPreset {
+                connection_id: connection_id.into(),
+                preset_id: preset_id.into(),
             },
         }
     }
