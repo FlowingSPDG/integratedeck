@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use ideck_core::VisualState;
+use ideck_core::{SurfaceId, VisualState};
 use ideck_surface::{CellAddress, CellUpdate, SurfaceInput};
 
 /// Maps Companion feedback and actions to surface cells.
 pub struct CompSurfaceBridge {
     pub control_by_cell: HashMap<(u32, u32), String>,
     pub cell_by_control: HashMap<String, (u32, u32)>,
+    pub surface_by_control: HashMap<String, SurfaceId>,
 }
 
 impl CompSurfaceBridge {
@@ -14,6 +15,7 @@ impl CompSurfaceBridge {
         Self {
             control_by_cell: HashMap::new(),
             cell_by_control: HashMap::new(),
+            surface_by_control: HashMap::new(),
         }
     }
 
@@ -21,6 +23,23 @@ impl CompSurfaceBridge {
         self.control_by_cell
             .insert((row, column), control_id.clone());
         self.cell_by_control.insert(control_id, (row, column));
+    }
+
+    /// Register a Companion control together with the surface that owns it.
+    pub fn register_cell_for_surface(
+        &mut self,
+        surface_id: SurfaceId,
+        row: u32,
+        column: u32,
+        control_id: String,
+    ) {
+        self.surface_by_control
+            .insert(control_id.clone(), surface_id);
+        self.register_cell(row, column, control_id);
+    }
+
+    pub fn surface_for_control(&self, control_id: &str) -> Option<SurfaceId> {
+        self.surface_by_control.get(control_id).copied()
     }
 
     pub fn control_for_input(&self, address: &CellAddress) -> Option<&str> {

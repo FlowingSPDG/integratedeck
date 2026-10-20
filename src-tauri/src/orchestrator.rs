@@ -621,8 +621,11 @@ impl Orchestrator {
                     if let Some(update) = bridge.feedback_to_update(control_id, visual.clone()) {
                         info!(control_id, ?visual, "companion feedback visual");
                         let page_id = self.inner.profile.active_page_id.unwrap_or_default();
-                        let surface_id =
-                            self.surface_id_for_cell(update.address.row, update.address.column);
+                        let surface_id = bridge
+                            .surface_for_control(control_id)
+                            .unwrap_or_else(|| {
+                                self.surface_id_for_cell(update.address.row, update.address.column)
+                            });
                         self.inner.cell_visuals.insert(
                             (
                                 surface_id,
@@ -812,6 +815,7 @@ impl Orchestrator {
                         slot_id,
                         &connection_id,
                         &action_id,
+                        slot.locator.surface_id,
                         slot.locator.row,
                         slot.locator.column,
                     );
@@ -1072,6 +1076,7 @@ impl Orchestrator {
         slot_id: SlotId,
         connection_id: &str,
         action_id: &str,
+        surface_id: SurfaceId,
         row: u32,
         col: u32,
     ) {
@@ -1084,7 +1089,12 @@ impl Orchestrator {
             self.inner.comp_bridge = Some(CompSurfaceBridge::new());
         }
         if let Some(bridge) = self.inner.comp_bridge.as_mut() {
-            bridge.register_cell(row, col, format!("{connection_id}:{action_id}"));
+            bridge.register_cell_for_surface(
+                surface_id,
+                row,
+                col,
+                format!("{connection_id}:{action_id}"),
+            );
         }
     }
 
@@ -3028,7 +3038,7 @@ impl Orchestrator {
         }
         if let Some(bridge) = self.inner.comp_bridge.as_mut() {
             let control_id = format!("{connection_id}:{action_id}");
-            bridge.register_cell(row, col, control_id);
+            bridge.register_cell_for_surface(surface_id, row, col, control_id);
         }
 
         let title = action_id.clone();
@@ -3496,7 +3506,14 @@ impl Orchestrator {
                     action_id,
                     ..
                 } => {
-                    self.restore_companion_binding(slot_id, connection_id, action_id, row, col);
+                    self.restore_companion_binding(
+                        slot_id,
+                        connection_id,
+                        action_id,
+                        surface_id,
+                        row,
+                        col,
+                    );
                 }
                 BindingKind::BuiltIn { .. } | BindingKind::MultiAction { .. } => {}
             }
@@ -3777,7 +3794,12 @@ impl Orchestrator {
                 continue;
             };
             let control_id = format!("{connection_id}:{action_id}");
-            bridge.register_cell(slot.locator.row, slot.locator.column, control_id);
+            bridge.register_cell_for_surface(
+                slot.locator.surface_id,
+                slot.locator.row,
+                slot.locator.column,
+                control_id,
+            );
             self.inner.routing.register_companion_slot(
                 slot.id,
                 connection_id.clone(),
