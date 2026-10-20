@@ -848,6 +848,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn resolves_code_path_for_encrypted_style_empty_manifest_path() {
         let dir = std::env::temp_dir().join(format!(
             "ideck-codepath-native-{}",
@@ -984,6 +985,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn launch_strategy_detects_discovered_native_binary() {
         let dir = std::env::temp_dir().join(format!(
             "ideck-launch-native-{}",
@@ -1011,6 +1013,36 @@ mod tests {
             }
             other => panic!("expected native binary, got {other:?}"),
         }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn windows_only_bundle_has_no_entry_off_windows() {
+        // A plugin that ships only a Windows `.exe` cannot be launched on Linux or
+        // macOS, so discovery must decline instead of handing back a binary that
+        // would fail at spawn time.
+        let dir = std::env::temp_dir().join(format!(
+            "ideck-launch-native-unix-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bundle = dir.join("com.test.discord.sdPlugin");
+        fs::create_dir_all(&bundle).unwrap();
+        fs::write(bundle.join("manifest.json"), b"ELGATO\x01\x00").unwrap();
+        fs::write(
+            bundle.join("en.json"),
+            r#"{"Name":"Discord","com.test.action":{"Name":"Mute"}}"#,
+        )
+        .unwrap();
+        fs::write(bundle.join("ESDTest.exe"), "fake").unwrap();
+
+        let manifest = StreamDeckManifest::load(&bundle).expect("load");
+        assert!(manifest.resolve_code_path(&bundle).is_none());
+        assert!(crate::launch::PluginLaunchStrategy::detect(&manifest, &bundle).is_err());
 
         let _ = fs::remove_dir_all(dir);
     }
