@@ -15,3 +15,6 @@ base64 = { workspace = true }
 ideck-core = { workspace = true }
 ideck-surface = { workspace = true }
 ideck-sd-host = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }

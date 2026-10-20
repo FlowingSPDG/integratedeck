@@ -5,7 +5,9 @@ use ideck_surface::{CellAddress, CellUpdate, SurfaceInput};
 
 /// Maps Companion feedback and actions to surface cells.
 pub struct CompSurfaceBridge {
-    pub control_by_cell: HashMap<(u32, u32), String>,
+    /// Two surfaces can share the same (row, column), so the cell index keeps
+    /// the surface id.
+    pub control_by_cell: HashMap<(SurfaceId, u32, u32), String>,
     pub cell_by_control: HashMap<String, (u32, u32)>,
     pub surface_by_control: HashMap<String, SurfaceId>,
 }
@@ -19,12 +21,6 @@ impl CompSurfaceBridge {
         }
     }
 
-    pub fn register_cell(&mut self, row: u32, column: u32, control_id: String) {
-        self.control_by_cell
-            .insert((row, column), control_id.clone());
-        self.cell_by_control.insert(control_id, (row, column));
-    }
-
     /// Register a Companion control together with the surface that owns it.
     pub fn register_cell_for_surface(
         &mut self,
@@ -35,7 +31,9 @@ impl CompSurfaceBridge {
     ) {
         self.surface_by_control
             .insert(control_id.clone(), surface_id);
-        self.register_cell(row, column, control_id);
+        self.control_by_cell
+            .insert((surface_id, row, column), control_id.clone());
+        self.cell_by_control.insert(control_id, (row, column));
     }
 
     pub fn surface_for_control(&self, control_id: &str) -> Option<SurfaceId> {
@@ -43,16 +41,16 @@ impl CompSurfaceBridge {
     }
 
     /// Forget whatever control was registered for a cell (slot unbound).
-    pub fn unregister_cell(&mut self, row: u32, column: u32) {
-        if let Some(control_id) = self.control_by_cell.remove(&(row, column)) {
+    pub fn unregister_cell(&mut self, surface_id: SurfaceId, row: u32, column: u32) {
+        if let Some(control_id) = self.control_by_cell.remove(&(surface_id, row, column)) {
             self.cell_by_control.remove(&control_id);
             self.surface_by_control.remove(&control_id);
         }
     }
 
-    pub fn control_for_input(&self, address: &CellAddress) -> Option<&str> {
+    pub fn control_for_input(&self, surface_id: SurfaceId, address: &CellAddress) -> Option<&str> {
         self.control_by_cell
-            .get(&(address.row, address.column))
+            .get(&(surface_id, address.row, address.column))
             .map(String::as_str)
     }
 
@@ -78,11 +76,15 @@ impl CompSurfaceBridge {
         visual
     }
 
-    pub fn surface_input_control(input: &SurfaceInput, bridge: &Self) -> Option<String> {
+    pub fn surface_input_control(
+        surface_id: SurfaceId,
+        input: &SurfaceInput,
+        bridge: &Self,
+    ) -> Option<String> {
         match input {
-            SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => {
-                bridge.control_for_input(address).map(String::from)
-            }
+            SurfaceInput::KeyDown { address } | SurfaceInput::KeyUp { address } => bridge
+                .control_for_input(surface_id, address)
+                .map(String::from),
             _ => None,
         }
     }
@@ -127,15 +129,40 @@ mod tests {
         bridge.register_cell_for_surface(surface, 2, 3, "conn:ctl".into());
         assert_eq!(bridge.surface_for_control("conn:ctl"), Some(surface));
 
-        bridge.unregister_cell(2, 3);
+        bridge.unregister_cell(surface, 2, 3);
 
         assert!(bridge.surface_for_control("conn:ctl").is_none());
         assert!(bridge
             .feedback_to_update("conn:ctl", VisualState::default())
             .is_none());
         assert!(bridge
-            .control_for_input(&CellAddress { row: 2, column: 3 })
+            .control_for_input(surface, &CellAddress { row: 2, column: 3 })
             .is_none());
+    }
+
+    #[test]
+    fn two_surfaces_can_share_a_cell_without_clobbering_each_other() {
+        let mut bridge = CompSurfaceBridge::new();
+        let studio = SurfaceId(uuid::Uuid::new_v4());
+        let plus = SurfaceId(uuid::Uuid::new_v4());
+        bridge.register_cell_for_surface(studio, 0, 0, "conn:studio".into());
+        bridge.register_cell_for_surface(plus, 0, 0, "conn:plus".into());
+
+        let address = CellAddress { row: 0, column: 0 };
+        assert_eq!(
+            bridge.control_for_input(studio, &address),
+            Some("conn:studio")
+        );
+        assert_eq!(bridge.control_for_input(plus, &address), Some("conn:plus"));
+
+        // Unbinding the Studio key must leave the Plus key untouched.
+        bridge.unregister_cell(studio, 0, 0);
+        assert!(bridge
+            .feedback_to_update("conn:studio", VisualState::default())
+            .is_none());
+        assert!(bridge
+            .feedback_to_update("conn:plus", VisualState::default())
+            .is_some());
     }
 
     #[test]

@@ -4253,7 +4253,7 @@ impl Orchestrator {
             }
         }
         if let Some(bridge) = self.inner.comp_bridge.as_mut() {
-            bridge.unregister_cell(row, col);
+            bridge.unregister_cell(surface_id, row, col);
         }
 
         self.persist_slot_changes(surface_id).await?;
