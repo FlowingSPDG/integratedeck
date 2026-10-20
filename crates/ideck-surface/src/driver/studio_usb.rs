@@ -225,6 +225,7 @@ fn usb_task(
     let mut previous_keys = [false; KEYS];
     let mut previous_encoders = [false; ENCODERS];
     let mut report = [0u8; INPUT_REPORT_LEN];
+    let mut logged = 0usize;
     loop {
         match rx.try_recv() {
             Ok(packet) => {
@@ -240,6 +241,10 @@ fn usb_task(
         match device.read_timeout(&mut report, 20) {
             Ok(0) => {}
             Ok(length) => {
+                if logged < 24 {
+                    info!("studio USB rx head={:02x?}", &report[..16]);
+                    logged += 1;
+                }
                 for input in decode_input(
                     &report[..length.min(report.len())],
                     &mut previous_keys,
