@@ -7,7 +7,14 @@ use ideck_sd_host::{spawn_node, PluginLaunchStrategy, StreamDeckManifest};
 
 #[tokio::test]
 async fn node_plugin_launch_passes_official_args() {
-    let root = std::env::temp_dir().join(format!("ideck-node-plugin-{}", std::process::id()));
+    // Unique per run: a leftover directory from an interrupted run must not be
+    // mistaken for this run's output.
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root =
+        std::env::temp_dir().join(format!("ideck-node-plugin-{}-{unique}", std::process::id()));
     let dir = root.join("com.example.node.sdPlugin");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -48,7 +55,8 @@ async fn node_plugin_launch_passes_official_args() {
 
     let args_path = dir.join("args.json");
     let mut args = String::new();
-    for _ in 0..30 {
+    // Node cold start on a loaded CI host can take several seconds.
+    for _ in 0..150 {
         if let Ok(text) = std::fs::read_to_string(&args_path) {
             args = text;
             break;
@@ -57,7 +65,11 @@ async fn node_plugin_launch_passes_official_args() {
     }
     let _ = child.start_kill();
 
-    assert!(args.contains("args.js"), "argv: {args}");
+    assert!(
+        args.contains("args.js"),
+        "node plugin did not write argv within 15s (argv: {args:?}, dir: {})",
+        dir.display()
+    );
     assert!(args.contains("-port"), "argv: {args}");
     assert!(args.contains("12345"), "argv: {args}");
     assert!(args.contains("-pluginUUID"), "argv: {args}");
