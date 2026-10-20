@@ -176,6 +176,7 @@ pub struct StreamDeckHidSurface {
     descriptor: SurfaceDescriptor,
     session: HidSession,
     input_tx: broadcast::Sender<SurfaceInput>,
+    touch_strip_ready: std::sync::atomic::AtomicBool,
 }
 
 impl StreamDeckHidSurface {
@@ -199,6 +200,7 @@ impl StreamDeckHidSurface {
             },
             session,
             input_tx: broadcast::channel(64).0,
+            touch_strip_ready: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -298,6 +300,25 @@ impl super::Surface for StreamDeckHidSurface {
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError> {
         let caps = &self.descriptor.capabilities;
         let (width, height) = (caps.key_width_px, caps.key_height_px);
+
+        if caps.has_lcd_strip
+            && !self
+                .touch_strip_ready
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            if let Some((w, h)) = self.kind().lcd_strip_size() {
+                let image = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                    w as u32,
+                    h as u32,
+                    image::Rgba([16, 18, 24, 255]),
+                ));
+                if let Some(format) = self.kind().lcd_image_format() {
+                    if let Ok(data) = convert_image_with_format(format, image) {
+                        let _ = self.session.device.write_lcd_fill(&data).await;
+                    }
+                }
+            }
+        }
 
         for update in updates {
             let key = address_to_key(self.kind(), &update.address);
