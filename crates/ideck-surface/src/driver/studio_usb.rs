@@ -178,6 +178,11 @@ impl StudioUsbSurface {
         ));
     }
 
+    /// Set panel/backlight brightness (0-100).
+    pub fn set_brightness(&self, percent: u8) {
+        self.send(super::studio_protocol::brightness_packet(percent.min(100)));
+    }
+
     /// Draw a JPEG on the Studio fullscreen LCD panel.
     pub fn set_lcd_image(&self, jpeg: &[u8]) {
         for packet in super::studio_protocol::lcd_image_packets(0, 0, 1424, 280, jpeg) {

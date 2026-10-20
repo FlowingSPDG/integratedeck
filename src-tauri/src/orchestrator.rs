@@ -2060,6 +2060,7 @@ impl Orchestrator {
         }
         self.render_surface_visuals(surface_id).await;
         self.restore_surface_display(surface_id).await;
+        self.prune_duplicate_surfaces(surface_id).await;
         Ok(())
     }
 
@@ -2398,6 +2399,20 @@ impl Orchestrator {
             .surface_drivers
             .connect(&driver_id, &device_id, surface_id, &label)
             .map_err(|e| e.to_string())?;
+
+        // Driver devices have no HID record yet, so apply the saved brightness
+        // here (Studio panels are dim at the default level).
+        let brightness = settings_store::load_device_registry()
+            .iter()
+            .find(|record| record.device_key == settings_store::device_key(&driver_id, &device_id))
+            .map(|record| record.brightness)
+            .unwrap_or(60);
+        let any = surface.clone().as_any();
+        if let Ok(usb) = any.clone().downcast::<ideck_surface::StudioUsbSurface>() {
+            usb.set_brightness(brightness);
+        } else if let Ok(lan) = any.downcast::<ideck_surface::StudioLanSurface>() {
+            lan.set_brightness(brightness);
+        }
 
         self.inner
             .surfaces
@@ -2960,12 +2975,60 @@ impl Orchestrator {
             let surface_id =
                 SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
             if let Some(physical) = self.inner.surfaces.physical(surface_id) {
-                if let Ok(hid) = physical.as_any().downcast::<StreamDeckHidSurface>() {
+                let any = physical.as_any();
+                if let Ok(hid) = any.clone().downcast::<StreamDeckHidSurface>() {
                     hid.set_brightness(brightness).await?;
+                } else if let Ok(usb) = any.clone().downcast::<ideck_surface::StudioUsbSurface>() {
+                    usb.set_brightness(brightness);
+                } else if let Ok(lan) = any.downcast::<ideck_surface::StudioLanSurface>() {
+                    lan.set_encoder_led(0, 0, 0, 0);
+                    lan.set_brightness(brightness);
                 }
             }
         }
         Ok(())
+    }
+
+    /// Drop profile surfaces that duplicate a device we just connected.
+    ///
+    /// Auto-connect used to register a second surface for a device that already
+    /// had one in the profile, leaving a slot-less "Stream Deck +" entry behind.
+    async fn prune_duplicate_surfaces(&mut self, keep: SurfaceId) {
+        let keep_label = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .find(|surface| surface.surface_id == keep)
+            .map(|surface| surface.label.clone());
+        let Some(keep_label) = keep_label else {
+            return;
+        };
+
+        let stale: Vec<SurfaceId> = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .filter(|surface| surface.surface_id != keep)
+            .filter(|surface| surface.label == keep_label)
+            .filter(|surface| self.surface_slot_count(surface.surface_id) == 0)
+            .filter(|surface| self.inner.surfaces.physical(surface.surface_id).is_none())
+            .map(|surface| surface.surface_id)
+            .collect();
+        if stale.is_empty() {
+            return;
+        }
+
+        for surface_id in &stale {
+            self.inner
+                .profile
+                .surfaces
+                .retain(|surface| surface.surface_id != *surface_id);
+            self.inner.surfaces.unregister(*surface_id).await;
+        }
+        let _ = self.save_profile().await;
+        info!(removed = stale.len(), label = %keep_label, "pruned duplicate surfaces");
     }
 
     pub async fn connect_settings_device(
