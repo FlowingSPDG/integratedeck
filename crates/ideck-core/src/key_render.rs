@@ -78,6 +78,19 @@ pub fn solid_key_png(width: u32, height: u32, r: u8, g: u8, b: u8) -> ImagePaylo
     }
 }
 
+/// Fully transparent key image, used to let a feedback background colour show
+/// through the default slot icon.
+pub fn transparent_key_png(size: u32) -> ImagePayload {
+    let img: RgbaImage = ImageBuffer::from_pixel(size, size, Rgba([0, 0, 0, 0]));
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .expect("encode transparent key png");
+    ImagePayload {
+        format: ImageFormat::Png,
+        data: buf.into_inner(),
+    }
+}
+
 fn decode_base_image(visual: &VisualState, width: u32, height: u32) -> Option<RgbaImage> {
     if let Some(payload) = &visual.image {
         let img = image::ImageReader::new(std::io::Cursor::new(&payload.data))

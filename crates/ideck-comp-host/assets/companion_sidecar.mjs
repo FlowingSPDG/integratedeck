@@ -33,6 +33,7 @@ function makeContext(id, cache) {
         { id: controlId, controlId, options: instance.options },
         {},
       )
+      console.error(`[ideck] feedback ${instance.feedbackId} style=${JSON.stringify(style)}`)
       if (style) {
         emit({
           event: 'feedback.updated',
@@ -42,6 +43,7 @@ function makeContext(id, cache) {
       }
       return style ?? null
     } catch (error) {
+      console.error(`[ideck] feedback ${instance.feedbackId} failed: ${error}`)
       log('debug', `feedback ${instance.feedbackId} failed: ${error}`)
       return null
     }

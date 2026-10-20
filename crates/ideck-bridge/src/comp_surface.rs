@@ -42,10 +42,8 @@ impl CompSurfaceBridge {
 
     pub fn parse_feedback_style(value: &serde_json::Value) -> VisualState {
         let mut visual = VisualState::default();
-        if let Some(bg) = value.get("bgcolor").and_then(|v| v.as_str()) {
-            if let Some(c) = parse_rgb(bg) {
-                visual.bgcolor = Some(c);
-            }
+        if let Some(color) = value.get("bgcolor").and_then(parse_color_value) {
+            visual.bgcolor = Some(color);
         }
         if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
             visual.title = Some(text.to_string());
@@ -63,6 +61,17 @@ impl CompSurfaceBridge {
     }
 }
 
+fn parse_color_value(value: &serde_json::Value) -> Option<ideck_core::Color> {
+    if let Some(text) = value.as_str() {
+        return parse_rgb(text);
+    }
+    value.as_u64().map(|value| ideck_core::Color {
+        r: ((value >> 16) & 0xff) as u8,
+        g: ((value >> 8) & 0xff) as u8,
+        b: (value & 0xff) as u8,
+    })
+}
+
 fn parse_rgb(s: &str) -> Option<ideck_core::Color> {
     let s = s.trim().trim_start_matches('#');
     if s.len() == 6 {
@@ -77,5 +86,32 @@ fn parse_rgb(s: &str) -> Option<ideck_core::Color> {
 impl Default for CompSurfaceBridge {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_numeric_and_hex_feedback_colors() {
+        let numeric = CompSurfaceBridge::parse_feedback_style(&serde_json::json!({
+            "bgcolor": 0x00ff00,
+            "text": "live"
+        }));
+        assert_eq!(numeric.bgcolor, Some(ideck_core::Color { r: 0, g: 255, b: 0 }));
+        assert_eq!(numeric.title.as_deref(), Some("live"));
+
+        let hex = CompSurfaceBridge::parse_feedback_style(&serde_json::json!({
+            "bgcolor": "#112233"
+        }));
+        assert_eq!(
+            hex.bgcolor,
+            Some(ideck_core::Color {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33
+            })
+        );
     }
 }

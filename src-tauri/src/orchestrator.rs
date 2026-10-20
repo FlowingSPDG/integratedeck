@@ -7,10 +7,10 @@ use ideck_bridge::SdSurfaceBridge;
 use ideck_comp_host::{scan_module_dirs, CompModuleRuntime, ConnectionRecord, HostEvent};
 use ideck_core::{
     action_display_name, image_from_base64, image_from_data_url, merge_visual, solid_key_png,
-    ActionInstanceId, Binding, BindingKind, CompanionFeedbackConfig, FolderSettings,
-    MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance, SlotId, SlotLocator, SurfaceId,
-    SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION, OPEN_FOLDER,
-    PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
+    transparent_key_png, ActionInstanceId, Binding, BindingKind, CompanionFeedbackConfig,
+    FolderSettings, MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance, SlotId,
+    SlotLocator, SurfaceId, SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION,
+    OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
 };
 use ideck_sd_host::{
     action_icon_data_url, close_webview_plugin, effective_plugin_uuid, scan_sd_plugins_roots,
@@ -600,6 +600,7 @@ impl Orchestrator {
     async fn apply_companion_event(&mut self, ev: HostEvent) {
         match ev.event.as_str() {
             "feedback.updated" => {
+                info!(values = ?ev.data.get("values"), "companion feedback event");
                 let bridge = match &self.inner.comp_bridge {
                     Some(b) => b,
                     None => return,
@@ -613,8 +614,12 @@ impl Orchestrator {
                 for item in values {
                     let control_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
                     let style = item.get("style").cloned().unwrap_or(json!({}));
-                    let visual = CompSurfaceBridge::parse_feedback_style(&style);
+                    let mut visual = CompSurfaceBridge::parse_feedback_style(&style);
+                    if visual.bgcolor.is_some() && visual.image.is_none() {
+                        visual.image = Some(transparent_key_png(96));
+                    }
                     if let Some(update) = bridge.feedback_to_update(control_id, visual.clone()) {
+                        info!(control_id, ?visual, "companion feedback visual");
                         let page_id = self.inner.profile.active_page_id.unwrap_or_default();
                         let surface_id =
                             self.surface_id_for_cell(update.address.row, update.address.column);
