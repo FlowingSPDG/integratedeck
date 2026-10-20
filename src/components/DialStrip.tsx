@@ -51,6 +51,15 @@ export const DialStrip = memo(function DialStrip() {
     [presets, debouncedQuery],
   );
   const selectedPreset = filteredPresets.find((preset) => preset.id === presetId);
+  // Long preset lists are truncated for the dropdown; keep the current choice
+  // visible even when it would fall outside the window.
+  const visiblePresets = useMemo(() => {
+    const limited = filteredPresets.slice(0, 400);
+    if (selectedPreset && !limited.includes(selectedPreset)) {
+      return [...limited, selectedPreset];
+    }
+    return limited;
+  }, [filteredPresets, selectedPreset]);
 
   const assign = async (index: number) => {
     if (!selected || !selectedSurfaceId) return;
@@ -247,7 +256,7 @@ export const DialStrip = memo(function DialStrip() {
                 onChange={(e) => setPresetId(e.target.value)}
               >
                 <option value="">プリセットを選択…</option>
-                {filteredPresets.slice(0, 400).map((preset) => (
+                {visiblePresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {presetLabel(preset)}
                     {preset.hasSteps ? "" : " (空)"}
