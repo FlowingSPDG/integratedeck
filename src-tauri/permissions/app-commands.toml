@@ -61,6 +61,7 @@ commands.allow = [
   "get_pi_context",
   "focus_pi_slot",
   "get_cell_visuals",
+  "get_dial_visuals",
   "get_property_inspector_url",
   "list_plugin_actions",
   "update_slot_settings",

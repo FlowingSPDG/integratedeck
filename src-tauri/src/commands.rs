@@ -844,6 +844,16 @@ pub async fn get_cell_visuals(
 }
 
 #[tauri::command]
+pub async fn get_dial_visuals(
+    state: State<'_, OrchState>,
+    surface_id: String,
+) -> Result<HashMap<u32, VisualState>, String> {
+    let surface_id = SurfaceId(uuid::Uuid::parse_str(&surface_id).map_err(|e| e.to_string())?);
+    let o = state.read().await;
+    Ok(o.get_dial_visuals(surface_id))
+}
+
+#[tauri::command]
 pub async fn list_action_library(state: State<'_, OrchState>) -> Result<ActionLibrary, String> {
     let o = state.read().await;
     o.list_action_library().await.map_err(|e| e.to_string())

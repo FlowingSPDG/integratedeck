@@ -124,6 +124,7 @@ pub fn run() {
             commands::focus_pi_slot,
             commands::list_variables,
             commands::get_cell_visuals,
+            commands::get_dial_visuals,
             commands::get_property_inspector_url,
             commands::list_plugin_actions,
             commands::update_slot_settings,

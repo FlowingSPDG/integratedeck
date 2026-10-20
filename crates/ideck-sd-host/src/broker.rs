@@ -316,6 +316,7 @@ impl StreamDeckBroker {
             .get(context)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        tracing::debug!(context, ticks, pressed, "dialRotate -> plugin");
         let payload = json!({
             "event": "dialRotate",
             "action": ctx.action_uuid,
@@ -357,6 +358,7 @@ impl StreamDeckBroker {
             .get(context)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown context"))?;
+        tracing::debug!(context, event, pressed, "dial press -> plugin");
         let payload = json!({
             "event": event,
             "action": ctx.action_uuid,

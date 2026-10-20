@@ -12,6 +12,11 @@ pub struct SdSurfaceBridge {
     pub context_by_cell: HashMap<(SurfaceId, u32, u32), String>,
     /// context -> (surface, row, col)
     pub cell_by_context: HashMap<String, (SurfaceId, u32, u32)>,
+    /// (surface, dial index) -> SD context id
+    pub context_by_encoder: HashMap<(SurfaceId, u32), String>,
+    /// context -> every (surface, dial index) showing it. Two surfaces that show
+    /// the same page share one action context, so this must be a list.
+    pub encoder_by_context: HashMap<String, Vec<(SurfaceId, u32)>>,
     pub device_id: String,
     pub plugin_uuid: String,
 }
@@ -22,6 +27,8 @@ impl SdSurfaceBridge {
             emulation,
             context_by_cell: HashMap::new(),
             cell_by_context: HashMap::new(),
+            context_by_encoder: HashMap::new(),
+            encoder_by_context: HashMap::new(),
             device_id: "integratedeck-virtual-1".into(),
             plugin_uuid: plugin_uuid.into(),
         }
@@ -32,6 +39,38 @@ impl SdSurfaceBridge {
         self.context_by_cell.insert(key, context.clone());
         self.cell_by_context
             .insert(context, (surface_id, row, column));
+    }
+
+    /// Bind a dial context. Dials are not cells: they must never receive key
+    /// renders, otherwise a dial title would overwrite the key at (0, index).
+    pub fn register_encoder(&mut self, surface_id: SurfaceId, index: u32, context: String) {
+        let key = (surface_id, index);
+        if let Some(old) = self.context_by_encoder.get(&key) {
+            if old != &context {
+                if let Some(list) = self.encoder_by_context.get_mut(old) {
+                    list.retain(|(sid, idx)| (*sid, *idx) != key);
+                    if list.is_empty() {
+                        self.encoder_by_context.remove(old);
+                    }
+                }
+            }
+        }
+        // Drop any stale cell mapping for this index before claiming it as a dial.
+        if let Some(old) = self.context_by_cell.get(&(surface_id, 0, index)) {
+            self.cell_by_context.remove(old);
+        }
+        self.context_by_encoder.insert(key, context.clone());
+        let entry = self.encoder_by_context.entry(context).or_default();
+        if !entry.contains(&key) {
+            entry.push(key);
+        }
+    }
+
+    pub fn encoders_for_context(&self, context: &str) -> &[(SurfaceId, u32)] {
+        self.encoder_by_context
+            .get(context)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub fn context_for_input(&self, surface_id: SurfaceId, address: &CellAddress) -> Option<&str> {
@@ -57,24 +96,26 @@ impl SdSurfaceBridge {
                 ticks,
                 pressed,
             } => {
-                let ctx = self
-                    .context_by_cell
-                    .get(&(surface_id, 0, *index))
-                    .cloned()
-                    .or_else(|| self.context_by_cell.get(&(surface_id, *index, 0)).cloned())?;
+                let ctx = self.encoder_context(surface_id, *index)?;
                 let _ = (ticks, pressed);
                 Some((ctx, "dialRotate"))
             }
             SurfaceInput::EncoderPress { index, pressed: _ } => {
-                let ctx = self
-                    .context_by_cell
-                    .get(&(surface_id, 0, *index))
-                    .cloned()
-                    .or_else(|| self.context_by_cell.get(&(surface_id, *index, 0)).cloned())?;
+                let ctx = self.encoder_context(surface_id, *index)?;
                 Some((ctx, "dialPress"))
             }
             _ => None,
         }
+    }
+
+    /// Resolve the context bound to a dial, falling back to cell coordinates for
+    /// dials that were bound before dial contexts existed.
+    fn encoder_context(&self, surface_id: SurfaceId, index: u32) -> Option<String> {
+        self.context_by_encoder
+            .get(&(surface_id, index))
+            .cloned()
+            .or_else(|| self.context_by_cell.get(&(surface_id, 0, index)).cloned())
+            .or_else(|| self.context_by_cell.get(&(surface_id, index, 0)).cloned())
     }
 
     pub fn broker_event_to_updates(
@@ -82,6 +123,12 @@ impl SdSurfaceBridge {
         event: &BrokerEvent,
         visuals: &mut HashMap<(u32, u32), VisualState>,
     ) -> Vec<CellUpdate> {
+        // Dial feedback is not a key render: it belongs to the dial display.
+        if let Some(context) = broker_event_context(event) {
+            if self.encoder_by_context.contains_key(context) {
+                return Vec::new();
+            }
+        }
         let mut updates = Vec::new();
         match event {
             BrokerEvent::SetImage {
@@ -158,6 +205,76 @@ impl SdSurfaceBridge {
         (locator.column, locator.row)
     }
 
+    /// Merge a dial's feedback into the dial visual store for every surface that
+    /// shows it. Dials render to their own display (touch strip / LCD), not to a
+    /// key, so this mirrors the cell merge without touching the key grid.
+    pub fn apply_encoder_event(
+        &self,
+        event: &BrokerEvent,
+        visuals: &mut HashMap<(SurfaceId, u32), VisualState>,
+    ) -> Vec<(SurfaceId, u32, VisualState)> {
+        let Some(context) = broker_event_context(event) else {
+            return Vec::new();
+        };
+        if !self.encoder_by_context.contains_key(context) {
+            return Vec::new();
+        }
+        let mut updates = Vec::new();
+        // Start from the primary dial so shared contexts keep identical state.
+        for (surface_id, index) in self.encoders_for_context(context).iter().copied() {
+            let visual = visuals.entry((surface_id, index)).or_default();
+            match event {
+                BrokerEvent::SetImage {
+                    image, state, ..
+                } => {
+                    visual.state_index = *state;
+                    match image {
+                        ImageSetResult::Set(payload) => visual.image = Some(payload.clone()),
+                        ImageSetResult::Cleared => visual.image = None,
+                        ImageSetResult::Unchanged => {}
+                    }
+                }
+                BrokerEvent::SetTitle {
+                    title,
+                    title_params,
+                    ..
+                } => {
+                    visual.title = title.clone();
+                    if let Some(params) = title_params {
+                        visual.title_params = params.clone();
+                    }
+                }
+                BrokerEvent::SetState { state, .. } => {
+                    visual.state_index = *state;
+                }
+                BrokerEvent::SetFeedback { payload, .. } => {
+                    if let Some(title) = payload.get("title").and_then(|v| v.as_str()) {
+                        visual.title = Some(title.to_string());
+                    } else if let Some(value) = payload.get("value") {
+                        // Dial plugins commonly send numeric values.
+                        let text = match value {
+                            serde_json::Value::String(s) => Some(s.clone()),
+                            serde_json::Value::Number(n) => Some(n.to_string()),
+                            serde_json::Value::Bool(b) => Some(b.to_string()),
+                            _ => None,
+                        };
+                        if let Some(text) = text {
+                            visual.title = Some(text);
+                        }
+                    }
+                    if let Some(icon) = payload.get("icon").and_then(|v| v.as_str()) {
+                        if let Some(image) = image_from_plugin_payload(icon, None) {
+                            visual.image = Some(image);
+                        }
+                    }
+                }
+                _ => return Vec::new(),
+            }
+            updates.push((surface_id, index, visual.clone()));
+        }
+        updates
+    }
+
     pub fn build_context_id(plugin_uuid: &str, action_uuid: &str, instance_id: &str) -> String {
         format!("{plugin_uuid}.{action_uuid}.{instance_id}")
     }
@@ -174,6 +291,20 @@ impl SdSurfaceBridge {
             })
             .max_by_key(|id| id.len())
             .cloned()
+    }
+}
+
+/// Action context carried by a broker event that can target a cell or a dial.
+pub fn broker_event_context(event: &BrokerEvent) -> Option<&str> {
+    match event {
+        BrokerEvent::SetImage { context, .. }
+        | BrokerEvent::SetTitle { context, .. }
+        | BrokerEvent::SetState { context, .. }
+        | BrokerEvent::SetFeedback { context, .. }
+        | BrokerEvent::SetFeedbackLayout { context, .. }
+        | BrokerEvent::SetTriggerDescription { context, .. }
+        | BrokerEvent::SettingsChanged { context, .. } => Some(context),
+        _ => None,
     }
 }
 
@@ -248,6 +379,118 @@ mod tests {
                 },
             )
             .is_none());
+    }
+
+    #[test]
+    fn dial_input_resolves_encoder_context() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        let ctx = SdSurfaceBridge::build_context_id("p", "a", &ActionInstanceId::new().0);
+        bridge.register_encoder(surface, 1, ctx.clone());
+
+        let rotate = bridge.surface_input_to_sd_event(
+            surface,
+            &SurfaceInput::EncoderRotate {
+                index: 1,
+                ticks: 3,
+                pressed: false,
+            },
+        );
+        assert_eq!(rotate, Some((ctx.clone(), "dialRotate")));
+
+        let press = bridge.surface_input_to_sd_event(
+            surface,
+            &SurfaceInput::EncoderPress {
+                index: 1,
+                pressed: true,
+            },
+        );
+        assert_eq!(press, Some((ctx, "dialPress")));
+    }
+
+    #[test]
+    fn registering_a_dial_releases_its_key_cell() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        bridge.register_cell(surface, 0, 0, "key-ctx".into());
+        bridge.register_encoder(surface, 0, "dial-ctx".into());
+
+        // The dial now owns index 0, so the stale key mapping must be gone.
+        assert!(!bridge.cell_by_context.contains_key("key-ctx"));
+        assert_eq!(
+            bridge.encoders_for_context("dial-ctx"),
+            &[(surface, 0)][..]
+        );
+    }
+
+    #[test]
+    fn dial_feedback_does_not_render_to_key_cells() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        bridge.register_encoder(surface, 0, "dial-ctx".into());
+
+        let title_event = BrokerEvent::SetTitle {
+            context: "dial-ctx".into(),
+            title: Some("3".into()),
+            title_params: None,
+        };
+        let mut cells = HashMap::new();
+        assert!(bridge
+            .broker_event_to_updates(&title_event, &mut cells)
+            .is_empty());
+
+        // ...but the dial store does receive it.
+        let mut dials = HashMap::new();
+        let updates = bridge.apply_encoder_event(&title_event, &mut dials);
+        assert_eq!(updates.len(), 1);
+        let (sid, index, visual) = updates[0].clone();
+        assert_eq!((sid, index), (surface, 0));
+        assert_eq!(visual.title.as_deref(), Some("3"));
+        assert_eq!(
+            dials.get(&(surface, 0)).and_then(|v| v.title.as_deref()),
+            Some("3")
+        );
+    }
+
+    #[test]
+    fn shared_dial_context_updates_every_surface() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let studio = SurfaceId::new();
+        let plus = SurfaceId::new();
+        // Two surfaces showing the same page share one action context.
+        bridge.register_encoder(studio, 0, "dial-ctx".into());
+        bridge.register_encoder(plus, 0, "dial-ctx".into());
+
+        let event = BrokerEvent::SetTitle {
+            context: "dial-ctx".into(),
+            title: Some("7".into()),
+            title_params: None,
+        };
+        let mut dials = HashMap::new();
+        let mut updates = bridge.apply_encoder_event(&event, &mut dials);
+        updates.sort_by_key(|(sid, _, _)| sid.0);
+        assert_eq!(updates.len(), 2);
+        assert!(updates
+            .iter()
+            .all(|(_, _, visual)| visual.title.as_deref() == Some("7")));
+        assert_eq!(dials.len(), 2);
+    }
+
+    #[test]
+    fn numeric_dial_feedback_value_becomes_title() {
+        let mut bridge = SdSurfaceBridge::new("uuid", SurfaceCapabilities::mock_3x5());
+        let surface = SurfaceId::new();
+        bridge.register_encoder(surface, 2, "dial-ctx".into());
+
+        let event = BrokerEvent::SetFeedback {
+            context: "dial-ctx".into(),
+            payload: serde_json::json!({ "value": 42 }),
+        };
+        let mut dials = HashMap::new();
+        let updates = bridge.apply_encoder_event(&event, &mut dials);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].1, 2);
+        assert_eq!(updates[0].2.title.as_deref(), Some("42"));
     }
 
     #[test]

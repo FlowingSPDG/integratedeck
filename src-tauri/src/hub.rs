@@ -135,6 +135,15 @@ pub struct PluginStatusPayload {
     pub column: Option<u32>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DialVisualPayload {
+    pub surface_id: String,
+    pub index: u32,
+    pub title: Option<String>,
+    pub state_index: u8,
+}
+
 pub struct HubEvents;
 
 #[derive(Clone, Serialize)]
@@ -151,9 +160,14 @@ impl HubEvents {
     pub const PLUGIN_STATUS: &'static str = "plugin-status";
     pub const PI_MESSAGE: &'static str = "pi-message";
     pub const SURFACES_CHANGED: &'static str = "surfaces-changed";
+    pub const DIAL_VISUAL: &'static str = "dial-visual";
 
     pub fn emit_visual(app: &AppHandle, payload: VisualUpdatedPayload) {
         let _ = app.emit(Self::VISUAL_UPDATED, payload);
+    }
+
+    pub fn emit_dial_visual(app: &AppHandle, payload: DialVisualPayload) {
+        let _ = app.emit(Self::DIAL_VISUAL, payload);
     }
 
     pub fn emit_settings(app: &AppHandle, payload: SettingsChangedPayload) {

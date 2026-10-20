@@ -28,7 +28,9 @@ use tauri::Emitter;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::hub::{HubEvents, PluginStatusPayload, SettingsChangedPayload, VisualUpdatedPayload};
+use crate::hub::{
+    DialVisualPayload, HubEvents, PluginStatusPayload, SettingsChangedPayload, VisualUpdatedPayload,
+};
 use crate::paths;
 use crate::settings_store::{self, AppGlobalSettings, DeviceRecord};
 use crate::state::AppStateInner;
@@ -318,6 +320,14 @@ impl Orchestrator {
             if let Some(surface) = surface {
                 Self::attach_hid_input_loop(&state, surface_id, surface).await;
             }
+            // Driver surfaces need the same page/binding setup as HID devices.
+            {
+                let mut o = state.write().await;
+                o.finalize_hid_connection(surface_id, state.clone())
+                    .await?;
+            }
+            let o = state.read().await;
+            HubEvents::emit_surfaces_changed(&o.app, Some(result.surface_id.clone()));
         }
         Ok(result)
     }
@@ -484,8 +494,8 @@ impl Orchestrator {
         &self,
         surface_id: SurfaceId,
         index: u32,
-        ticks: Option<i32>,
-        pressed: bool,
+        _ticks: Option<i32>,
+        _pressed: bool,
     ) -> anyhow::Result<()> {
         let page_id = self
             .inner
@@ -516,32 +526,10 @@ impl Orchestrator {
                 self.execute_companion_action(&connection_id, &action_id, options)
                     .await?;
             }
-            BindingKind::StreamDeck {
-                plugin_uuid,
-                action_uuid,
-                instance_id,
-                ..
-            } => {
-                let context =
-                    SdSurfaceBridge::build_context_id(&plugin_uuid, &action_uuid, &instance_id.0);
-                let Some(broker) = self.inner.sd_supervisor.get(&plugin_uuid) else {
-                    return Ok(());
-                };
-                broker
-                    .ensure_action_context(ActionContext {
-                        context: context.clone(),
-                        action_uuid,
-                        settings: json!({}),
-                        coordinates: (index, 0),
-                    })
-                    .await?;
-                if let Some(ticks) = ticks {
-                    broker.dial_rotate(&context, ticks, pressed).await?;
-                } else if pressed {
-                    broker.dial_down(&context).await?;
-                    broker.dial_up(&context).await?;
-                }
-            }
+            // Stream Deck dials are delivered by `forward_sd_input` through the
+            // action context registered for the dial. Handling them here as well
+            // sent every tick to the plugin twice.
+            BindingKind::StreamDeck { .. } => {}
             _ => {}
         }
         Ok(())
@@ -826,17 +814,48 @@ impl Orchestrator {
         out
     }
 
+    /// Every dial binding in the profile, paired with the surface currently
+    /// showing that page. Dial bindings are page level, so the surface comes
+    /// from the per-surface page assignment.
+    fn collect_all_encoder_bindings(&self) -> Vec<(SurfaceId, u32, Binding)> {
+        let mut out = Vec::new();
+        for page in &self.inner.profile.pages {
+            if page.encoders.is_empty() {
+                continue;
+            }
+            let surfaces: Vec<SurfaceId> = self
+                .inner
+                .surface_pages
+                .iter()
+                .filter(|(_, page_id)| **page_id == page.id)
+                .map(|(surface_id, _)| *surface_id)
+                .collect();
+            for surface_id in surfaces {
+                for (index, binding) in &page.encoders {
+                    out.push((surface_id, *index, binding.clone()));
+                }
+            }
+        }
+        out
+    }
+
     pub async fn rehydrate_profile_bindings(
         &mut self,
         orch: Arc<RwLock<Self>>,
     ) -> anyhow::Result<()> {
         let bindings = self.collect_all_slot_bindings();
+        let encoder_bindings = self.collect_all_encoder_bindings();
         let mut sd_uuids = std::collections::HashSet::new();
         for (_, slot) in &bindings {
             if let Some(Binding {
                 kind: BindingKind::StreamDeck { plugin_uuid, .. },
             }) = &slot.binding
             {
+                sd_uuids.insert(plugin_uuid.clone());
+            }
+        }
+        for (_, _, binding) in &encoder_bindings {
+            if let BindingKind::StreamDeck { plugin_uuid, .. } = &binding.kind {
                 sd_uuids.insert(plugin_uuid.clone());
             }
         }
@@ -901,6 +920,27 @@ impl Orchestrator {
                 Some(Binding {
                     kind: BindingKind::BuiltIn { .. } | BindingKind::MultiAction { .. },
                 }) => {}
+            }
+        }
+
+        // Dials have no slot id, so they are restored after the key slots.
+        for (surface_id, index, binding) in encoder_bindings {
+            if let BindingKind::StreamDeck {
+                plugin_uuid,
+                action_uuid,
+                instance_id,
+                settings,
+            } = binding.kind
+            {
+                self.register_sd_encoder_context(
+                    surface_id,
+                    index,
+                    &plugin_uuid,
+                    &action_uuid,
+                    &instance_id,
+                    &settings,
+                )
+                .await;
             }
         }
         Ok(())
@@ -1232,8 +1272,7 @@ impl Orchestrator {
         visual
     }
 
-    fn page_id_for_context(&self, context: &str) -> Option<PageId> {
-        let slot_id = self.slot_id_for_context(context)?;
+    fn page_id_for_context(&self, context: &str) -> Option<PageId> {        let slot_id = self.slot_id_for_context(context)?;
         self.page_id_for_slot(slot_id)
     }
 
@@ -1357,6 +1396,25 @@ impl Orchestrator {
         let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
             return;
         };
+        let encoders: Vec<(u32, String, String, ActionInstanceId, serde_json::Value)> = page
+            .encoders
+            .iter()
+            .filter_map(|(index, binding)| match &binding.kind {
+                BindingKind::StreamDeck {
+                    plugin_uuid,
+                    action_uuid,
+                    instance_id,
+                    settings,
+                } => Some((
+                    *index,
+                    plugin_uuid.clone(),
+                    action_uuid.clone(),
+                    instance_id.clone(),
+                    settings.clone(),
+                )),
+                _ => None,
+            })
+            .collect();
         for slot in page.slots.values() {
             if slot.locator.surface_id != surface_id {
                 continue;
@@ -1410,6 +1468,17 @@ impl Orchestrator {
                     .await
                     .ok();
             }
+        }
+        for (index, plugin_uuid, action_uuid, instance_id, settings) in encoders {
+            self.register_sd_encoder_context(
+                surface_id,
+                index,
+                &plugin_uuid,
+                &action_uuid,
+                &instance_id,
+                &settings,
+            )
+            .await;
         }
     }
 
@@ -1888,9 +1957,10 @@ impl Orchestrator {
         context: &str,
         settings: serde_json::Value,
     ) -> anyhow::Result<()> {
-        let slot_id = self
-            .slot_id_for_context(context)
-            .ok_or_else(|| anyhow::anyhow!("no slot for context {context}"))?;
+        let Some(slot_id) = self.slot_id_for_context(context) else {
+            // Dials have no slot: persist into the matching encoder binding.
+            return self.apply_encoder_settings(context, settings).await;
+        };
 
         if !self.inner.routing.slot_to_context.contains_key(&slot_id) {
             let page_id = self
@@ -1930,11 +2000,47 @@ impl Orchestrator {
         self.update_slot_settings(slot_id, settings).await
     }
 
+    /// Persist `setSettings` from a dial action into its encoder binding.
+    async fn apply_encoder_settings(
+        &mut self,
+        context: &str,
+        settings: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let mut found = false;
+        for page in self.inner.profile.pages.iter_mut() {
+            for binding in page.encoders.values_mut() {
+                if let BindingKind::StreamDeck {
+                    plugin_uuid,
+                    action_uuid,
+                    instance_id,
+                    settings: stored,
+                } = &mut binding.kind
+                {
+                    let candidate =
+                        SdSurfaceBridge::build_context_id(plugin_uuid, action_uuid, &instance_id.0);
+                    if candidate == context {
+                        *stored = settings.clone();
+                        found = true;
+                    }
+                }
+            }
+        }
+        if !found {
+            anyhow::bail!("no slot or dial for context {context}");
+        }
+        self.save_profile().await?;
+        Ok(())
+    }
+
     pub async fn finalize_hid_connection(
         &mut self,
         surface_id: SurfaceId,
         orch: Arc<RwLock<Self>>,
     ) -> Result<(), String> {
+        // The surface must know its page before bindings are restored, otherwise
+        // dial bindings (which are resolved through the surface → page map) are
+        // skipped.
+        self.inner.ensure_surface_page(surface_id);
         if let Some(device_key) = self.device_key_for_surface(surface_id) {
             if let Ok(Some(json)) = self.load_saved_device_preset(&device_key) {
                 self.merge_device_preset(&device_key, &json, surface_id)
@@ -2296,6 +2402,31 @@ impl Orchestrator {
         }
         let handle = surface.clone().spawn_input_loop();
         self.hid_task_handles.insert(surface_id, vec![handle]);
+
+        // Driver-based devices (Studio USB, future LAN devices) need the same
+        // bookkeeping as HID devices, otherwise the UI reports them as
+        // disconnected and they cannot be disconnected or given a preset.
+        self.hid_serials.insert(device_id.clone(), surface_id);
+        self.hid_meta.insert(
+            surface_id,
+            HidSurfaceMeta {
+                serial: device_id.clone(),
+                kind: driver_id.clone(),
+                product: label.clone(),
+            },
+        );
+        let device_key = settings_store::device_key(&driver_id, &device_id);
+        let _ = settings_store::upsert_device_record(DeviceRecord {
+            device_key,
+            serial: device_id.clone(),
+            kind: driver_id.clone(),
+            product: label.clone(),
+            label: label.clone(),
+            brightness: 50,
+            last_seen: settings_store::now_iso(),
+            surface_id: Some(surface_id.0.to_string()),
+        });
+
         let _ = self.save_profile().await;
         self.render_surface_visuals(surface_id).await;
 
@@ -2900,8 +3031,10 @@ impl Orchestrator {
                 .unwrap_or((None, None, None));
             let status = match &desc.backend {
                 ideck_surface::SurfaceBackend::Mock => "connected",
+                // A live driver surface counts as connected even when it has no
+                // HID metadata (Studio USB and other driver based devices).
                 ideck_surface::SurfaceBackend::Physical { .. }
-                    if self.hid_meta.contains_key(&desc.id) =>
+                    if self.inner.surfaces.physical(desc.id).is_some() =>
                 {
                     "connected"
                 }
@@ -3328,6 +3461,41 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Register the Stream Deck action context that backs a physical dial.
+    ///
+    /// Dials are addressed as row 0 / column `index`, which is what
+    /// `SdSurfaceBridge::surface_input_to_sd_event` uses when it resolves
+    /// `EncoderRotate` / `EncoderPress` to a plugin context. Without this the
+    /// plugin never receives `dialRotate` / `dialPress`.
+    async fn register_sd_encoder_context(
+        &mut self,
+        surface_id: SurfaceId,
+        index: u32,
+        plugin_uuid: &str,
+        action_uuid: &str,
+        instance_id: &ActionInstanceId,
+        settings: &serde_json::Value,
+    ) {
+        let context = SdSurfaceBridge::build_context_id(plugin_uuid, action_uuid, &instance_id.0);
+        if let Some(bridge) = self.inner.bridges.get_mut(plugin_uuid) {
+            bridge.register_encoder(surface_id, index, context.clone());
+        }
+        self.inner
+            .routing
+            .register_sd_cell(surface_id, 0, index, context.clone(), plugin_uuid);
+        if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
+            broker
+                .ensure_action_context(ActionContext {
+                    context,
+                    action_uuid: action_uuid.to_string(),
+                    settings: settings.clone(),
+                    coordinates: (index, 0),
+                })
+                .await
+                .ok();
+        }
+    }
+
     pub async fn bind_encoder_sd(
         &mut self,
         surface_id: SurfaceId,
@@ -3335,6 +3503,7 @@ impl Orchestrator {
         plugin_uuid: String,
         action_uuid: String,
     ) -> anyhow::Result<()> {
+        let instance_id = ActionInstanceId::new();
         let page_id = self
             .inner
             .profile
@@ -3350,14 +3519,23 @@ impl Orchestrator {
         page.encoders.insert(
             index,
             Binding::stream_deck(
-                plugin_uuid,
-                action_uuid,
-                ActionInstanceId::new(),
+                plugin_uuid.clone(),
+                action_uuid.clone(),
+                instance_id.clone(),
                 serde_json::json!({}),
             ),
         );
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
+        self.register_sd_encoder_context(
+            surface_id,
+            index,
+            &plugin_uuid,
+            &action_uuid,
+            &instance_id,
+            &serde_json::json!({}),
+        )
+        .await;
         Ok(())
     }
 
@@ -4075,6 +4253,7 @@ impl Orchestrator {
                     name,
                     source: "companion".into(),
                     icon: None,
+                    controllers: None,
                 })
             })
             .collect())
@@ -4121,6 +4300,7 @@ impl Orchestrator {
                         name,
                         source: "companion".into(),
                         icon: None,
+                        controllers: None,
                     })
                 })
                 .collect());
@@ -4560,6 +4740,15 @@ impl Orchestrator {
         }
 
         if let Some(bridge) = self.inner.bridges.get(plugin_uuid) {
+            let dial_updates = {
+                let mut dial_visuals = std::mem::take(&mut self.inner.dial_visuals);
+                let updates = bridge.apply_encoder_event(&ev, &mut dial_visuals);
+                self.inner.dial_visuals = dial_visuals;
+                updates
+            };
+            for (surface_id, index, visual) in dial_updates {
+                self.render_dial_display(surface_id, index, visual).await;
+            }
             let replace_image = matches!(
                 ev,
                 BrokerEvent::SetImage {
@@ -4681,6 +4870,26 @@ impl Orchestrator {
         }
     }
 
+    /// Publish dial feedback so the editor can show what a plugin wrote to a
+    /// dial. Physical dial displays (Plus touch strip) are driven by the surface
+    /// driver from the same visual store.
+    async fn render_dial_display(
+        &self,
+        surface_id: SurfaceId,
+        index: u32,
+        visual: VisualState,
+    ) {
+        HubEvents::emit_dial_visual(
+            &self.app,
+            DialVisualPayload {
+                surface_id: surface_id.0.to_string(),
+                index,
+                title: visual.title,
+                state_index: visual.state_index,
+            },
+        );
+    }
+
     async fn flash_cell_feedback(
         &self,
         surface_id: SurfaceId,
@@ -4780,6 +4989,19 @@ impl Orchestrator {
             );
         }
         out
+    }
+
+    /// Dial feedback for a surface, keyed by dial index.
+    pub fn get_dial_visuals(
+        &self,
+        surface_id: SurfaceId,
+    ) -> std::collections::HashMap<u32, VisualState> {
+        self.inner
+            .dial_visuals
+            .iter()
+            .filter(|((sid, _), _)| *sid == surface_id)
+            .map(|((_, index), visual)| (*index, visual.clone()))
+            .collect()
     }
 
     pub fn property_inspector_path(
@@ -5325,6 +5547,7 @@ impl Orchestrator {
                                     name: action_display_name(id)?.into(),
                                     source: "builtin".into(),
                                     icon: None,
+                                    controllers: None,
                                 })
                             })
                             .collect(),
@@ -5498,11 +5721,13 @@ fn sd_manifest_actions(
             let icon = plugin_dir
                 .zip(a.icon.as_deref())
                 .and_then(|(dir, rel)| action_icon_data_url(dir, rel));
+            let controllers = a.controllers.clone();
             Some(PluginActionInfo {
                 id,
                 name,
                 source: "streamdeck".into(),
                 icon,
+                controllers,
             })
         })
         .collect()
@@ -5517,6 +5742,9 @@ pub struct PluginActionInfo {
     /// Manifest icon as a data URL, when the plugin ships one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// Controllers the plugin declares for this action (`Keypad`, `Encoder`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controllers: Option<Vec<String>>,
 }
 
 #[derive(serde::Serialize)]

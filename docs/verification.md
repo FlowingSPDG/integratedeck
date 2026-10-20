@@ -49,7 +49,7 @@
 | USB HID 列挙（0fd9:00aa） | ユニット | [x] | `studio_usb` ドライバ |
 | USB 自動接続 | 実機 | [x] | `0fd9:00aa A9IJA53330GUMR` を検出、32スロット自動作成 |
 | USB キー画像 / LED / LCD | 実機 | [x] | key0赤・LED緑・LCD赤を送信 |
-| USB キー / エンコーダ / NFC 入力 | 実機 | [x] | Studio key0のkey_down/upを履歴で確認（ダイヤル/NFCは次段） |
+| USB キー / エンコーダ / NFC 入力 | 実機 | [x] | Studio key0のkey_down/up、両エンコーダのrotate/pressを履歴で確認（NFCは未タッチ） |
 | USB/LAN 重複排除 | ユニット | [x] | `scan_all` |
 | LCD パネル画像（02 0c） | 実機 | [x] | `set_studio_lcd` が LAN Studio へ送信成功 |
 | NFC UID 取得 | 実機 | [x] | `get_last_nfc` が null（未タッチ）を返す |
@@ -61,8 +61,14 @@
 | XL HID 画像 / 入力 | 実機 | [x] | CL18I1A02341 |
 | サーフェス検出UI | 実機 | [x] | `scan_surface_devices` が XL + Studio LAN を返す |
 | ダイヤル SD / Companion / Built-in | 実機 | [x] | LAN StudioでBuilt-inをbind→simulate press |
+| ダイヤル → SDプラグイン（dialRotate） | 実機 | [x] | `dev.samwho.streamdeck.plus` をバインドし `simulate_encoder_rotate`→プラグインがsetTitle（1回のみ配送） |
+| ダイヤル押下（dialDown/dialUp） | 実機 | [x] | `simulate_encoder` で dialDown/dialUp をログ確認 |
+| ダイヤル設定（setSettings）の保存 | 実機 | [x] | 回転後に `settings.value` がエンコーダbindingへ保存 |
+| ダイヤルbindingの再起動復元 | 実機 | [x] | 再起動＋再接続のみ（再バインド無し）で回転が配送、値が継続 |
+| ダイヤルfeedbackがキーを汚染しない | ユニット | [x] | `dial_feedback_does_not_render_to_key_cells` |
+| 同一ページ共有時のダイヤル状態 | ユニット | [x] | `shared_dial_context_updates_every_surface` |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
-| Plus / Neo | 実機 | [x] | Plus key0のkey_down/upを履歴で確認。ダイヤル/タッチは次段 |
+| Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送を確認（タッチは次段） |
 
 ## VSD2
 

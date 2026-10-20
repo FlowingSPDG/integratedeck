@@ -54,6 +54,27 @@ pub struct ManifestAction {
     /// Manifest `Icon` path (relative to the plugin bundle, extension optional).
     #[serde(default, rename = "Icon")]
     pub icon: Option<String>,
+    /// Controllers the action supports (`Keypad`, `Encoder`).
+    #[serde(default, rename = "Controllers")]
+    pub controllers: Option<Vec<String>>,
+}
+
+impl ManifestAction {
+    /// Whether the action can be placed on a dial / encoder.
+    pub fn supports_encoder(&self) -> bool {
+        self.controllers
+            .as_ref()
+            .is_some_and(|list| list.iter().any(|c| c.eq_ignore_ascii_case("Encoder")))
+    }
+
+    /// Whether the action can be placed on a regular key.
+    pub fn supports_keypad(&self) -> bool {
+        match &self.controllers {
+            // No `Controllers` entry means the plugin predates the field: keypad only.
+            None => true,
+            Some(list) => list.iter().any(|c| c.eq_ignore_ascii_case("Keypad")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -477,6 +498,7 @@ fn collect_actions(items: &[Value], out: &mut Vec<ManifestAction>) {
             name,
             property_inspector,
             icon,
+            controllers: pick_controllers(item),
         });
     }
 }
@@ -497,6 +519,7 @@ fn actions_from_localization(value: &Value) -> Vec<ManifestAction> {
                 &["PropertyInspectorPath", "propertyInspectorPath"],
             ),
             icon: pick_string(value, &["Icon", "icon"]),
+            controllers: pick_controllers(value),
         })
         .collect();
     actions.sort_by(|a, b| {
@@ -650,6 +673,31 @@ fn pick_string(value: &Value, keys: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+fn pick_controllers(value: &Value) -> Option<Vec<String>> {
+    let raw = value
+        .get("Controllers")
+        .or_else(|| value.get("controllers"))?;
+    let list = match raw {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>(),
+        // Some manifests use a single string or a comma separated list.
+        Value::String(s) => s
+            .split(',')
+            .map(|part| part.trim().to_string())
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>(),
+        _ => return None,
+    };
+    if list.is_empty() {
+        None
+    } else {
+        Some(list)
+    }
 }
 
 #[cfg(test)]
@@ -828,6 +876,49 @@ mod tests {
     }
 
     #[test]
+    fn reports_encoder_and_keypad_controllers() {
+        let dir = std::env::temp_dir().join(format!(
+            "ideck-controllers-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("manifest.json"),
+            r#"{"Name":"Dial","UUID":"com.vendor.dial","Version":"1","Actions":[
+                {"UUID":"com.vendor.dial.dial","Name":"Dial","Controllers":["Encoder"]},
+                {"UUID":"com.vendor.dial.both","Name":"Both","Controllers":["Keypad","Encoder"]},
+                {"UUID":"com.vendor.dial.key","Name":"Key","Controllers":["Keypad"]},
+                {"UUID":"com.vendor.dial.legacy","Name":"Legacy"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let actions = StreamDeckManifest::list_actions(&dir).expect("actions");
+        assert_eq!(actions.len(), 4);
+
+        let by_id = |id: &str| {
+            actions
+                .iter()
+                .find(|a| a.uuid.as_deref() == Some(id))
+                .unwrap()
+        };
+        assert!(by_id("com.vendor.dial.dial").supports_encoder());
+        assert!(!by_id("com.vendor.dial.dial").supports_keypad());
+        assert!(by_id("com.vendor.dial.both").supports_encoder());
+        assert!(by_id("com.vendor.dial.both").supports_keypad());
+        assert!(!by_id("com.vendor.dial.key").supports_encoder());
+        assert!(by_id("com.vendor.dial.key").supports_keypad());
+        // No Controllers field: legacy plugins are keypad-only.
+        assert!(!by_id("com.vendor.dial.legacy").supports_encoder());
+        assert!(by_id("com.vendor.dial.legacy").supports_keypad());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn resolves_obs_style_source_main_js() {
         let dir = std::env::temp_dir().join(format!(
             "ideck-codepath-obs-{}",
@@ -942,6 +1033,11 @@ mod tests {
         for entry in std::fs::read_dir(&root).unwrap().flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("sdPlugin") {
+                continue;
+            }
+            // A directory without a manifest is not a plugin bundle (leftover or
+            // partially installed folder); ignore it instead of failing.
+            if !path.join("manifest.json").is_file() {
                 continue;
             }
             let bundle = path.file_name().unwrap().to_string_lossy();

@@ -28,3 +28,7 @@ dist-ssr
 /target
 src-tauri/gen
 sidecar/dist
+
+# Local verification scratch files
+.tmp-*
+

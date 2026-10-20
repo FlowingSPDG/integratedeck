@@ -88,8 +88,20 @@ pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, inpu
                         }
                         return;
                     }
-                    Some((context, "dialPress")) if broker.key_down(&context).await.is_ok() => {
-                        let _ = broker.key_up(&context).await;
+                    Some((context, "dialPress")) => {
+                        // Dials use dialDown / dialUp, not keyDown / keyUp.
+                        let pressed = matches!(
+                            input,
+                            SurfaceInput::EncoderPress { pressed: true, .. }
+                        );
+                        let result = if pressed {
+                            broker.dial_down(&context).await
+                        } else {
+                            broker.dial_up(&context).await
+                        };
+                        if let Err(e) = result {
+                            warn!("SD dial press ({context}): {e}");
+                        }
                         return;
                     }
                     _ => {}
@@ -112,6 +124,9 @@ pub struct AppStateInner {
     pub comp_bridge: Option<CompSurfaceBridge>,
     /// Plugin-driven visuals keyed by (surface, page, row, col).
     pub cell_visuals: HashMap<(SurfaceId, PageId, u32, u32), ideck_core::VisualState>,
+    /// Dial feedback keyed by (surface, dial index); rendered on the dial display
+    /// (Plus touch strip / Studio LCD) rather than on a key.
+    pub dial_visuals: HashMap<(SurfaceId, u32), ideck_core::VisualState>,
     pub device_bus: DeviceEventBus,
     pub routing: RoutingTable,
     /// Current visible page per physical surface (folder navigation).
@@ -133,6 +148,7 @@ impl AppStateInner {
             bridges: HashMap::new(),
             comp_bridge: None,
             cell_visuals: HashMap::new(),
+            dial_visuals: HashMap::new(),
             device_bus: DeviceEventBus::new(),
             routing: RoutingTable::default(),
             surface_pages: HashMap::new(),
