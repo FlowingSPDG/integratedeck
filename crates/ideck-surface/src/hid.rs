@@ -119,6 +119,24 @@ fn kind_label(kind: Kind) -> String {
     .into()
 }
 
+/// Which dial a touch-strip coordinate belongs to.
+///
+/// The strip is split into one zone per dial (the zones sit above the dials on
+/// a Stream Deck +). Devices without encoders fall back to their touch point
+/// count, and anything unknown maps to dial 0 so a tap is never dropped.
+fn touch_strip_index(kind: Kind, x: u16) -> usize {
+    let zones = match kind.encoder_count() {
+        0 => usize::from(kind.touchpoint_count()).max(1),
+        encoders => usize::from(encoders),
+    };
+    let width = kind
+        .lcd_strip_size()
+        .map(|(width, _)| width)
+        .filter(|width| *width > 0)
+        .unwrap_or(800);
+    (usize::from(x) * zones / width).min(zones - 1)
+}
+
 pub fn capabilities_from_kind(kind: Kind) -> SurfaceCapabilities {
     let (rows, cols) = kind.key_layout();
     let (w, h) = kind.key_image_format().size;
@@ -289,12 +307,7 @@ impl StreamDeckHidSurface {
                             }
                             DeviceStateUpdate::TouchScreenPress(x, _)
                             | DeviceStateUpdate::TouchScreenLongPress(x, _) => {
-                                let points = usize::from(kind.touchpoint_count()).max(1);
-                                let width = kind
-                                    .lcd_strip_size()
-                                    .map(|(width, _)| width)
-                                    .unwrap_or(800);
-                                let index = (usize::from(x) * points / width).min(points - 1);
+                                let index = touch_strip_index(kind, x);
                                 Some(SurfaceInput::EncoderPress {
                                     index: index as u32,
                                     pressed: true,
@@ -444,4 +457,26 @@ fn convert_key_image_with_quality(
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, jpeg_quality);
     encoder.encode(rgb.as_raw(), ws as u32, hs as u32, ColorType::Rgb8.into())?;
     Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plus_touch_strip_maps_to_the_dial_under_the_finger() {
+        // 4 dials across an 800px strip: 200px per zone.
+        assert_eq!(touch_strip_index(Kind::Plus, 0), 0);
+        assert_eq!(touch_strip_index(Kind::Plus, 199), 0);
+        assert_eq!(touch_strip_index(Kind::Plus, 200), 1);
+        assert_eq!(touch_strip_index(Kind::Plus, 450), 2);
+        assert_eq!(touch_strip_index(Kind::Plus, 799), 3);
+    }
+
+    #[test]
+    fn touch_strip_index_tolerates_devices_without_encoders() {
+        // Neo has touch points but no dials; a tap still resolves to a zone.
+        assert_eq!(touch_strip_index(Kind::Neo, 0), 0);
+        assert!(touch_strip_index(Kind::Neo, 200) < 2);
+    }
 }
