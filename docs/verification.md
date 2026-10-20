@@ -16,7 +16,7 @@
 | PI setSettings 永続化 | 実機 | [x] | `url_press` がスロット設定へ保存 |
 | Node SDK プラグイン起動 | 実機 | [x] | Elgato hello-world をロード、nodeプロセスが公式引数で起動 |
 | Node 実プラグイン動作 | 実機 | [x] | ブローカー接続 Established、action `newstring` を取得 |
-| Node plugin のタイトル反映 | 実機 | [ ] | setTitle後の表示は未確認 |
+| Node plugin のタイトル反映 | 実機 | [x] | setTitle `English\n\nClick Me` → keyDown後 `On` をログ確認 |
 
 ## Companion
 
