@@ -43,7 +43,7 @@
 | プリセットの回転 step | ユニット | [x] | `module_fixture_roundtrip` が `rotate_left` phase の実行を検証（vMix は down/up のみのため実機では未確認） |
 | プリセットの style 適用 | 実機 | [x] | `audio_audioToggle` でタイトルが style.text「Toggle Audio」に、背景色が style.bgcolor に（未指定時は従来色） |
 | プリセットの feedback 自動登録 | 実機 | [x] | `feedbacks[0]` を `companion_feedbacks` に登録し `connection.setFeedback` を送信。`inputPreview` を当てるとセルが緑 (0,255,0) に |
-| プリセット割当先のダイヤルLED | 実装 | [x] | style.bgcolor を LED へ反映（0 の場合は変更しない） |
+| プリセット割当先のダイヤル表示 | 実装 | [x] | style.bgcolor を LED へ、style.text をストリップ/LCD のダイヤル表示へ反映（`get_dial_visuals` が `title: "Cut"`、LCD キャッシュ更新を確認） |
 | スロット解除時の feedback 破棄 | ユニット | [x] | `unbind_slot` が `removeFeedback` を送りブリッジ登録も解除。`unregistering_a_cell_drops_every_index` |
 
 ## Studio

@@ -4010,21 +4010,50 @@ impl Orchestrator {
         );
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
-        // The preset's own style colours the dial LED, like Companion does with
-        // the preset's button colour.
-        if let Some(background) = self
+        // The preset's own style colours the dial LED and names the strip
+        // segment, like Companion does for an encoder preset.
+        if let Some(style) = self
             .companion_preset_definition(&connection_id, &preset_id)
             .await
             .as_ref()
             .and_then(|preset| preset.get("style"))
-            .and_then(|style| style.get("bgcolor"))
-            .and_then(|value| value.as_u64())
+            .cloned()
         {
-            let r = ((background >> 16) & 0xff) as u8;
-            let g = ((background >> 8) & 0xff) as u8;
-            let b = (background & 0xff) as u8;
+            let background = style
+                .get("bgcolor")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
             if background != 0 {
+                let r = ((background >> 16) & 0xff) as u8;
+                let g = ((background >> 8) & 0xff) as u8;
+                let b = (background & 0xff) as u8;
                 let _ = self.set_encoder_led(surface_id, index as u8, r, g, b);
+            }
+            let title = style
+                .get("text")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string);
+            if let Some(title) = title {
+                let color = if background == 0 {
+                    None
+                } else {
+                    Some(ideck_core::Color {
+                        r: ((background >> 16) & 0xff) as u8,
+                        g: ((background >> 8) & 0xff) as u8,
+                        b: (background & 0xff) as u8,
+                    })
+                };
+                let visual = VisualState {
+                    title: Some(title),
+                    bgcolor: color,
+                    ..Default::default()
+                };
+                self.inner
+                    .dial_visuals
+                    .insert((surface_id, index), visual.clone());
+                self.render_dial_display(surface_id, index, visual).await;
             }
         }
         Ok(())
