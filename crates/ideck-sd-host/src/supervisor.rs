@@ -75,7 +75,9 @@ impl PluginSupervisor {
         if let Some(h) = self.drain_handles.remove(uuid) {
             h.abort();
         }
-        self.plugins.remove(uuid);
+        if let Some(broker) = self.plugins.remove(uuid) {
+            broker.shutdown_process();
+        }
         self.meta.remove(uuid);
     }
 
@@ -83,7 +85,9 @@ impl PluginSupervisor {
         for (_, h) in self.drain_handles.drain() {
             h.abort();
         }
-        self.plugins.clear();
+        for (_, broker) in self.plugins.drain() {
+            broker.shutdown_process();
+        }
         self.meta.clear();
     }
 

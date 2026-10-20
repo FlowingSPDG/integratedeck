@@ -64,6 +64,13 @@ pub struct Orchestrator {
     vsd_server: Option<tokio::task::JoinHandle<()>>,
     vsd_addr: Option<std::net::SocketAddr>,
     vsd_images: Option<tokio::sync::broadcast::Sender<ideck_vsd::server::VsdImage>>,
+    /// Automatic restart attempts per plugin after a crash; reset when the user
+    /// loads the plugin again.
+    plugin_restart_attempts: std::collections::HashMap<String, u32>,
+    /// Restart requests, consumed by `start_plugin_restart_worker` (kept out of
+    /// the broker drain to avoid a recursive future type).
+    plugin_restart_tx: tokio::sync::mpsc::UnboundedSender<(String, std::path::PathBuf)>,
+    plugin_restart_rx: Option<tokio::sync::mpsc::UnboundedReceiver<(String, std::path::PathBuf)>>,
 }
 
 struct VsdSurface {
@@ -646,6 +653,7 @@ impl Orchestrator {
                 .await;
         }
 
+        let (plugin_restart_tx, plugin_restart_rx) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
             app: app.clone(),
             inner,
@@ -661,6 +669,9 @@ impl Orchestrator {
             vsd_server: None,
             vsd_addr: None,
             vsd_images: None,
+            plugin_restart_attempts: std::collections::HashMap::new(),
+            plugin_restart_tx,
+            plugin_restart_rx: Some(plugin_restart_rx),
         })
     }
 
@@ -2898,6 +2909,17 @@ impl Orchestrator {
             let orch = orch.clone();
             let uuid = plugin_uuid.clone();
             async move {
+                // A plugin socket closing is not a normal broker event: check
+                // after a short grace period whether it came back, and treat a
+                // still-missing plugin as crashed.
+                if let BrokerEvent::PluginDisconnected { .. } = &ev {
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        let mut o = orch.write().await;
+                        o.handle_plugin_disconnect(&uuid).await;
+                    });
+                    return;
+                }
                 tauri::async_runtime::spawn(async move {
                     let mut o = orch.write().await;
                     o.apply_broker_event(&uuid, ev).await.ok();
@@ -2907,6 +2929,96 @@ impl Orchestrator {
         self.inner.sd_supervisor.insert(meta, broker, drain);
 
         Ok(result)
+    }
+
+    /// A manual load resets the crash-restart budget.
+    pub fn reset_plugin_restart_attempts_for_path(&mut self, path: &str) {
+        let matches: Vec<String> = self
+            .plugin_restart_attempts
+            .keys()
+            .filter(|uuid| {
+                self.inner
+                    .sd_supervisor
+                    .meta(uuid)
+                    .map(|meta| meta.path.to_string_lossy() == path)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+        for uuid in matches {
+            self.plugin_restart_attempts.remove(&uuid);
+        }
+    }
+
+    /// React to a plugin whose websocket closed: restart it once, otherwise mark
+    /// it stopped so the UI does not keep claiming it runs.
+    async fn handle_plugin_disconnect(&mut self, plugin_uuid: &str) {
+        let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) else {
+            return;
+        };
+        if broker.is_connected() {
+            // The plugin reconnected within the grace period.
+            return;
+        }
+        let meta = self.inner.sd_supervisor.meta(plugin_uuid).cloned();
+        warn!("SD plugin disconnected: {plugin_uuid}");
+        self.inner.sd_supervisor.unload(plugin_uuid).await;
+        self.inner.bridges.remove(plugin_uuid);
+        HubEvents::emit_plugin_status(
+            &self.app,
+            PluginStatusPayload {
+                plugin_uuid: plugin_uuid.to_string(),
+                status: "stopped".into(),
+                message: Some("plugin disconnected".into()),
+                row: None,
+                column: None,
+            },
+        );
+
+        let attempts = self
+            .plugin_restart_attempts
+            .get(plugin_uuid)
+            .copied()
+            .unwrap_or(0);
+        let Some(meta) = meta else {
+            return;
+        };
+        if attempts >= 1 {
+            warn!("SD plugin {plugin_uuid} crashed again; leaving it stopped");
+            return;
+        }
+        self.plugin_restart_attempts
+            .insert(plugin_uuid.to_string(), attempts + 1);
+        let path = meta.path.clone();
+        let uuid = plugin_uuid.to_string();
+        // The worker owns the reload so the broker drain never calls back into
+        // `load_sd_plugin` (that would make the future type recursive).
+        let _ = self.plugin_restart_tx.send((uuid, path));
+    }
+
+    /// Consume restart requests queued by `handle_plugin_disconnect`.
+    pub fn start_plugin_restart_worker(state: Arc<RwLock<Self>>) {
+        tauri::async_runtime::spawn(async move {
+            let mut rx = {
+                let mut o = state.write().await;
+                o.plugin_restart_rx.take()
+            };
+            let Some(rx) = rx.as_mut() else {
+                return;
+            };
+            while let Some((uuid, path)) = rx.recv().await {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let mut o = state.write().await;
+                if o.inner.sd_supervisor.get(&uuid).is_some() {
+                    continue;
+                }
+                info!("restarting crashed SD plugin {uuid}");
+                let handle = state.clone();
+                if let Err(error) = o.load_sd_plugin(path, handle).await {
+                    warn!("restart of SD plugin {uuid} failed: {error}");
+                }
+            }
+        });
     }
 
     pub async fn unload_sd_plugin(&mut self, plugin_uuid: Option<String>) -> Result<(), String> {
@@ -5327,6 +5439,8 @@ impl Orchestrator {
                     broker.device_did_connect().await.ok();
                 }
             }
+            // Handled by the supervisor drain closure with a grace period.
+            BrokerEvent::PluginDisconnected { .. } => {}
             BrokerEvent::ShowAlert { context } => {
                 if let Some((surface_id, row, col)) =
                     self.cell_location_for_context(plugin_uuid, context)

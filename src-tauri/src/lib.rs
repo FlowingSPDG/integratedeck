@@ -25,6 +25,7 @@ fn start_orchestrator(app: &App) -> Result<(), String> {
     Orchestrator::start_companion_event_drain(state.clone());
     Orchestrator::start_background_init(state.clone());
     Orchestrator::start_usb_watch(state.clone());
+    Orchestrator::start_plugin_restart_worker(state.clone());
     app.manage(state);
     Ok(())
 }
@@ -158,6 +159,22 @@ pub fn run() {
             commands::import_device_preset,
             commands::load_saved_device_preset,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running integratedeck");
+        .build(tauri::generate_context!())
+        .expect("error while building integratedeck")
+        .run(|app_handle, event| {
+            // Plugin child processes are not killed by the OS when the app
+            // exits, so terminate them explicitly (otherwise every restart
+            // leaves a plugin process behind).
+            if matches!(event, tauri::RunEvent::Exit) {
+                let state = app_handle
+                    .try_state::<Arc<RwLock<Orchestrator>>>()
+                    .map(|state| state.inner().clone());
+                if let Some(state) = state {
+                    tauri::async_runtime::block_on(async move {
+                        let mut o = state.write().await;
+                        o.unload_sd_plugin(None).await.ok();
+                    });
+                }
+            }
+        });
 }

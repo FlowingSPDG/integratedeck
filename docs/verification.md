@@ -21,6 +21,9 @@
 | Node plugin のsetState | 実機 | [x] | フィクスチャで setState(1) → state_index=1 |
 | `deviceDidDisconnect` | 実装 | [x] | サーフェス切断時に全プラグインへ通知（`notify plugin: deviceDidDisconnect` をログで確認） |
 | `unregisterEvent` | 実装 | [x] | プラグインの解除要求で `registered_events` から削除 |
+| プラグイン異常終了の検出 | 実装 | [x] | ソケット切断を2秒待って判定。`SD plugin disconnected: dev.miseinul.atem` をログ確認 |
+| プラグイン自動再起動 | 実装 | [x] | 終了検出後に1回だけ再起動（ATEM のPIDが 32952→32844 に変わり `status: running` へ復帰） |
+| プラグインのプロセス後始末 | 実装 | [x] | 終了時に子プロセスをkill。ウィンドウを閉じた後、プラグインプロセスが 0 件であることを確認（以前は再起動ごとに残留し 78 個まで蓄積） |
 | インストール済みプラグイン全数起動 | 実機 | [x] | 22本すべて `running`（Discord / Tutorial / Advanced HTTP / vMix / ATEM / Plus Dial / Cat Keys / Control Center / Hello World / Lights-Out / OBS Studio / Streamlabs / Volume Controller / V-160HD / V-60HD / Tomato / Spotify / Kairos / OBS WebSocket / Lhm / Keycreator / Navigation）。action 数は manifest と一致（Lhm と Keycreator は 0 個） |
 
 ## Companion

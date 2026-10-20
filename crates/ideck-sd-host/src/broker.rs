@@ -30,6 +30,11 @@ pub enum BrokerEvent {
     PluginRegistered {
         plugin_uuid: String,
     },
+    /// The plugin's websocket went away (crash, kill, or plugin-initiated
+    /// disconnect). The app decides whether to restart it.
+    PluginDisconnected {
+        plugin_uuid: String,
+    },
     SetImage {
         context: String,
         /// `Unchanged` = payload omitted `image`; `Cleared` = null/empty; `Set` = new bytes.
@@ -96,7 +101,10 @@ pub struct StreamDeckBroker {
     /// Events the plugin asked for via `registerEvent`.
     registered_events: RwLock<HashSet<String>>,
     plugin_dir: PathBuf,
-    _plugin_process: PluginProcess,
+    /// True while a plugin websocket is registered. Cleared when the socket
+    /// closes so a crash can be told apart from a transient reconnect.
+    connected: std::sync::atomic::AtomicBool,
+    plugin_process: std::sync::Mutex<Option<PluginProcess>>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,7 +160,8 @@ impl StreamDeckBroker {
             global_settings: RwLock::new(json!({})),
             registered_events: RwLock::new(HashSet::new()),
             plugin_dir: plugin_dir.to_path_buf(),
-            _plugin_process: plugin_process,
+            connected: std::sync::atomic::AtomicBool::new(false),
+            plugin_process: std::sync::Mutex::new(Some(plugin_process)),
         });
 
         let broker_accept = broker.clone();
@@ -294,6 +303,17 @@ impl StreamDeckBroker {
         self.plugin_tx
             .send(Message::Text(payload.to_string().into()))?;
         Ok(())
+    }
+
+    /// Kill the plugin process. Called on unload and on app exit, because the
+    /// OS does not terminate child processes for us and broker clones (accept
+    /// loop tasks) can outlive the supervisor entry.
+    pub fn shutdown_process(&self) {
+        if let Ok(mut guard) = self.plugin_process.lock() {
+            if let Some(mut process) = guard.take() {
+                process.shutdown();
+            }
+        }
     }
 
     async fn send_lifecycle(&self, context: &str, event: &str) -> anyhow::Result<()> {
@@ -730,10 +750,28 @@ impl StreamDeckBroker {
 
     async fn on_register_plugin(&self, uuid: &str, sink: WsSink) {
         *self.plugin_sink.write().await = Some(sink);
+        self.connected
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.flush_pending_to_plugin().await;
         let _ = self.event_tx.send(BrokerEvent::PluginRegistered {
             plugin_uuid: uuid.into(),
         });
+    }
+
+    /// The plugin socket closed: mark the broker offline and tell the app so it
+    /// can restart (or at least show) a crashed plugin.
+    async fn on_plugin_socket_closed(&self) {
+        self.connected
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        *self.plugin_sink.write().await = None;
+        let _ = self.event_tx.send(BrokerEvent::PluginDisconnected {
+            plugin_uuid: self.plugin_uuid.clone(),
+        });
+    }
+
+    /// Whether a plugin websocket is currently registered.
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     async fn on_register_pi(&self, uuid: &str, sink: WsSink) {
@@ -786,6 +824,7 @@ async fn handle_connection(
             while let Some(Ok(Message::Text(t))) = stream.next().await {
                 broker.handle_plugin_message(&t).await;
             }
+            broker.on_plugin_socket_closed().await;
         }
         "registerPropertyInspector" => {
             let uuid = msg
