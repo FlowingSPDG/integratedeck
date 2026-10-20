@@ -2577,6 +2577,7 @@ impl Orchestrator {
         let jpeg = ideck_surface::encode_lcd_jpeg(image, 1424, 280)
             .ok_or_else(|| "failed to encode LCD image".to_string())?;
         self.cache_studio_lcd(surface_id, &jpeg);
+        tracing::debug!(surface = %surface_id.0, bytes = jpeg.len(), "studio LCD frame sent");
         let physical = self
             .inner
             .surfaces
@@ -5083,6 +5084,57 @@ impl Orchestrator {
         if segments.is_empty() {
             return;
         }
+
+        let caps = self
+            .inner
+            .surfaces
+            .get(surface_id)
+            .await
+            .map(|surface| surface.descriptor().capabilities.clone());
+
+        // The Studio has no touch strip: its 1424x280 panel doubles as the dial
+        // display, so paint the page name plus one zone per dial.
+        if let Some(caps) = caps
+            .as_ref()
+            .filter(|caps| caps.columns >= 8 && caps.encoders > 0)
+        {
+            let page_name = self
+                .inner
+                .page_for_surface(surface_id)
+                .and_then(|page_id| {
+                    self.inner
+                        .profile
+                        .pages
+                        .iter()
+                        .find(|page| page.id == page_id)
+                        .map(|page| page.name.clone())
+                })
+                .unwrap_or_else(|| "integratedeck".into());
+            let mut all = vec![ideck_core::TouchStripSegment {
+                index: 0,
+                visual: VisualState {
+                    title: Some(page_name),
+                    ..Default::default()
+                },
+            }];
+            all.extend(
+                segments
+                    .iter()
+                    .map(|segment| ideck_core::TouchStripSegment {
+                        index: segment.index + 1,
+                        visual: segment.visual.clone(),
+                    }),
+            );
+            if let Some(payload) =
+                ideck_core::render_touch_strip(1424, 280, &all, 1 + caps.encoders)
+            {
+                if let Err(e) = self.set_studio_lcd(surface_id, &payload) {
+                    warn!("studio LCD dial render failed: {e}");
+                }
+            }
+            return;
+        }
+
         if let Err(e) = self
             .inner
             .surfaces

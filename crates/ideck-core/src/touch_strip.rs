@@ -110,8 +110,15 @@ fn draw_segment(
     let has_indicator = indicator.is_some();
 
     if let Some(font) = font {
-        let value_scale = PxScale::from((height as f32 * 0.44).clamp(18.0, 46.0));
-        let title_scale = PxScale::from((height as f32 * 0.17).clamp(9.0, 16.0));
+        // Size text against the zone, not just the strip height: a dial on the
+        // 1424x280 Studio panel has far more room than one on an 800x100 strip.
+        let zone_width = (x1 - x0) as f32;
+        let value_px = (height as f32 * 0.46)
+            .min(zone_width * 0.34)
+            .clamp(16.0, 130.0);
+        let title_px = (value_px * 0.34).clamp(9.0, 34.0);
+        let value_scale = PxScale::from(value_px);
+        let title_scale = PxScale::from(title_px);
 
         // Value line: the whole title when it is short, otherwise the first line.
         let (value_line, title_line) = split_dial_text(title);

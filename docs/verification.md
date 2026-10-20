@@ -35,7 +35,6 @@
 | feedback options UI | ユニット | [x] | ConfigPanel の SettingsEditor |
 | module saveConfig 永続化 | ユニット | [x] | `connection.config` で config+secrets 保存 |
 | 接続状態表示 | 実機 | [x] | vMix 接続直後に `status: ok` |
-| 実 vMix 接続・実行 | 実機 | [ ] | vMix 本体が必要 |
 
 ## Studio
 
@@ -68,6 +67,8 @@
 | ダイヤルfeedbackがキーを汚染しない | ユニット | [x] | `dial_feedback_does_not_render_to_key_cells` |
 | 同一ページ共有時のダイヤル状態 | ユニット | [x] | `shared_dial_context_updates_every_surface` |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要 |
+| Studio LCD にダイヤル値を表示 | 実機 | [x] | 回転でLCDが再描画（cache/lcd/*.jpg 更新、Page名+ダイヤル値+区切りを確認） |
+| タッチストリップ文字のゾーン幅スケーリング | ユニット | [x] | 1424x280では拡大、800x100では従来サイズ |
 | Plus タッチストリップ描画（800x100 / 4分割） | 実機 | [x] | `render_touch_strip` が `write_lcd_fill` へ5416バイト送信（ログ `touch strip rendered`） |
 | ストリップ描画のタイトル/値/インジケータ | ユニット | [x] | `ideck-core::touch_strip` の描画テスト4件 |
 | Plus タッチタップ→ダイヤル割当 | ユニット | [x] | `touch_strip_index`（800px を4分割）。実機タップは次段 |
