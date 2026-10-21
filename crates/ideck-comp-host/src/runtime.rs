@@ -69,4 +69,9 @@ impl CompModuleRuntime {
     pub async fn shutdown(&self) {
         self.inner.shutdown().await;
     }
+
+    /// False when the sidecar process has gone away.
+    pub fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
 }

@@ -741,14 +741,28 @@ impl Orchestrator {
                 };
                 let mut saw_event = false;
                 loop {
-                    match rx.recv().await {
-                        Ok(ev) => {
+                    // Poll liveness as well as events: a killed sidecar does not
+                    // close the event channel on its own.
+                    match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await {
+                        Ok(Ok(ev)) => {
                             saw_event = true;
                             let mut o = self_arc.write().await;
                             o.apply_companion_event(ev).await;
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => break,
+                        Err(_) => {}
+                    }
+                    let dead = {
+                        let o = self_arc.read().await;
+                        o.inner
+                            .comp_runtime
+                            .as_ref()
+                            .map(|runtime| !runtime.is_alive())
+                            .unwrap_or(true)
+                    };
+                    if dead {
+                        break;
                     }
                 }
                 if saw_event {

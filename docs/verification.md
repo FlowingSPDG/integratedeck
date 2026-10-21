@@ -44,6 +44,7 @@
 | Companion サイドカーの終了処理 | 実装 | [x] | `shutdown_kills_the_sidecar_and_removes_its_script`（プロセス停止と一時スクリプト削除） |
 | サイドカー一時スクリプトの掃除 | 実装 | [x] | 起動時に `%TEMP%/ideck-companion-sidecar-*.mjs` を一掃（317個→1個）。終了時も自前のファイルを削除 |
 | サイドカー異常終了の自動再起動 | 実装 | [x] | チャンネル切断を検知して 2→30秒のバックオフで再生成し、接続とfeedbackを復元（`companion module engine stopped; restarting`） |
+| サイドカー停止の検知方式 | 実装 | [x] | stdout のEOFで `alive=false` にし、ドレインが2秒ごとに監視。kill 後 `companion module engine stopped; restarting in 2s` → 再生成 → vMix が `status: ok`（214 actions）に復帰 |
 | サイドカーの親プロセス監視 | 実装 | [x] | stdin EOF と ppid 監視で、強制終了時も数秒で終了（PID 20960 が消えることを確認） |
 | プリセット定義の取得 | 実機 | [x] | vMix 751 件（うち 750 件が step 持ち） |
 | プリセットのキー割当 | 実機 | [x] | サイドバーから D&D → `companion_preset` バインド、押下で `transitionMix` 実行（active 2→1） |

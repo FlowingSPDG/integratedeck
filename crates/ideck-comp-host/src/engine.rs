@@ -27,6 +27,9 @@ pub struct EmbeddedEngine {
     event_tx: broadcast::Sender<HostEvent>,
     /// Temp script handed to Node; removed when the engine goes away.
     script_path: std::path::PathBuf,
+    /// Cleared when the sidecar's stdout reaches EOF, so the app can restart a
+    /// crashed engine even though no request is in flight.
+    alive: Arc<std::sync::atomic::AtomicBool>,
     _child: Mutex<Child>,
 }
 
@@ -68,6 +71,8 @@ impl EmbeddedEngine {
 
         let pending_reader = pending.clone();
         let event_reader = event_tx.clone();
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let alive_reader = alive.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -96,6 +101,13 @@ impl EmbeddedEngine {
                     .to_string();
                 let _ = event_reader.send(HostEvent { event, data: value });
             }
+            // stdout closed: the sidecar is gone. Tell the app so it can restart
+            // the engine even when no request was waiting.
+            alive_reader.store(false, std::sync::atomic::Ordering::SeqCst);
+            let _ = event_reader.send(HostEvent {
+                event: "engine.closed".into(),
+                data: serde_json::json!({}),
+            });
         });
 
         Ok(Self {
@@ -103,8 +115,14 @@ impl EmbeddedEngine {
             pending,
             event_tx,
             script_path,
+            alive,
             _child: Mutex::new(child),
         })
+    }
+
+    /// False once the sidecar's stdout closed (crash or kill).
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Kill the sidecar process now (app exit). The temp script is removed too.
