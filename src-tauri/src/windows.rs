@@ -58,17 +58,18 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
 /// Pre-create the settings popup during `setup` on the main thread.
 ///
 /// On Windows, creating a webview inside a **synchronous** IPC command deadlocks WebView2
-/// (close button unresponsive). Lazy creation via `run_on_main_thread` from IPC has the
-/// same issue. Create during `setup`, then keep it hidden with `skip_taskbar` + `hide()`.
-pub fn ensure_settings_window(app: &App) -> Result<(), String> {
+/// (close button unresponsive). This is therefore called from the main thread after
+/// `setup` returns (see `lib.rs`), and the window stays hidden with
+/// `skip_taskbar` + `hide()` until the user opens settings.
+pub fn ensure_settings_window(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(SETTINGS_WINDOW_LABEL).is_some() {
         return Ok(());
     }
 
-    let config = window_config(app, SETTINGS_WINDOW_LABEL)?;
+    let config = window_config_from_handle(app, SETTINGS_WINDOW_LABEL)?;
     let mut window = None;
     for attempt in 0..2 {
-        match build_window(app.handle(), &config, true) {
+        match build_window(app, &config, true) {
             Ok(built) => {
                 window = Some(built);
                 break;
@@ -76,7 +77,7 @@ pub fn ensure_settings_window(app: &App) -> Result<(), String> {
             Err(e) => {
                 warn!(attempt, "settings window build failed: {e}");
                 if attempt == 0 && is_locked_profile_error(&e) {
-                    park_webview_profile(app.handle());
+                    park_webview_profile(app);
                 }
             }
         }
@@ -158,7 +159,7 @@ pub fn show_settings_window(app: &AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window(SETTINGS_WINDOW_LABEL)
         .ok_or_else(|| {
-            "設定ウィンドウが初期化されていません。アプリを再起動してください。".to_string()
+            "設定ウィンドウを準備しています。数秒おいて、もう一度お試しください。".to_string()
         })?;
 
     window.set_skip_taskbar(false).map_err(|e| e.to_string())?;

@@ -62,7 +62,19 @@ pub fn run() {
             // each WebView costs tens of seconds on a cold machine, and devices
             // should connect (and light up) while that happens.
             start_orchestrator(app)?;
-            windows::ensure_settings_window(app)?;
+            // Creating the settings webview blocks the main thread for ~15-20s,
+            // so schedule it once setup has returned. Devices and plugin host
+            // windows can then be created first.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+                let for_main = handle.clone();
+                let _ = handle.run_on_main_thread(move || {
+                    if let Err(error) = windows::ensure_settings_window(&for_main) {
+                        tracing::warn!("settings window not created: {error}");
+                    }
+                });
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

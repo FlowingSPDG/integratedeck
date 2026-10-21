@@ -113,7 +113,7 @@
 | WebView2プロファイルのロック自動復旧 | 実装 | [x] | 0x800700AA 検出時に `EBWebView` を退避して再試行。`recognises_the_locked_profile_error` / `keeps_only_the_three_newest_parked_profiles` |
 | プラグイン用WebViewの遅延生成 | 実機 | [x] | 起動時の4枚一括生成をやめ、初回表示時に生成（起動ブロック104秒→実質0） |
 | JSプラグインのNode互換シム | ユニット | [x] | events/ws をコンストラクタ化、https・http・net・process・os・stream・Buffer を追加（記録: docs/js-shims.md） |
-| 起動順の最適化 | 実機 | [x] | 設定ウィンドウ生成前にオーケストレータ起動。起動〜デバイス接続が115秒→約36秒 |
+| 起動順の最適化 | 実機 | [x] | 設定ウィンドウの生成を setup 完了後（main thread）へ遅延。起動〜デバイス接続が 115秒 → 約3秒（Plus 1.4s / Studio 2.6s、プロファイルを消した状態でも同じ） |
 | Studio の明るさ | 実装 | [x] | LAN のみ `brightness_packet` を送信（USB は WriteFile が拒否するため未対応） |
 | プラグインの SVG setImage | ユニット | [x] | `plugin_payload_rasterizes_svg`（144px PNGへ変換） |
 
