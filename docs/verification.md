@@ -101,6 +101,7 @@
 | ページ切替時のダイヤル解除 | 実機 | [x] | 空の Folder ページへ切替でダイヤル表示が消え（`get_dial_visuals` が空）、戻すと復帰（タイトル "13"）。古いコンテキストは破棄 |
 | ページ切替時のダイヤル再描画 | 実装 | [x] | 再登録時に `willAppear` を送り、プラグインが値を再送するようにした |
 | ページ切替時のキー解除 | 実機 | [x] | Page1 の (1,8) に Tutorial を割当→`keyDown -> plugin`、空ページへ切替後の同一セルは `keyDown not bound to a plugin`、戻すと再びプラグインへ |
+| ページ切替時のCompanionフィードバック | 実機 | [x] | transitionMix スロットに inputPreview（preview=2）を付け、空ページへ往復しても bgcolor (0,255,0) を維持 |
 | キー解決の診断ログ | 実装 | [x] | `keyDown -> plugin` / `keyDown not bound to a plugin` を debug で出力 |
 | サーフェスごとのダイヤル数尊重 | 実装 | [x] | `surface_dial_count` で上限を設け、2ダイヤルのStudioに3つ目のゾーンを作らない（Studio: 0,1 / Plus: 0,1,2）。回転も 10→11 で動作 |
 | 連続入力のスループット | 実機 | [x] | ダイヤル押下20連打=25ms、回転40ノッチ=42ms。実行中もプラグイン6本・2サーフェス接続を維持（Plus Dial の値は上限30でクランプ） |

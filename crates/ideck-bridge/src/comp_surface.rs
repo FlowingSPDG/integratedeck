@@ -40,6 +40,23 @@ impl CompSurfaceBridge {
         self.surface_by_control.get(control_id).copied()
     }
 
+    /// Drop the cell registrations of one surface (page switch).
+    pub fn clear_surface(&mut self, surface_id: SurfaceId) {
+        let stale: Vec<((SurfaceId, u32, u32), String)> = self
+            .control_by_cell
+            .iter()
+            .filter(|((sid, _, _), _)| *sid == surface_id)
+            .map(|(key, control)| (*key, control.clone()))
+            .collect();
+        for (key, control) in stale {
+            self.control_by_cell.remove(&key);
+            if self.surface_by_control.get(&control) == Some(&surface_id) {
+                self.cell_by_control.remove(&control);
+                self.surface_by_control.remove(&control);
+            }
+        }
+    }
+
     /// Forget whatever control was registered for a cell (slot unbound).
     pub fn unregister_cell(&mut self, surface_id: SurfaceId, row: u32, column: u32) {
         if let Some(control_id) = self.control_by_cell.remove(&(surface_id, row, column)) {

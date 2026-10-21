@@ -1839,6 +1839,9 @@ impl Orchestrator {
             bridge.clear_surface_cells(surface_id);
             bridge.clear_surface_encoders(surface_id);
         }
+        if let Some(bridge) = self.inner.comp_bridge.as_mut() {
+            bridge.clear_surface(surface_id);
+        }
         self.inner
             .dial_visuals
             .retain(|(sid, _), _| *sid != surface_id);
@@ -1930,6 +1933,41 @@ impl Orchestrator {
                     .await
                     .ok();
             }
+        }
+        // Companion-bound slots: re-register their cell so feedback keeps
+        // painting after a page switch.
+        let companion_slots: Vec<(SlotId, String, String, SurfaceId, u32, u32)> = page
+            .slots
+            .iter()
+            .filter(|(_, slot)| slot.locator.surface_id == surface_id)
+            .filter_map(|(slot_id, slot)| match &slot.binding {
+                Some(Binding {
+                    kind:
+                        BindingKind::Companion {
+                            connection_id,
+                            action_id,
+                            ..
+                        },
+                }) => Some((
+                    *slot_id,
+                    connection_id.clone(),
+                    action_id.clone(),
+                    slot.locator.surface_id,
+                    slot.locator.row,
+                    slot.locator.column,
+                )),
+                _ => None,
+            })
+            .collect();
+        for (slot_id, connection_id, action_id, surface_id, row, col) in companion_slots {
+            self.restore_companion_binding(
+                slot_id,
+                &connection_id,
+                &action_id,
+                surface_id,
+                row,
+                col,
+            );
         }
         for (index, plugin_uuid, action_uuid, instance_id, settings) in encoders {
             self.register_sd_encoder_context(
