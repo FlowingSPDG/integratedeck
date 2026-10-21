@@ -1832,6 +1832,14 @@ impl Orchestrator {
         let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
             return;
         };
+        // The previous page's dial contexts must go, otherwise a dial that is
+        // unbound on the new page keeps firing.
+        for bridge in self.inner.bridges.values_mut() {
+            bridge.clear_surface_encoders(surface_id);
+        }
+        self.inner
+            .dial_visuals
+            .retain(|(sid, _), _| *sid != surface_id);
         let dials = self.inner.surface_dial_count(surface_id).await;
         let encoders: Vec<(u32, String, String, ActionInstanceId, serde_json::Value)> = page
             .encoders
@@ -4446,13 +4454,16 @@ impl Orchestrator {
         if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
             broker
                 .ensure_action_context(ActionContext {
-                    context,
+                    context: context.clone(),
                     action_uuid: action_uuid.to_string(),
                     settings: settings.clone(),
                     coordinates: (index, 0),
                 })
                 .await
                 .ok();
+            // Repaint after a page switch: ensure_action_context only sends
+            // willAppear for a context the broker has not seen yet.
+            broker.will_appear(&context).await.ok();
         }
     }
 

@@ -34,6 +34,26 @@ impl SdSurfaceBridge {
         }
     }
 
+    /// Drop every dial binding for one surface (page switch / unbind).
+    pub fn clear_surface_encoders(&mut self, surface_id: SurfaceId) {
+        let stale: Vec<(SurfaceId, u32)> = self
+            .context_by_encoder
+            .keys()
+            .filter(|(sid, _)| *sid == surface_id)
+            .copied()
+            .collect();
+        for key in stale {
+            if let Some(context) = self.context_by_encoder.remove(&key) {
+                if let Some(list) = self.encoder_by_context.get_mut(&context) {
+                    list.retain(|entry| *entry != key);
+                    if list.is_empty() {
+                        self.encoder_by_context.remove(&context);
+                    }
+                }
+            }
+        }
+    }
+
     /// Forget every cell/dial mapping (used when the whole profile is replaced).
     pub fn reset(&mut self) {
         self.context_by_cell.clear();
