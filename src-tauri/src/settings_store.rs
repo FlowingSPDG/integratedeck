@@ -57,7 +57,7 @@ pub fn load_global_settings() -> AppGlobalSettings {
 pub fn save_global_settings(settings: &AppGlobalSettings) -> Result<(), String> {
     paths::ensure_dirs().map_err(|e| e.to_string())?;
     let data = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(paths::global_settings_file(), data).map_err(|e| e.to_string())
+    paths::write_atomic(&paths::global_settings_file(), data.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn load_device_registry() -> Vec<DeviceRecord> {
@@ -74,7 +74,7 @@ pub fn load_device_registry() -> Vec<DeviceRecord> {
 pub fn save_device_registry(records: &[DeviceRecord]) -> Result<(), String> {
     paths::ensure_dirs().map_err(|e| e.to_string())?;
     let data = serde_json::to_string_pretty(records).map_err(|e| e.to_string())?;
-    std::fs::write(paths::device_registry_file(), data).map_err(|e| e.to_string())
+    paths::write_atomic(&paths::device_registry_file(), data.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn upsert_device_record(record: DeviceRecord) -> Result<(), String> {

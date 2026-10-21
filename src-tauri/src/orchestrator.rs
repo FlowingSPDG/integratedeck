@@ -631,11 +631,22 @@ impl Orchestrator {
     pub async fn new_core(app: &AppHandle) -> anyhow::Result<Self> {
         paths::ensure_dirs()?;
         let profile_path = paths::profiles_dir().join("default.json");
-        let profile = if profile_path.exists() {
-            let data = std::fs::read_to_string(&profile_path)?;
-            serde_json::from_str::<Profile>(&data).unwrap_or_else(|_| Profile::new("Default"))
-        } else {
-            Profile::new("Default")
+        let profile = match std::fs::read_to_string(&profile_path) {
+            Ok(data) => match serde_json::from_str::<Profile>(&data) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    // Never throw the user's pages away silently: keep the
+                    // unreadable file next to the profile and start fresh.
+                    warn!("profile could not be parsed ({error}); keeping a backup");
+                    backup_corrupt_file(&profile_path);
+                    Profile::new("Default")
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Profile::new("Default"),
+            Err(error) => {
+                warn!("profile could not be read ({error}); starting with a fresh one");
+                Profile::new("Default")
+            }
         };
 
         let inner = AppStateInner::new(profile);
@@ -692,7 +703,7 @@ impl Orchestrator {
     fn save_connections(&self) -> anyhow::Result<()> {
         let path = paths::connections_file();
         let data = serde_json::to_string_pretty(&self.inner.connections.list())?;
-        std::fs::write(path, data)?;
+        paths::write_atomic(&path, data.as_bytes())?;
         Ok(())
     }
 
@@ -2329,7 +2340,7 @@ impl Orchestrator {
     pub async fn save_profile(&self) -> anyhow::Result<()> {
         let path = paths::profiles_dir().join("default.json");
         let data = serde_json::to_string_pretty(&self.inner.profile)?;
-        std::fs::write(path, data)?;
+        paths::write_atomic(&path, data.as_bytes())?;
         Ok(())
     }
 
@@ -3354,7 +3365,8 @@ impl Orchestrator {
         };
         let json = serde_json::to_string_pretty(&preset).map_err(|e| e.to_string())?;
         paths::ensure_dirs().map_err(|e| e.to_string())?;
-        std::fs::write(paths::device_preset_file(device_key), &json).map_err(|e| e.to_string())?;
+        paths::write_atomic(&paths::device_preset_file(device_key), json.as_bytes())
+            .map_err(|e| e.to_string())?;
         Ok(json)
     }
 
@@ -3377,7 +3389,8 @@ impl Orchestrator {
             .map_err(|e| e.to_string())?;
         self.save_profile().await.map_err(|e| e.to_string())?;
         paths::ensure_dirs().map_err(|e| e.to_string())?;
-        std::fs::write(paths::device_preset_file(device_key), json).map_err(|e| e.to_string())?;
+        paths::write_atomic(&paths::device_preset_file(device_key), json.as_bytes())
+            .map_err(|e| e.to_string())?;
         self.rehydrate_profile_bindings(orch.clone())
             .await
             .map_err(|e| e.to_string())?;
@@ -6775,4 +6788,51 @@ fn is_slot_configured(slot: &Slot) -> bool {
             .as_ref()
             .is_some_and(|t| !t.trim().is_empty())
         || slot.appearance.default_image.is_some()
+}
+
+/// Rename an unreadable file next to itself so the data is not lost when the
+/// app starts with a fresh profile.
+fn backup_corrupt_file(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let file_name = path.file_name()?.to_string_lossy().into_owned();
+    let backup = path.with_file_name(format!("{file_name}.corrupt-{stamp}"));
+    match std::fs::rename(path, &backup) {
+        Ok(()) => {
+            warn!(backup = %backup.display(), "kept a backup of the unreadable profile");
+            Some(backup)
+        }
+        Err(error) => {
+            warn!("could not back up {file_name}: {error}");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::backup_corrupt_file;
+
+    #[test]
+    fn keeps_the_unreadable_file_next_to_the_original() {
+        let dir = std::env::temp_dir().join(format!("ideck-corrupt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("default.json");
+        std::fs::write(&path, b"{ this is not json").unwrap();
+
+        let backup = backup_corrupt_file(&path).expect("backup created");
+
+        assert!(!path.exists());
+        assert_eq!(std::fs::read(&backup).unwrap(), b"{ this is not json");
+        assert!(backup
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("default.json.corrupt-"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
