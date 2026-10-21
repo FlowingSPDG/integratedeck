@@ -92,6 +92,7 @@
 | ダイヤルfeedbackがキーを汚染しない | ユニット | [x] | `dial_feedback_does_not_render_to_key_cells` |
 | 同一ページ共有時のダイヤル状態 | ユニット | [x] | `shared_dial_context_updates_every_surface` |
 | ダイヤルbindingの共有範囲 | 仕様 | [x] | ダイヤルはページ単位（サーフェス非依存）。同じページを使う複数サーフェスでは同じ binding が動く（Plus実測: StudioのプリセットがPlus側ダイヤルにも出る） |
+| 連続入力のスループット | 実機 | [x] | ダイヤル押下20連打=25ms、回転40ノッチ=42ms。実行中もプラグイン6本・2サーフェス接続を維持（Plus Dial の値は上限30でクランプ） |
 | ダイヤル LED | 実機 | [ ] | Studio 実機の目視が必要（赤/緑を送信済み） |
 | HID 読み取り失敗からの復帰 | 実装 | [x] | 連続10回まで再試行。プラグイン起動時の `ERROR_OPERATION_ABORTED` で入力ループが止まる問題の対策 |
 | Studio LCD にダイヤル値を表示 | 実機 | [x] | 回転でLCDが再描画（cache/lcd/*.jpg 更新、Page名+ダイヤル値+区切りを確認） |
