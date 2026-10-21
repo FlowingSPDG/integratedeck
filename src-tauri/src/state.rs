@@ -81,7 +81,15 @@ pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, inpu
                 let Some(broker) = inner.sd_supervisor.get(plugin_uuid) else {
                     continue;
                 };
-                match bridge.surface_input_to_sd_event(surface_id, input) {
+                let resolved = bridge.surface_input_to_sd_event(surface_id, input);
+                if resolved.is_none() && matches!(input, SurfaceInput::EncoderRotate { .. }) {
+                    tracing::debug!(
+                        plugin_uuid,
+                        ?surface_id,
+                        "no dial context registered for this input"
+                    );
+                }
+                match resolved {
                     Some((context, "dialRotate")) => {
                         if let SurfaceInput::EncoderRotate { ticks, pressed, .. } = input {
                             if let Err(e) = broker.dial_rotate(&context, *ticks, *pressed).await {

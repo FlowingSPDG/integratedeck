@@ -72,6 +72,9 @@ pub struct Orchestrator {
     plugin_restart_tx: tokio::sync::mpsc::UnboundedSender<(String, std::path::PathBuf)>,
     /// Set when the app is exiting so the sidecar supervisor stops restarting it.
     comp_engine_shutdown: bool,
+    /// Plugins that must have their slot/dial contexts re-registered as soon as
+    /// they register (a fresh broker has none).
+    pending_plugin_rebind: std::collections::HashSet<String>,
     plugin_restart_rx: Option<tokio::sync::mpsc::UnboundedReceiver<(String, std::path::PathBuf)>>,
 }
 
@@ -686,6 +689,7 @@ impl Orchestrator {
             plugin_restart_tx,
             plugin_restart_rx: Some(plugin_restart_rx),
             comp_engine_shutdown: false,
+            pending_plugin_rebind: std::collections::HashSet::new(),
         })
     }
 
@@ -1159,6 +1163,201 @@ impl Orchestrator {
                 .await?;
         }
         Ok(())
+    }
+
+    /// Register the current page's dial bindings for one surface. Called when a
+    /// surface connects, because rehydrate may run before the surface knows its
+    /// page (dials would then never get a plugin context).
+    async fn register_page_encoder_contexts(&mut self, surface_id: SurfaceId) {
+        // The surface's own page and the active page can differ (a fresh surface
+        // starts on the first page); dial input falls back to the active page, so
+        // register both.
+        let mut page_ids: Vec<PageId> = Vec::new();
+        if let Some(page_id) = self.inner.page_for_surface(surface_id) {
+            page_ids.push(page_id);
+        }
+        if let Some(active) = self.inner.profile.active_page_id {
+            if !page_ids.contains(&active) {
+                page_ids.push(active);
+            }
+        }
+        let mut entries: Vec<(u32, Binding)> = Vec::new();
+        for page_id in page_ids {
+            let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
+                continue;
+            };
+            for (index, binding) in &page.encoders {
+                if entries.iter().any(|(existing, _)| existing == index) {
+                    continue;
+                }
+                entries.push((*index, binding.clone()));
+            }
+        }
+        if entries.is_empty() {
+            debug!(?surface_id, "no dial bindings to register for this surface");
+            return;
+        }
+        debug!(
+            ?surface_id,
+            dials = entries.len(),
+            "registering page dial contexts"
+        );
+        for (index, binding) in entries {
+            match binding.kind {
+                BindingKind::StreamDeck {
+                    plugin_uuid,
+                    action_uuid,
+                    instance_id,
+                    settings,
+                } => {
+                    self.register_sd_encoder_context(
+                        surface_id,
+                        index,
+                        &plugin_uuid,
+                        &action_uuid,
+                        &instance_id,
+                        &settings,
+                    )
+                    .await;
+                }
+                BindingKind::CompanionPreset {
+                    label: Some(label),
+                    color,
+                    ..
+                } => {
+                    let visual = VisualState {
+                        title: Some(label),
+                        bgcolor: color.map(|color| ideck_core::Color {
+                            r: ((color >> 16) & 0xff) as u8,
+                            g: ((color >> 8) & 0xff) as u8,
+                            b: (color & 0xff) as u8,
+                        }),
+                        ..Default::default()
+                    };
+                    self.inner
+                        .dial_visuals
+                        .insert((surface_id, index), visual.clone());
+                    self.render_dial_display(surface_id, index, visual).await;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Re-register slot/dial contexts for a plugin once it has registered.
+    pub fn request_plugin_rebind(&mut self, plugin_uuid: &str) {
+        self.pending_plugin_rebind.insert(plugin_uuid.to_string());
+    }
+
+    /// Re-attach slot and dial contexts after a plugin (re)started: a fresh
+    /// broker has no action contexts, so key presses would be dropped and dials
+    /// would have no registration at all.
+    pub async fn reregister_plugin_bindings(&mut self, plugin_uuid: &str) {
+        let mut slots: Vec<(
+            SlotId,
+            String,
+            ActionInstanceId,
+            serde_json::Value,
+            SurfaceId,
+            u32,
+            u32,
+        )> = Vec::new();
+        let mut dials: Vec<(SurfaceId, u32, String, ActionInstanceId, serde_json::Value)> =
+            Vec::new();
+        for page in &self.inner.profile.pages {
+            for (slot_id, slot) in &page.slots {
+                let Some(Binding {
+                    kind:
+                        BindingKind::StreamDeck {
+                            plugin_uuid: uuid,
+                            action_uuid,
+                            instance_id,
+                            settings,
+                        },
+                }) = &slot.binding
+                else {
+                    continue;
+                };
+                if uuid != plugin_uuid {
+                    continue;
+                }
+                slots.push((
+                    *slot_id,
+                    action_uuid.clone(),
+                    instance_id.clone(),
+                    settings.clone(),
+                    slot.locator.surface_id,
+                    slot.locator.row,
+                    slot.locator.column,
+                ));
+            }
+            let surfaces: Vec<SurfaceId> = self
+                .inner
+                .surface_pages
+                .iter()
+                .filter(|(_, page_id)| **page_id == page.id)
+                .map(|(surface_id, _)| *surface_id)
+                .collect();
+            for (index, binding) in &page.encoders {
+                let BindingKind::StreamDeck {
+                    plugin_uuid: uuid,
+                    action_uuid,
+                    instance_id,
+                    settings,
+                } = &binding.kind
+                else {
+                    continue;
+                };
+                if uuid != plugin_uuid {
+                    continue;
+                }
+                for surface_id in &surfaces {
+                    dials.push((
+                        *surface_id,
+                        *index,
+                        action_uuid.clone(),
+                        instance_id.clone(),
+                        settings.clone(),
+                    ));
+                }
+            }
+        }
+
+        info!(
+            plugin_uuid,
+            slots = slots.len(),
+            dials = dials.len(),
+            "re-registering plugin bindings after restart"
+        );
+        for (slot_id, action_uuid, instance_id, settings, surface_id, row, col) in slots {
+            self.inner.routing.clear_slot(&slot_id);
+            if let Err(error) = self
+                .restore_sd_binding(
+                    slot_id,
+                    plugin_uuid,
+                    &action_uuid,
+                    instance_id,
+                    settings,
+                    surface_id,
+                    row,
+                    col,
+                )
+                .await
+            {
+                warn!("re-registering a slot after the plugin restart failed: {error}");
+            }
+        }
+        for (surface_id, index, action_uuid, instance_id, settings) in dials {
+            self.register_sd_encoder_context(
+                surface_id,
+                index,
+                plugin_uuid,
+                &action_uuid,
+                &instance_id,
+                &settings,
+            )
+            .await;
+        }
     }
 
     fn resolve_loaded_plugin_uuid(&self, plugin_uuid: &str) -> String {
@@ -2281,6 +2480,9 @@ impl Orchestrator {
         self.rehydrate_profile_bindings(orch)
             .await
             .map_err(|e| e.to_string())?;
+        // Rehydrate only sees surfaces that already have a page mapping, so make
+        // sure this surface's dials are registered even on the first connect.
+        self.register_page_encoder_contexts(surface_id).await;
         for uuid in self.inner.sd_supervisor.plugin_uuids() {
             if let Some(broker) = self.inner.sd_supervisor.get(&uuid) {
                 broker.device_did_connect().await.ok();
@@ -3085,6 +3287,9 @@ impl Orchestrator {
                 }
                 info!("restarting crashed SD plugin {uuid}");
                 let handle = state.clone();
+                // A fresh broker has no action contexts: rebind the slots and
+                // dials once the plugin has registered its websocket.
+                o.request_plugin_rebind(&uuid);
                 if let Err(error) = o.load_sd_plugin(path, handle).await {
                     warn!("restart of SD plugin {uuid} failed: {error}");
                 }
@@ -5519,6 +5724,13 @@ impl Orchestrator {
             BrokerEvent::PluginRegistered { .. } => {
                 if let Some(broker) = self.inner.sd_supervisor.get(plugin_uuid) {
                     broker.device_did_connect().await.ok();
+                }
+                // A restarted plugin gets its contexts back only once the
+                // websocket is up, otherwise the willAppear would be lost.
+                let uuid = plugin_uuid.to_string();
+                if self.pending_plugin_rebind.remove(&uuid) {
+                    self.reregister_plugin_bindings(&uuid).await;
+                    HubEvents::emit_definitions_refresh(&self.app);
                 }
             }
             // Handled by the supervisor drain closure with a grace period.

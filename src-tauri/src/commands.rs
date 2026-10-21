@@ -138,9 +138,14 @@ pub async fn load_sd_plugin(
     let mut o = state.write().await;
     // A manual load resets the crash-restart budget.
     o.reset_plugin_restart_attempts_for_path(&path);
-    o.load_sd_plugin(path.into(), state_clone)
+    let result = o
+        .load_sd_plugin(path.into(), state_clone)
         .await
-        .map_err(friendly_anyhow)
+        .map_err(friendly_anyhow)?;
+    // Slots and dials that were bound to this plugin lost their contexts when it
+    // stopped; rebind them once the plugin registers.
+    o.request_plugin_rebind(&result.plugin_uuid);
+    Ok(result)
 }
 
 #[derive(Deserialize)]
