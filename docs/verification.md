@@ -54,6 +54,9 @@
 | スロット解除時の feedback 破棄 | ユニット | [x] | `unbind_slot` が `removeFeedback` を送りブリッジ登録も解除。`unregistering_a_cell_drops_every_index` |
 | モジュール一覧の検出 | 実機 | [x] | npm名のモジュール（`studiocoast-vmix`）を検出し、接続追加のドロップダウンに表示 |
 | 接続の追加/削除 | 実機 | [x] | 追加→`status: ok`→config fields 取得→削除 をIPC経由で確認（設定画面のCompanionタブと同一コマンド） |
+| 接続設定の更新 | 実機 | [x] | `update_connection_config` 後も `status: ok`・actions 214 / presets 751 を維持 |
+| プロファイル書き出し | 実機 | [x] | `export_profile` が 7ページ / 99スロットの JSON を返す |
+| デバイスプリセット書き出し | 実機 | [x] | studio-usb のプリセットが32スロットの JSON として出力 |
 | 設定画面のタブ描画 | 実機 | [x] | General / Devices / Presets / Companion の4タブが実データで描画 |
 | Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |
 
