@@ -12,6 +12,7 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
     }
 
     let config = window_config(app, MAIN_WINDOW_LABEL)?;
+    let mut profile_reset = false;
 
     for attempt in 0..5 {
         if attempt > 0 {
@@ -33,7 +34,18 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
                 info!("main window created");
                 return Ok(());
             }
-            Err(e) => warn!(attempt, "main window build failed: {e}"),
+            Err(e) => {
+                warn!(attempt, "main window build failed: {e}");
+                // A killed instance can leave the WebView2 user-data folder
+                // locked (0x800700AA). Park it once and start with a clean one;
+                // the app's own data lives in %APPDATA% and is unaffected.
+                if !profile_reset && is_locked_profile_error(&e) {
+                    profile_reset = true;
+                    if park_webview_profile(app.handle()) {
+                        warn!("retrying with a fresh WebView2 profile");
+                    }
+                }
+            }
         }
     }
 
@@ -54,11 +66,91 @@ pub fn ensure_settings_window(app: &App) -> Result<(), String> {
     }
 
     let config = window_config(app, SETTINGS_WINDOW_LABEL)?;
-    let window = build_window(app.handle(), &config, true)?;
+    let mut window = None;
+    for attempt in 0..2 {
+        match build_window(app.handle(), &config, true) {
+            Ok(built) => {
+                window = Some(built);
+                break;
+            }
+            Err(e) => {
+                warn!(attempt, "settings window build failed: {e}");
+                if attempt == 0 && is_locked_profile_error(&e) {
+                    park_webview_profile(app.handle());
+                }
+            }
+        }
+    }
+    let window = window.ok_or_else(|| "設定ウィンドウの作成に失敗しました".to_string())?;
     attach_hide_on_close(&window);
     window.hide().map_err(|e| e.to_string())?;
     info!("settings window created (hidden)");
     Ok(())
+}
+
+/// WebView2 reports "The requested resource is in use" when another process
+/// still holds the user-data folder.
+fn is_locked_profile_error(error: &str) -> bool {
+    error.contains("0x800700AA")
+        || error.to_ascii_lowercase().contains("resource is in use")
+        || error
+            .to_ascii_lowercase()
+            .contains("being used by another process")
+}
+
+/// Move the locked WebView2 profile aside so the next creation starts clean.
+fn park_webview_profile(app: &AppHandle) -> bool {
+    let Ok(dir) = app.path().app_local_data_dir() else {
+        return false;
+    };
+    let profile = dir.join("EBWebView");
+    if !profile.is_dir() {
+        return false;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    let parked = dir.join(format!("EBWebView.stale-{stamp}"));
+    match std::fs::rename(&profile, &parked) {
+        Ok(()) => {
+            warn!(parked = %parked.display(), "parked locked WebView2 profile");
+            prune_parked_profiles(&dir);
+            true
+        }
+        Err(e) => {
+            warn!("could not park the WebView2 profile: {e}");
+            false
+        }
+    }
+}
+
+/// Keep the three newest parked profiles, drop the rest.
+fn prune_parked_profiles(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut parked: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("EBWebView.stale-"))
+                .unwrap_or(false)
+        })
+        .collect();
+    if parked.len() <= 3 {
+        return;
+    }
+    parked.sort_by_key(|path| {
+        std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .ok()
+    });
+    for old in parked.iter().rev().skip(3) {
+        let _ = std::fs::remove_dir_all(old);
+    }
 }
 
 /// Show the singleton settings popup. Never creates a webview here (Windows-safe).
@@ -135,4 +227,56 @@ fn attach_exit_on_close(window: &WebviewWindow) {
             app.exit(0);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_locked_profile_error, prune_parked_profiles};
+
+    #[test]
+    fn recognises_the_locked_profile_error() {
+        assert!(is_locked_profile_error(
+            "failed to create webview: WebView2 error: WindowsError(Error { code: HRESULT(0x800700AA), message: \"The requested resource is in use.\" })"
+        ));
+        assert!(is_locked_profile_error(
+            "The file is being used by another process"
+        ));
+        assert!(!is_locked_profile_error("WebView2 runtime not found"));
+        assert!(!is_locked_profile_error("missing main window config"));
+    }
+
+    #[test]
+    fn keeps_only_the_three_newest_parked_profiles() {
+        let root = std::env::temp_dir().join(format!("ideck-park-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for index in 0..5 {
+            let dir = root.join(format!("EBWebView.stale-{index}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            // Space the mtimes so the ordering is deterministic.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        std::fs::create_dir_all(root.join("EBWebView")).unwrap();
+
+        prune_parked_profiles(&root);
+
+        let mut left: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("EBWebView.stale-"))
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            vec![
+                "EBWebView.stale-2",
+                "EBWebView.stale-3",
+                "EBWebView.stale-4"
+            ]
+        );
+        assert!(root.join("EBWebView").is_dir());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
