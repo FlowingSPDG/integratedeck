@@ -176,6 +176,15 @@ impl AppStateInner {
         }
     }
 
+    /// Number of dials the surface physically has (0 when it has none).
+    pub async fn surface_dial_count(&self, surface_id: SurfaceId) -> u32 {
+        self.surfaces
+            .get(surface_id)
+            .await
+            .map(|surface| surface.descriptor().capabilities.encoders)
+            .unwrap_or(0)
+    }
+
     pub fn page_for_surface(&self, surface_id: SurfaceId) -> Option<PageId> {
         self.surface_pages
             .get(&surface_id)

@@ -963,8 +963,9 @@ impl Orchestrator {
 
     /// Every dial binding in the profile, paired with the surface currently
     /// showing that page. Dial bindings are page level, so the surface comes
-    /// from the per-surface page assignment.
-    fn collect_all_encoder_bindings(&self) -> Vec<(SurfaceId, u32, Binding)> {
+    /// from the per-surface page assignment. A surface only gets the dial
+    /// indices it physically has.
+    async fn collect_all_encoder_bindings(&self) -> Vec<(SurfaceId, u32, Binding)> {
         let mut out = Vec::new();
         for page in &self.inner.profile.pages {
             if page.encoders.is_empty() {
@@ -978,7 +979,11 @@ impl Orchestrator {
                 .map(|(surface_id, _)| *surface_id)
                 .collect();
             for surface_id in surfaces {
+                let dials = self.inner.surface_dial_count(surface_id).await;
                 for (index, binding) in &page.encoders {
+                    if *index >= dials {
+                        continue;
+                    }
                     out.push((surface_id, *index, binding.clone()));
                 }
             }
@@ -991,7 +996,7 @@ impl Orchestrator {
         orch: Arc<RwLock<Self>>,
     ) -> anyhow::Result<()> {
         let bindings = self.collect_all_slot_bindings();
-        let encoder_bindings = self.collect_all_encoder_bindings();
+        let encoder_bindings = self.collect_all_encoder_bindings().await;
         let mut sd_uuids = std::collections::HashSet::new();
         for (_, slot) in &bindings {
             if let Some(Binding {
@@ -1233,6 +1238,8 @@ impl Orchestrator {
                 entries.push((*index, binding.clone()));
             }
         }
+        let dials = self.inner.surface_dial_count(surface_id).await;
+        entries.retain(|(index, _)| *index < dials);
         if entries.is_empty() {
             debug!(?surface_id, "no dial bindings to register for this surface");
             return;
@@ -1825,9 +1832,11 @@ impl Orchestrator {
         let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
             return;
         };
+        let dials = self.inner.surface_dial_count(surface_id).await;
         let encoders: Vec<(u32, String, String, ActionInstanceId, serde_json::Value)> = page
             .encoders
             .iter()
+            .filter(|(index, _)| **index < dials)
             .filter_map(|(index, binding)| match &binding.kind {
                 BindingKind::StreamDeck {
                     plugin_uuid,
@@ -4424,6 +4433,9 @@ impl Orchestrator {
         instance_id: &ActionInstanceId,
         settings: &serde_json::Value,
     ) {
+        if index >= self.inner.surface_dial_count(surface_id).await {
+            return;
+        }
         let context = SdSurfaceBridge::build_context_id(plugin_uuid, action_uuid, &instance_id.0);
         if let Some(bridge) = self.inner.bridges.get_mut(plugin_uuid) {
             bridge.register_encoder(surface_id, index, context.clone());
