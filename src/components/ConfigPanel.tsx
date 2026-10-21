@@ -8,6 +8,7 @@ import {
   normalizeBinding,
 } from "../lib/binding";
 import type { Profile, Slot } from "../lib/types";
+import { CompanionOptionsEditor } from "./CompanionOptionsEditor";
 import { SettingsEditor } from "./SettingsEditor";
 
 function imagePreviewUrl(image?: { format: string; data: string }): string | null {
@@ -372,13 +373,16 @@ function PropertyInspectorSection({
             </select>
           </label>
           {currentFeedback ? (
-            <SettingsEditor
-              key={`${slotId}:${currentFeedback.feedback_id}`}
-              slotId={`${slotId}:feedback`}
-              settingsJson={JSON.stringify(currentFeedback.options ?? {}, null, 2)}
-              onSave={(json) => {
-                try {
-                  const options = JSON.parse(json) as unknown;
+            <>
+              <CompanionOptionsEditor
+                key={`${slotId}:${currentFeedback.feedback_id}`}
+                connectionId={currentFeedback.connection_id}
+                section="feedbacks"
+                definitionId={currentFeedback.feedback_id}
+                options={
+                  (currentFeedback.options as Record<string, unknown> | undefined) ?? {}
+                }
+                onChange={(options) => {
                   void invoke("set_slot_companion_feedback", {
                     args: {
                       slotId,
@@ -386,30 +390,67 @@ function PropertyInspectorSection({
                       options,
                     },
                   }).then(() => onRefresh());
+                }}
+              />
+              <details className="companion-json">
+                <summary>JSON で編集</summary>
+                <SettingsEditor
+                  key={`${slotId}:feedback:json`}
+                  slotId={`${slotId}:feedback`}
+                  settingsJson={JSON.stringify(currentFeedback.options ?? {}, null, 2)}
+                  onSave={(json) => {
+                    try {
+                      const options = JSON.parse(json) as unknown;
+                      void invoke("set_slot_companion_feedback", {
+                        args: {
+                          slotId,
+                          feedbackId: currentFeedback.feedback_id,
+                          options,
+                        },
+                      }).then(() => onRefresh());
+                    } catch {
+                      // SettingsEditor already reports JSON errors.
+                    }
+                  }}
+                />
+              </details>
+            </>
+          ) : null}
+          {binding?.type === "companion" && binding.actionId ? (
+            <CompanionOptionsEditor
+              key={`${slotId}:action`}
+              connectionId={binding.connectionId ?? ""}
+              section="actions"
+              definitionId={binding.actionId}
+              options={(binding.options as Record<string, unknown> | undefined) ?? {}}
+              onChange={(options) => {
+                void invoke("update_companion_options", {
+                  args: { slotId, options },
+                }).then(() => onRefresh());
+              }}
+            />
+          ) : null}
+          <details className="companion-json">
+            <summary>JSON で編集</summary>
+            <SettingsEditor
+              slotId={slotId}
+              settingsJson={JSON.stringify(
+                binding?.type === "companion" ? (binding.options ?? {}) : {},
+                null,
+                2,
+              )}
+              onSave={(json) => {
+                try {
+                  const options = JSON.parse(json) as unknown;
+                  void invoke("update_companion_options", {
+                    args: { slotId, options },
+                  });
                 } catch {
                   // SettingsEditor already reports JSON errors.
                 }
               }}
             />
-          ) : null}
-          <SettingsEditor
-            slotId={slotId}
-            settingsJson={JSON.stringify(
-              binding?.type === "companion" ? (binding.options ?? {}) : {},
-              null,
-              2,
-            )}
-            onSave={(json) => {
-              try {
-                const options = JSON.parse(json) as unknown;
-                void invoke("update_companion_options", {
-                  args: { slotId, options },
-                });
-              } catch {
-                // SettingsEditor already reports JSON errors.
-              }
-            }}
-          />
+          </details>
         </div>
       ) : null}
       <iframe

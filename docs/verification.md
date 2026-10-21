@@ -50,6 +50,8 @@
 | プリセットのキー割当 | 実機 | [x] | サイドバーから D&D → `companion_preset` バインド、押下で `transitionMix` 実行（active 2→1） |
 | Companionアクションの既定オプション補完 | 実機 | [x] | 空オプションで `transitionMix` を割当→`{mix:1,functionID:"Cut",duration:"1000",input:""}` が補完され、押下でカット実行（active 1→2） |
 | Companionアクション名の表示 | 実機 | [x] | キー見出し・ダイヤル表示が `action_id` ではなく定義名「Transition - Transition Mix」になる（プリセットは従来どおり style.text） |
+| Companionオプションのフォーム生成 | 実機 | [x] | モジュール定義から Mix / Select transition / Duration / Input を生成し、変更が即保存（`functionID: Fade`）。フィードバックは Input / Mix / 色2つ / Tally を生成 |
+| JSONエディタの併設 | 実装 | [x] | 生成フォームの下に「JSON で編集」を折り畳みで残す |
 | SDアクションのD&D（UI） | 実機 | [x] | サイドバーの Tutorial「Plugins」を Studio (1,10) へドラッグ→ `stream_deck` binding 生成、押下でセル画像が更新 |
 | プリセットのダイヤル割当 | 実機 | [x] | ダイヤル欄のプリセット選択→「プリセット割当」→ 押下で down/up 実行（active 1→2） |
 | プリセットのマルチアクション step | 実機 | [x] | `companion_preset` step を含む Multi Action の押下で `transitionMix` 実行（active 2→1） |
