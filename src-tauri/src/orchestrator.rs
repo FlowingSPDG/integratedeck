@@ -4078,7 +4078,14 @@ impl Orchestrator {
             bridge.register_cell_for_surface(surface_id, row, col, control_id);
         }
 
-        let title = action_id.clone();
+        let title = self
+            .companion_action_definition(&connection_id, &action_id)
+            .await
+            .as_ref()
+            .and_then(|action| action.get("name"))
+            .and_then(|name| name.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| action_id.clone());
         if let Some(page) = self
             .inner
             .profile
@@ -4305,6 +4312,32 @@ impl Orchestrator {
             return None;
         }
         Some(serde_json::Value::Object(defaults))
+    }
+
+    /// The action's definition (name, options) from the module.
+    async fn companion_action_definition(
+        &self,
+        connection_id: &str,
+        action_id: &str,
+    ) -> Option<serde_json::Value> {
+        let runtime = self.inner.comp_runtime.as_ref()?;
+        let response = runtime
+            .request(
+                "connection.getDefinitions",
+                json!({ "connectionId": connection_id }),
+            )
+            .await
+            .ok()?;
+        if !response.ok {
+            return None;
+        }
+        response
+            .result?
+            .get("actions")?
+            .as_array()?
+            .iter()
+            .find(|action| action.get("id").and_then(|value| value.as_str()) == Some(action_id))
+            .cloned()
     }
 
     /// Merge module defaults into a companion action binding's options, keeping
@@ -4744,6 +4777,13 @@ impl Orchestrator {
         let options = self
             .with_companion_defaults(&connection_id, &action_id, options)
             .await;
+        let title = self
+            .companion_action_definition(&connection_id, &action_id)
+            .await
+            .as_ref()
+            .and_then(|action| action.get("name"))
+            .and_then(|name| name.as_str())
+            .map(str::to_string);
         let page = self
             .inner
             .profile
@@ -4755,6 +4795,17 @@ impl Orchestrator {
             .insert(index, Binding::companion(connection_id, action_id, options));
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
+        // Name the dial so the strip/LCD shows what it does.
+        if let Some(title) = title {
+            let visual = VisualState {
+                title: Some(title),
+                ..Default::default()
+            };
+            self.inner
+                .dial_visuals
+                .insert((surface_id, index), visual.clone());
+            self.render_dial_display(surface_id, index, visual).await;
+        }
         Ok(())
     }
 
