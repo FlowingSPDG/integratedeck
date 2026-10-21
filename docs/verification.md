@@ -112,6 +112,7 @@
 | 重複サーフェスの自動削除 | 実機 | [x] | 接続時にスロット0の同名サーフェスを除去（Plus の重複が消え 1台に） |
 | プロファイル保存の原子性 | ユニット | [x] | 一時ファイル＋rename。`write_atomic_replaces_the_file_and_leaves_no_temp` / `write_atomic_cleans_up_when_the_rename_fails` |
 | 壊れたプロファイルの退避 | ユニット | [x] | 解析失敗時は `default.json.corrupt-<epoch>` として保持し、空プロファイルで起動（`keeps_the_unreadable_file_next_to_the_original`） |
+| 壊れたプロファイルからの復旧 | 実機 | [x] | `default.json` を壊して起動 → 警告ログと `default.json.corrupt-<epoch>` を残して新規プロファイルで起動。復元後は32セル・ダイヤル表示も復帰 |
 | WebView2プロファイルのロック自動復旧 | 実装 | [x] | 0x800700AA 検出時に `EBWebView` を退避して再試行。`recognises_the_locked_profile_error` / `keeps_only_the_three_newest_parked_profiles` |
 | プラグイン用WebViewの遅延生成 | 実機 | [x] | 起動時の4枚一括生成をやめ、初回表示時に生成（起動ブロック104秒→実質0） |
 | JSプラグインのNode互換シム | ユニット | [x] | events/ws をコンストラクタ化、https・http・net・process・os・stream・Buffer を追加（記録: docs/js-shims.md） |
