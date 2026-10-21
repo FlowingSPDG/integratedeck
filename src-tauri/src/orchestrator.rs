@@ -4060,6 +4060,10 @@ impl Orchestrator {
         // starts replacing this cell.
         self.clear_cell_at(page_id, surface_id, row, col).await;
 
+        let options = self
+            .with_companion_defaults(&connection_id, &action_id, options)
+            .await;
+
         self.inner.routing.register_companion_slot(
             slot_id,
             connection_id.clone(),
@@ -4248,6 +4252,70 @@ impl Orchestrator {
         self.persist_slot_changes(surface_id).await?;
         self.refresh_page_visuals(page_id, surface_id).await;
         Ok(())
+    }
+
+    /// Default option values the module declares for one action. Dropping a
+    /// Companion action onto a key leaves `options` empty, which the module
+    /// cannot use; Companion fills these defaults in its own UI.
+    pub async fn companion_action_defaults(
+        &self,
+        connection_id: &str,
+        action_id: &str,
+    ) -> Option<serde_json::Value> {
+        let runtime = self.inner.comp_runtime.as_ref()?;
+        let response = runtime
+            .request(
+                "connection.getDefinitions",
+                json!({ "connectionId": connection_id }),
+            )
+            .await
+            .ok()?;
+        if !response.ok {
+            return None;
+        }
+        let actions = response.result?.get("actions")?.as_array()?.clone();
+        let action = actions
+            .into_iter()
+            .find(|action| action.get("id").and_then(|value| value.as_str()) == Some(action_id))?;
+        let options = action.get("options")?.as_array()?;
+        let mut defaults = serde_json::Map::new();
+        for option in options {
+            let Some(id) = option.get("id").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            if let Some(default) = option.get("default") {
+                if !default.is_null() {
+                    defaults.insert(id.to_string(), default.clone());
+                }
+            }
+        }
+        if defaults.is_empty() {
+            return None;
+        }
+        Some(serde_json::Value::Object(defaults))
+    }
+
+    /// Merge module defaults into a companion action binding's options, keeping
+    /// values the caller already provided.
+    async fn with_companion_defaults(
+        &self,
+        connection_id: &str,
+        action_id: &str,
+        options: serde_json::Value,
+    ) -> serde_json::Value {
+        let Some(defaults) = self
+            .companion_action_defaults(connection_id, action_id)
+            .await
+        else {
+            return options;
+        };
+        let mut merged = defaults.as_object().cloned().unwrap_or_default();
+        if let Some(given) = options.as_object() {
+            for (key, value) in given {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+        serde_json::Value::Object(merged)
     }
 
     /// Look a preset up in the connected module's definitions.
@@ -4652,6 +4720,9 @@ impl Orchestrator {
             .profile
             .active_page_id
             .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let options = self
+            .with_companion_defaults(&connection_id, &action_id, options)
+            .await;
         let page = self
             .inner
             .profile

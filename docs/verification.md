@@ -48,6 +48,8 @@
 | サイドカーの親プロセス監視 | 実装 | [x] | stdin EOF と ppid 監視で、強制終了時も数秒で終了（PID 20960 が消えることを確認） |
 | プリセット定義の取得 | 実機 | [x] | vMix 751 件（うち 750 件が step 持ち） |
 | プリセットのキー割当 | 実機 | [x] | サイドバーから D&D → `companion_preset` バインド、押下で `transitionMix` 実行（active 2→1） |
+| Companionアクションの既定オプション補完 | 実機 | [x] | 空オプションで `transitionMix` を割当→`{mix:1,functionID:"Cut",duration:"1000",input:""}` が補完され、押下でカット実行（active 1→2） |
+| SDアクションのD&D（UI） | 実機 | [x] | サイドバーの Tutorial「Plugins」を Studio (1,10) へドラッグ→ `stream_deck` binding 生成、押下でセル画像が更新 |
 | プリセットのダイヤル割当 | 実機 | [x] | ダイヤル欄のプリセット選択→「プリセット割当」→ 押下で down/up 実行（active 1→2） |
 | プリセットのマルチアクション step | 実機 | [x] | `companion_preset` step を含む Multi Action の押下で `transitionMix` 実行（active 2→1） |
 | プリセットの回転 step | ユニット | [x] | `module_fixture_roundtrip` が `rotate_left` phase の実行を検証（vMix は down/up のみのため実機では未確認） |
