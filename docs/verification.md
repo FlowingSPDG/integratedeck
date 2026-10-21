@@ -59,6 +59,8 @@
 | 接続の追加/削除 | 実機 | [x] | 追加→`status: ok`→config fields 取得→削除 をIPC経由で確認（設定画面のCompanionタブと同一コマンド） |
 | 接続設定の更新 | 実機 | [x] | `update_connection_config` 後も `status: ok`・actions 214 / presets 751 を維持 |
 | プロファイル書き出し | 実機 | [x] | `export_profile` が 7ページ / 99スロットの JSON を返す |
+| プロファイルのインポート | 実機 | [x] | ページ名を変えた JSON を import → 反映・32/8セル再描画・ダイヤルも 8→9 で動作（ルーティングとコンテキストを再構築） |
+| インポート後の再同期 | 実装 | [x] | ルーティング表・ブリッジ・surface→page・可視状態をリセットして再ハイドレート |
 | デバイスプリセット書き出し | 実機 | [x] | studio-usb のプリセットが32スロットの JSON として出力 |
 | 設定画面のタブ描画 | 実機 | [x] | General / Devices / Presets / Companion の4タブが実データで描画 |
 | Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |

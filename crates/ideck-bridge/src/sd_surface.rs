@@ -34,6 +34,14 @@ impl SdSurfaceBridge {
         }
     }
 
+    /// Forget every cell/dial mapping (used when the whole profile is replaced).
+    pub fn reset(&mut self) {
+        self.context_by_cell.clear();
+        self.cell_by_context.clear();
+        self.context_by_encoder.clear();
+        self.encoder_by_context.clear();
+    }
+
     pub fn register_cell(&mut self, surface_id: SurfaceId, row: u32, column: u32, context: String) {
         let key = (surface_id, row, column);
         self.context_by_cell.insert(key, context.clone());

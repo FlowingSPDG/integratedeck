@@ -1165,6 +1165,46 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Replace the whole profile at runtime (import) and resync the hardware:
+    /// routing tables, surface→page mapping, plugin contexts and visuals all
+    /// refer to the old page ids otherwise.
+    pub async fn apply_imported_profile(
+        &mut self,
+        profile: Profile,
+        orch: Arc<RwLock<Self>>,
+    ) -> anyhow::Result<()> {
+        *self.profile_mut() = profile;
+        self.save_profile().await?;
+
+        self.inner.routing = crate::hub::RoutingTable::default();
+        for bridge in self.inner.bridges.values_mut() {
+            bridge.reset();
+        }
+        self.inner.comp_bridge = None;
+        self.inner.cell_visuals.clear();
+        self.inner.dial_visuals.clear();
+        self.inner.surface_pages.clear();
+        self.inner.page_stacks.clear();
+
+        self.rehydrate_profile_bindings(orch).await?;
+
+        let surfaces: Vec<SurfaceId> = self
+            .inner
+            .surfaces
+            .list()
+            .await
+            .into_iter()
+            .map(|descriptor| descriptor.id)
+            .collect();
+        for surface_id in &surfaces {
+            self.inner.ensure_surface_page(*surface_id);
+            self.register_page_encoder_contexts(*surface_id).await;
+            self.render_surface_visuals(*surface_id).await;
+        }
+        HubEvents::emit_surfaces_changed(&self.app, None);
+        Ok(())
+    }
+
     /// Register the current page's dial bindings for one surface. Called when a
     /// surface connects, because rehydrate may run before the surface knows its
     /// page (dials would then never get a plugin context).

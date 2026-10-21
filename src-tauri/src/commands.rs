@@ -1191,9 +1191,13 @@ pub async fn import_profile(
     args: ImportProfileArgs,
 ) -> Result<(), String> {
     let profile: Profile = serde_json::from_str(&args.json).map_err(|e| e.to_string())?;
+    // Apply through the orchestrator so routing, dial contexts and visuals are
+    // resynced to the imported pages.
+    let state_clone = state.inner().clone();
     let mut o = state.write().await;
-    *o.profile_mut() = profile;
-    o.save_profile().await.map_err(|e| e.to_string())
+    o.apply_imported_profile(profile, state_clone)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
