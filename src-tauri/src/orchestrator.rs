@@ -4262,6 +4262,18 @@ impl Orchestrator {
         connection_id: &str,
         action_id: &str,
     ) -> Option<serde_json::Value> {
+        self.companion_option_defaults(connection_id, "actions", action_id)
+            .await
+    }
+
+    /// Defaults for one action or feedback definition. `section` is "actions"
+    /// or "feedbacks" as returned by `connection.getDefinitions`.
+    pub async fn companion_option_defaults(
+        &self,
+        connection_id: &str,
+        section: &str,
+        definition_id: &str,
+    ) -> Option<serde_json::Value> {
         let runtime = self.inner.comp_runtime.as_ref()?;
         let response = runtime
             .request(
@@ -4273,10 +4285,10 @@ impl Orchestrator {
         if !response.ok {
             return None;
         }
-        let actions = response.result?.get("actions")?.as_array()?.clone();
-        let action = actions
-            .into_iter()
-            .find(|action| action.get("id").and_then(|value| value.as_str()) == Some(action_id))?;
+        let entries = response.result?.get(section)?.as_array()?.clone();
+        let action = entries.into_iter().find(|entry| {
+            entry.get("id").and_then(|value| value.as_str()) == Some(definition_id)
+        })?;
         let options = action.get("options")?.as_array()?;
         let mut defaults = serde_json::Map::new();
         for option in options {
@@ -4400,6 +4412,15 @@ impl Orchestrator {
                 }) => (connection_id.clone(), preset_id.clone()),
                 _ => anyhow::bail!("slot is not bound to a Companion action"),
             }
+        };
+        // A feedback attached without options gets the module's defaults, the
+        // same way Companion seeds its feedback editor.
+        let options = if options.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+            self.companion_option_defaults(&connection_id, "feedbacks", &feedback_id)
+                .await
+                .unwrap_or(options)
+        } else {
+            options
         };
         let control_id = format!("{connection_id}:{action_id}");
         self.inner.profile.companion_feedbacks.insert(

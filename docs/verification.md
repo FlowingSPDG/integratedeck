@@ -171,6 +171,8 @@ CDP（`--remote-debugging-port=9222`）経由でアプリのコマンドを叩�
 | Multi Action の step にプリセット | preset step 経由で `transitionMix` 実行 |
 | プリセットのローテート位相 | フィクスチャで `rotate_left` → アクション実行を確認 |
 | フィードバックstyle内の変数展開 | フィクスチャの text が fb Camera 2 に解決することを確認 |
+| マルチアクション内のCompanionアクション | 実機 | [x] | 空オプションで step 追加→既定値が補完され、Multi Action 経由でカット実行（active 2→1） |
+| フィードバックの既定オプション補完 | 実機 | [x] | `inputPreview` を空オプションで付与→既定値（input=1, mix=1, fg, bg, tally）が入りセルが緑 (0,255,0) |
 | タッチスワイプ（IPC注入） | Studio セルが 32→0→32 と往復、`touch swipe` ログ2件 |
 | Studio LCD のダイヤル表示 | Page名 + ダイヤル値（12ノッチ→"12"） |
 | Plus タッチストリップ描画 | 800x100 / 4ゾーンへ送信 |

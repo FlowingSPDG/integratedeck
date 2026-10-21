@@ -321,6 +321,18 @@ pub async fn add_multi_action_step(
     use ideck_core::{ActionInstanceId, BindingKind, MultiActionStep};
 
     let slot_id = parse_slot_id(&args.slot_id)?;
+    // Companion actions need the module's declared defaults; an empty options
+    // object makes actions like Transition Mix do nothing.
+    let companion_options = if args.source == "companion" {
+        state
+            .read()
+            .await
+            .companion_action_defaults(&args.plugin_id, &args.action_id)
+            .await
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
     let step_binding = match args.source.as_str() {
         "streamdeck" => BindingKind::StreamDeck {
             plugin_uuid: args.plugin_id,
@@ -331,7 +343,7 @@ pub async fn add_multi_action_step(
         "companion" => BindingKind::Companion {
             connection_id: args.plugin_id,
             action_id: args.action_id,
-            options: serde_json::json!({}),
+            options: companion_options,
         },
         // `action_id` carries the preset id in this case.
         "companion_preset" => BindingKind::CompanionPreset {
