@@ -70,6 +70,8 @@ pub struct Orchestrator {
     /// Restart requests, consumed by `start_plugin_restart_worker` (kept out of
     /// the broker drain to avoid a recursive future type).
     plugin_restart_tx: tokio::sync::mpsc::UnboundedSender<(String, std::path::PathBuf)>,
+    /// Set when the app is exiting so the sidecar supervisor stops restarting it.
+    comp_engine_shutdown: bool,
     plugin_restart_rx: Option<tokio::sync::mpsc::UnboundedReceiver<(String, std::path::PathBuf)>>,
 }
 
@@ -683,6 +685,7 @@ impl Orchestrator {
             plugin_restart_attempts: std::collections::HashMap::new(),
             plugin_restart_tx,
             plugin_restart_rx: Some(plugin_restart_rx),
+            comp_engine_shutdown: false,
         })
     }
 
@@ -720,19 +723,62 @@ impl Orchestrator {
 
     pub fn start_companion_event_drain(self_arc: Arc<RwLock<Self>>) {
         tauri::async_runtime::spawn(async move {
-            let rx = {
-                let o = self_arc.read().await;
-                o.inner.comp_runtime.as_ref().map(|r| r.subscribe_events())
-            };
-            let Some(mut rx) = rx else { return };
+            // Restart the sidecar when it dies: modules would otherwise stay
+            // dead until the app is restarted, while the UI still says the host
+            // is running.
+            let mut backoff = std::time::Duration::from_secs(2);
             loop {
-                match rx.recv().await {
-                    Ok(ev) => {
-                        let mut o = self_arc.write().await;
-                        o.apply_companion_event(ev).await;
+                let rx = {
+                    let o = self_arc.read().await;
+                    o.inner.comp_runtime.as_ref().map(|r| r.subscribe_events())
+                };
+                let Some(mut rx) = rx else {
+                    if self_arc.read().await.comp_engine_shutdown {
+                        break;
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(_) => break,
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                };
+                let mut saw_event = false;
+                loop {
+                    match rx.recv().await {
+                        Ok(ev) => {
+                            saw_event = true;
+                            let mut o = self_arc.write().await;
+                            o.apply_companion_event(ev).await;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                if saw_event {
+                    backoff = std::time::Duration::from_secs(2);
+                }
+                if self_arc.read().await.comp_engine_shutdown {
+                    break;
+                }
+
+                // The sidecar is gone (crash or killed): drop the dead runtime,
+                // wait, then start a fresh engine and re-add the connections.
+                let dropped = {
+                    let mut o = self_arc.write().await;
+                    o.inner.comp_runtime.take().is_some()
+                };
+                if dropped {
+                    warn!("companion module engine stopped; restarting in {backoff:?}");
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_secs(30));
+
+                let mut o = self_arc.write().await;
+                if o.comp_engine_shutdown || o.inner.comp_runtime.is_some() {
+                    continue;
+                }
+                o.spawn_comp_module_engine().await;
+                if o.inner.comp_runtime.is_some() {
+                    o.restore_companion_connections().await;
+                    let _ = o.restore_companion_feedbacks().await;
+                    HubEvents::emit_definitions_refresh(&o.app);
                 }
             }
         });
@@ -3035,6 +3081,7 @@ impl Orchestrator {
     /// Stop the Companion sidecar. Called on app exit, because Node children are
     /// not reaped by the OS and would keep the module engine alive.
     pub async fn shutdown_companion(&mut self) {
+        self.comp_engine_shutdown = true;
         if let Some(runtime) = self.inner.comp_runtime.take() {
             runtime.shutdown().await;
         }

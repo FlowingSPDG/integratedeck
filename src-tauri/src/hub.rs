@@ -191,4 +191,13 @@ impl HubEvents {
             SurfacesChangedPayload { surface_id },
         );
     }
+
+    /// Ask the UI to re-read the action/preset library (used after the module
+    /// engine is restarted).
+    pub fn emit_definitions_refresh(app: &AppHandle) {
+        let _ = app.emit(
+            Self::DEFINITIONS_UPDATED,
+            serde_json::json!({ "kind": "refresh" }),
+        );
+    }
 }

@@ -10,6 +10,20 @@ import { createInterface } from 'node:readline'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+// Follow the lifetime of the app: if it disappears without shutting us down
+// (forced kill, crash), exit instead of lingering forever.
+const parentPid = process.ppid
+if (parentPid && parentPid > 1) {
+  const watchdog = setInterval(() => {
+    try {
+      process.kill(parentPid, 0)
+    } catch {
+      process.exit(0)
+    }
+  }, 2000)
+  watchdog.unref()
+}
+
 const connections = new Map()
 
 function emit(obj) {
@@ -460,3 +474,8 @@ rl.on('line', async (line) => {
     emit({ id: request.id, ok: false, error: String(error?.message ?? error) })
   }
 })
+
+// stdin hits EOF when the app goes away (even on a forced kill). Exit here so
+// no orphan lingers, which the ppid watchdog cannot guarantee because PIDs are
+// reused quickly on Windows.
+rl.on('close', () => process.exit(0))
