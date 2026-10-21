@@ -25,11 +25,18 @@ pub struct EmbeddedEngine {
     stdin: Mutex<ChildStdin>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<HostResponse>>>>,
     event_tx: broadcast::Sender<HostEvent>,
+    /// Temp script handed to Node; removed when the engine goes away.
+    script_path: std::path::PathBuf,
     _child: Mutex<Child>,
 }
 
 impl EmbeddedEngine {
     pub fn spawn(modules_dir: &Path) -> anyhow::Result<Self> {
+        // Previous runs can leave their script behind (and, if they crashed,
+        // their sidecar process); start from a clean slate. The app is
+        // single-instance, so anything older than the current process is stale.
+        sweep_stale_sidecars();
+
         let script_path = std::env::temp_dir().join(format!(
             "ideck-companion-sidecar-{}.mjs",
             std::process::id()
@@ -42,6 +49,7 @@ impl EmbeddedEngine {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
+            .kill_on_drop(true)
             .spawn()
             .map_err(|e| anyhow::anyhow!("failed to start Node companion sidecar: {e}"))?;
 
@@ -94,8 +102,27 @@ impl EmbeddedEngine {
             stdin: Mutex::new(stdin),
             pending,
             event_tx,
+            script_path,
             _child: Mutex::new(child),
         })
+    }
+
+    /// Kill the sidecar process now (app exit). The temp script is removed too.
+    pub async fn shutdown(&self) {
+        let mut child = self._child.lock().await;
+        let _ = child.start_kill();
+        let _ = child.try_wait();
+        let _ = std::fs::remove_file(&self.script_path);
+    }
+
+    /// Whether the Node sidecar is still running (used by tests and shutdown).
+    pub async fn is_running(&mut self) -> bool {
+        matches!(self._child.lock().await.try_wait(), Ok(None))
+    }
+
+    /// Temp script handed to Node.
+    pub fn script_path(&self) -> &Path {
+        &self.script_path
     }
 
     pub async fn request(
@@ -138,6 +165,25 @@ impl EmbeddedEngine {
     }
 }
 
+impl Drop for EmbeddedEngine {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.script_path);
+    }
+}
+
 fn node_binary() -> String {
     std::env::var("IDECK_NODE").unwrap_or_else(|_| "node".to_string())
+}
+
+/// Delete sidecar scripts left behind by previous runs.
+fn sweep_stale_sidecars() {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("ideck-companion-sidecar-") && name.ends_with(".mjs") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }

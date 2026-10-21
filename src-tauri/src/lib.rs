@@ -173,6 +173,7 @@ pub fn run() {
                     tauri::async_runtime::block_on(async move {
                         let mut o = state.write().await;
                         o.unload_sd_plugin(None).await.ok();
+                        o.shutdown_companion().await;
                     });
                 }
             }

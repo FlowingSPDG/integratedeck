@@ -64,4 +64,9 @@ impl CompModuleRuntime {
     pub async fn ping(&self) -> anyhow::Result<Value> {
         self.inner.ping().await
     }
+
+    /// Stop the sidecar (app exit).
+    pub async fn shutdown(&self) {
+        self.inner.shutdown().await;
+    }
 }

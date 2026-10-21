@@ -3021,6 +3021,14 @@ impl Orchestrator {
         });
     }
 
+    /// Stop the Companion sidecar. Called on app exit, because Node children are
+    /// not reaped by the OS and would keep the module engine alive.
+    pub async fn shutdown_companion(&mut self) {
+        if let Some(runtime) = self.inner.comp_runtime.take() {
+            runtime.shutdown().await;
+        }
+    }
+
     pub async fn unload_sd_plugin(&mut self, plugin_uuid: Option<String>) -> Result<(), String> {
         match plugin_uuid {
             Some(uuid) => {

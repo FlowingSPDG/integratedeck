@@ -41,6 +41,8 @@
 | feedback options UI | ユニット | [x] | ConfigPanel の SettingsEditor |
 | module saveConfig 永続化 | ユニット | [x] | `connection.config` で config+secrets 保存 |
 | 接続状態表示 | 実機 | [x] | vMix 接続直後に `status: ok` |
+| Companion サイドカーの終了処理 | 実装 | [x] | `shutdown_kills_the_sidecar_and_removes_its_script`（プロセス停止と一時スクリプト削除） |
+| サイドカー一時スクリプトの掃除 | 実装 | [x] | 起動時に `%TEMP%/ideck-companion-sidecar-*.mjs` を一掃（317個→1個）。終了時も自前のファイルを削除 |
 | プリセット定義の取得 | 実機 | [x] | vMix 751 件（うち 750 件が step 持ち） |
 | プリセットのキー割当 | 実機 | [x] | サイドバーから D&D → `companion_preset` バインド、押下で `transitionMix` 実行（active 2→1） |
 | プリセットのダイヤル割当 | 実機 | [x] | ダイヤル欄のプリセット選択→「プリセット割当」→ 押下で down/up 実行（active 1→2） |
