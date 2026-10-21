@@ -3700,6 +3700,9 @@ impl Orchestrator {
         self.rehydrate_profile_bindings(orch.clone())
             .await
             .map_err(|e| e.to_string())?;
+        // The imported pages reset the surface's page mapping, so register its
+        // dial contexts again.
+        self.register_page_encoder_contexts(target_surface).await;
         self.render_surface_visuals(target_surface).await;
         Ok(())
     }
