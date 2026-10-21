@@ -1832,9 +1832,11 @@ impl Orchestrator {
         let Some(page) = self.inner.profile.pages.iter().find(|p| p.id == page_id) else {
             return;
         };
-        // The previous page's dial contexts must go, otherwise a dial that is
-        // unbound on the new page keeps firing.
+        // The previous page's contexts must go, otherwise a key or dial that is
+        // unbound on the new page keeps firing the old action.
+        self.inner.routing.clear_surface(surface_id);
         for bridge in self.inner.bridges.values_mut() {
+            bridge.clear_surface_cells(surface_id);
             bridge.clear_surface_encoders(surface_id);
         }
         self.inner

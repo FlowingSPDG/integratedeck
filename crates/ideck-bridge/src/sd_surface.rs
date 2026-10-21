@@ -34,6 +34,28 @@ impl SdSurfaceBridge {
         }
     }
 
+    /// Drop the cell bindings of one surface (page switch). A context shared
+    /// with another surface is left alone for that surface's sake.
+    pub fn clear_surface_cells(&mut self, surface_id: SurfaceId) {
+        let stale: Vec<((SurfaceId, u32, u32), String)> = self
+            .context_by_cell
+            .iter()
+            .filter(|((sid, _, _), _)| *sid == surface_id)
+            .map(|(key, context)| (*key, context.clone()))
+            .collect();
+        for (key, context) in stale {
+            self.context_by_cell.remove(&key);
+            if self
+                .cell_by_context
+                .get(&context)
+                .map(|(sid, _, _)| *sid == surface_id)
+                .unwrap_or(false)
+            {
+                self.cell_by_context.remove(&context);
+            }
+        }
+    }
+
     /// Drop every dial binding for one surface (page switch / unbind).
     pub fn clear_surface_encoders(&mut self, surface_id: SurfaceId) {
         let stale: Vec<(SurfaceId, u32)> = self

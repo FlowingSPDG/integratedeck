@@ -42,8 +42,22 @@ pub async fn forward_sd_input(inner: &AppStateInner, surface_id: SurfaceId, inpu
             let Some((plugin_uuid, context)) =
                 resolve_sd_key_target(inner, surface_id, address.row, address.column)
             else {
+                tracing::debug!(
+                    ?surface_id,
+                    row = address.row,
+                    column = address.column,
+                    "keyDown not bound to a plugin"
+                );
                 return;
             };
+            tracing::debug!(
+                plugin_uuid,
+                ?surface_id,
+                row = address.row,
+                column = address.column,
+                context,
+                "keyDown -> plugin"
+            );
             let Some(broker) = inner.sd_supervisor.get(&plugin_uuid) else {
                 warn!("SD keyDown: plugin not loaded ({plugin_uuid})");
                 return;

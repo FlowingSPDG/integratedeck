@@ -71,6 +71,23 @@ impl RoutingTable {
             .insert(slot_id, (connection_id, action_id));
     }
 
+    /// Drop the cell → context mappings of one surface (page switch).
+    pub fn clear_surface(&mut self, surface_id: SurfaceId) {
+        let contexts: Vec<String> = self
+            .cell_to_context
+            .iter()
+            .filter(|((sid, _, _), _)| *sid == surface_id)
+            .map(|(_, context)| context.clone())
+            .collect();
+        self.cell_to_context
+            .retain(|(sid, _, _), _| *sid != surface_id);
+        self.cell_to_plugin
+            .retain(|(sid, _, _), _| *sid != surface_id);
+        for context in contexts {
+            self.context_to_cell.remove(&context);
+        }
+    }
+
     pub fn clear_slot(&mut self, slot_id: &SlotId) {
         self.slot_to_context.remove(slot_id);
         self.slot_to_companion.remove(slot_id);
