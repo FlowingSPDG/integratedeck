@@ -429,7 +429,9 @@ impl Orchestrator {
                 index,
                 pressed: true,
             } => {
-                let builtin = {
+                // Built-in and multi-action dial bindings need the write lock
+                // (they navigate, switch profiles or run nested bindings).
+                let special = {
                     let o = state.read().await;
                     let page_id = o
                         .inner
@@ -443,20 +445,26 @@ impl Orchestrator {
                         })
                         .and_then(|page| page.encoders.get(index))
                         .and_then(|binding| match &binding.kind {
-                            BindingKind::BuiltIn {
-                                action_id,
-                                settings,
-                            } => Some((action_id.clone(), settings.clone())),
+                            BindingKind::BuiltIn { .. } | BindingKind::MultiAction { .. } => {
+                                Some(binding.kind.clone())
+                            }
                             _ => None,
                         })
                 };
-                if let Some((action_id, settings)) = builtin {
+                if let Some(kind) = special {
                     let mut o = state.write().await;
-                    if let Err(e) = o
-                        .execute_encoder_builtin(surface_id, &action_id, &settings)
-                        .await
-                    {
-                        warn!("encoder built-in: {e}");
+                    let result = match &kind {
+                        BindingKind::BuiltIn {
+                            action_id,
+                            settings,
+                        } => {
+                            o.execute_encoder_builtin(surface_id, action_id, settings)
+                                .await
+                        }
+                        other => o.trigger_binding_kind(other).await,
+                    };
+                    if let Err(e) = result {
+                        warn!("encoder press ({kind:?}): {e}");
                     }
                 } else {
                     let o = state.read().await;
@@ -5124,8 +5132,12 @@ impl Orchestrator {
             .iter_mut()
             .find(|page| page.id == page_id)
             .ok_or_else(|| anyhow::anyhow!("page not found"))?;
-        page.encoders
-            .insert(index, Binding::built_in(action_id, settings));
+        let binding = if action_id == MULTI_ACTION {
+            Binding::multi_action(Vec::new(), 200)
+        } else {
+            Binding::built_in(action_id, settings)
+        };
+        page.encoders.insert(index, binding);
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
         Ok(())
