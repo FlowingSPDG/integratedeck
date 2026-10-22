@@ -1793,6 +1793,10 @@ impl Orchestrator {
         self.sync_sd_routing_for_surface_page(surface_id, page_id)
             .await;
         self.refresh_page_visuals(page_id, surface_id).await;
+        if old_page != Some(page_id) {
+            // Keep the editor on the page the hardware is showing.
+            HubEvents::emit_page_changed(&self.app, surface_id, page_id);
+        }
         Ok(())
     }
 

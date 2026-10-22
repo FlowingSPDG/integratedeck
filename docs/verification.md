@@ -130,6 +130,7 @@
 | ページ削除時の参照解除 | 実機 | [x] | フォルダの子ページを削除すると、そのフォルダボタンの binding も解除される（`unbinding a button whose page was deleted`） |
 | ページ名の変更 | 実機 | [x] | ブレッドクラムのダブルクリック／✎ でインライン編集。`rename_page` で保存（例: "Main Deck"）、空文字は「ページ名を入力してください」で拒否 |
 | ページ名変更時のLCD再描画 | 実機 | [x] | 名前変更で Studio LCD のキャッシュが再生成（mtime とハッシュが変化）。ページ名が即座に反映される |
+| ハードウェアのページ移動にUIが追従 | 実機 | [x] | `page-changed` イベントを追加。選択中サーフェスのページを切り替えるとブレッドクラムが「Page 1」→「Folder」→「Page 1」と追従 |
 | リリースビルドの動作確認 | ビルド | [x] | `npm run tauri build -- --no-bundle` の exe を Vite 停止状態で起動 → `http://tauri.localhost/` から埋め込みアセットを読み込み、2サーフェス・32/8セル・Companion `ok`・6プラグイン・`rename_page` まで動作 |
 | release ビルド方法の注意 | — | [x] | `cargo build --release` 単体では tauri-build が dev cfg を付け devUrl を読む exe になる。`npm run tauri build`（または CI の tauri-action）を使う |
 | フォルダ割当時の子ページ自動作成 | 仕様 | [x] | `bind_slot_builtin(openchild)` は "Folder" 子ページを自動作成（Elgato同等）。遷移先は後から変更できる |

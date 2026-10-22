@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use ideck_core::{SlotId, SurfaceId};
+use ideck_core::{PageId, SlotId, SurfaceId};
 use ideck_surface::SurfaceInput;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -178,6 +178,8 @@ impl HubEvents {
     pub const PI_MESSAGE: &'static str = "pi-message";
     pub const SURFACES_CHANGED: &'static str = "surfaces-changed";
     pub const DIAL_VISUAL: &'static str = "dial-visual";
+    /// A surface switched to another page (hardware folder / swipe).
+    pub const PAGE_CHANGED: &'static str = "page-changed";
 
     pub fn emit_visual(app: &AppHandle, payload: VisualUpdatedPayload) {
         let _ = app.emit(Self::VISUAL_UPDATED, payload);
@@ -206,6 +208,17 @@ impl HubEvents {
         let _ = app.emit(
             Self::SURFACES_CHANGED,
             SurfacesChangedPayload { surface_id },
+        );
+    }
+
+    /// Tell the UI that a surface now shows another page.
+    pub fn emit_page_changed(app: &AppHandle, surface_id: SurfaceId, page_id: PageId) {
+        let _ = app.emit(
+            Self::PAGE_CHANGED,
+            serde_json::json!({
+                "surfaceId": surface_id.0.to_string(),
+                "pageId": page_id.0.to_string(),
+            }),
         );
     }
 

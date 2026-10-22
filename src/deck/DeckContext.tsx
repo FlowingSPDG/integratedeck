@@ -332,6 +332,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     bind("definitions-updated");
     bind("connection-status");
     bind("surfaces-changed");
+    bind("page-changed");
     bind("plugin-status");
     bind("settings-changed");
     return () => {
