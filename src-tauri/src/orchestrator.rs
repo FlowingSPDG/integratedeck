@@ -5132,6 +5132,9 @@ impl Orchestrator {
             .iter_mut()
             .find(|page| page.id == page_id)
             .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        let title = action_display_name(&action_id)
+            .unwrap_or(action_id.as_str())
+            .to_string();
         let binding = if action_id == MULTI_ACTION {
             Binding::multi_action(Vec::new(), 200)
         } else {
@@ -5140,6 +5143,14 @@ impl Orchestrator {
         page.encoders.insert(index, binding);
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
+        let visual = VisualState {
+            title: Some(title),
+            ..Default::default()
+        };
+        self.inner
+            .dial_visuals
+            .insert((surface_id, index), visual.clone());
+        self.render_dial_display(surface_id, index, visual).await;
         Ok(())
     }
 
@@ -5171,6 +5182,14 @@ impl Orchestrator {
         page.encoders
             .insert(index, Binding::multi_action(steps, delay_ms.unwrap_or(200)));
         self.save_profile().await?;
+        let visual = VisualState {
+            title: action_display_name(MULTI_ACTION).map(str::to_string),
+            ..Default::default()
+        };
+        self.inner
+            .dial_visuals
+            .insert((surface_id, index), visual.clone());
+        self.render_dial_display(surface_id, index, visual).await;
         Ok(())
     }
 
