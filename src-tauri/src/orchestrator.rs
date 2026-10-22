@@ -5686,9 +5686,27 @@ impl Orchestrator {
         for surface_id in self.inner.surfaces.list().await.iter().map(|d| d.id) {
             if self.inner.page_for_surface(surface_id) == Some(page_id) {
                 self.render_surface_visuals(surface_id).await;
+                // The Studio LCD shows the page name, so repaint the dial area
+                // too (otherwise it keeps the old name until a dial moves).
+                self.repaint_dial_display(surface_id).await;
             }
         }
         Ok(())
+    }
+
+    /// Repaint a surface's dial area from the stored visuals.
+    async fn repaint_dial_display(&mut self, surface_id: SurfaceId) {
+        let Some((index, visual)) = self
+            .inner
+            .dial_visuals
+            .iter()
+            .filter(|((sid, _), _)| *sid == surface_id)
+            .map(|((_, index), visual)| (*index, visual.clone()))
+            .min_by_key(|(index, _)| *index)
+        else {
+            return;
+        };
+        self.render_dial_display(surface_id, index, visual).await;
     }
 
     pub async fn delete_page(&mut self, page_id: PageId) -> anyhow::Result<()> {
