@@ -126,6 +126,8 @@
 | スワイプのページ選択 | ユニット | [x] | `swipe_walks_top_level_pages_in_both_directions`、`swipe_stays_inside_the_folder_of_the_current_page`、`swipe_skips_pages_without_content` |
 | 空ページのスキップ | ユニット | [x] | スロットの無いページは飛ばす（全ページが空なら従来どおり循環）。空ページから開始した場合は最寄りの非空ページへ |
 | Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送、ストリップ描画を確認 |
+| フォルダの遷移先変更 | 実機 | [x] | 既存フォルダに `set_switch_page_target` で別ページを指定→`childPageId` が更新され、押下でそのページへ遷移（32→1）、戻るキーで復帰（→32） |
+| フォルダ割当時の子ページ自動作成 | 仕様 | [x] | `bind_slot_builtin(openchild)` は "Folder" 子ページを自動作成（Elgato同等）。遷移先は後から変更できる |
 | Plus のキー画像が実機に出る | 実機 | [x] | 再起動後にスロットを持つサーフェスへ接続（8セル全て画像あり） |
 | Studio LCD の復元 | 実機 | [x] | `studio LCD restored bytes=17367`、`cache/lcd/<surface>.jpg` を再送 |
 | 重複サーフェスの自動削除 | 実機 | [x] | 接続時にスロット0の同名サーフェスを除去（Plus の重複が消え 1台に） |

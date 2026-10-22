@@ -2267,6 +2267,10 @@ impl Orchestrator {
                             "targetPageId": target_page_id.0.to_string(),
                             "targetPageName": target_name,
                         });
+                    } else if action_id == OPEN_FOLDER {
+                        // Point an existing folder at another page instead of the
+                        // child page created when the binding was made.
+                        *settings = json!({ "childPageId": target_page_id.0.to_string() });
                     }
                 }
             }
