@@ -1383,6 +1383,11 @@ function DeviceForm({
           />
           <output>{brightness}</output>
         </div>
+        {device.kind === "studio-usb" ? (
+          <p className="muted" id="device-brightness-note">
+            この値は保存され、LAN 接続時に適用されます（USB 接続ではファームウェアの明るさになります）。
+          </p>
+        ) : null}
       </div>
       <div className="actions">
         <button type="button" className="primary" onClick={() => void onSave(label, brightness)}>
