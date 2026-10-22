@@ -56,6 +56,9 @@ const I18N = {
     version: "バージョン",
     dataDir: "データフォルダ",
     openLogs: "ログフォルダを開く",
+    openPlugins: "プラグインフォルダを開く",
+    variables: "変数（Companion）",
+    refresh: "更新",
     language: "設定画面の言語",
     startup: "Windows 起動時に integratedeck を起動する",
     save: "保存",
@@ -110,6 +113,9 @@ const I18N = {
     version: "Version",
     dataDir: "Data folder",
     openLogs: "Open logs folder",
+    openPlugins: "Open plugins folder",
+    variables: "Variables (Companion)",
+    refresh: "Refresh",
     language: "Settings language",
     startup: "Launch integratedeck at Windows startup",
     save: "Save",
@@ -181,6 +187,7 @@ export default function SettingsApp() {
   const [presetJson, setPresetJson] = useState("");
   const [profileJson, setProfileJson] = useState("");
   const [profileOverwrite, setProfileOverwrite] = useState(false);
+  const [variables, setVariables] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<{ message: string; kind: "normal" | "error" | "success" }>({
     message: "読み込み中…",
     kind: "normal",
@@ -407,6 +414,16 @@ export default function SettingsApp() {
                 }}
               >
                 {s.openLogs}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  invoke("open_plugins_folder").catch((err) =>
+                    setStatusLine(formatUserError(err), "error"),
+                  );
+                }}
+              >
+                {s.openPlugins}
               </button>
             </div>
             <div className="field">
@@ -912,6 +929,39 @@ export default function SettingsApp() {
                 )}
               </tbody>
             </table>
+            <h3 className="section-subtitle">{s.variables}</h3>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  void invoke<Record<string, string>>("list_variables")
+                    .then((values) => setVariables(values))
+                    .catch((err) => setStatusLine(formatUserError(err), "error"));
+                }}
+              >
+                {s.refresh}
+              </button>
+            </div>
+            {Object.keys(variables).length === 0 ? (
+              <p className="muted">—</p>
+            ) : (
+              <table className="simple-table">
+                <thead>
+                  <tr>
+                    <th>$(name)</th>
+                    <th>value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(variables).map(([name, value]) => (
+                    <tr key={name}>
+                      <td>${"{"}{name}{"}"}</td>
+                      <td>{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
             <div className="field">
               <label htmlFor="companion-module-select">{s.companionModules}</label>
               <select
