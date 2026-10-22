@@ -60,6 +60,10 @@ pub enum BrokerEvent {
     ShowOk {
         context: String,
     },
+    /// A plugin asked to switch to another profile by name.
+    SwitchToProfile {
+        profile_name: String,
+    },
     SetState {
         context: String,
         state: u8,
@@ -676,11 +680,20 @@ impl StreamDeckBroker {
                     payload: extract_feedback_payload(&msg),
                 });
             }
-            // integratedeck edits a single profile, so a plugin that asks to
-            // switch profiles cannot be honoured. Warn instead of dropping the
-            // request silently.
             "switchToProfile" => {
-                warn!("switchToProfile ignored: only one profile is supported");
+                let profile_name = msg
+                    .get("payload")
+                    .and_then(|payload| payload.get("profile"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if profile_name.is_empty() {
+                    warn!("switchToProfile without a profile name");
+                } else {
+                    let _ = self
+                        .event_tx
+                        .send(BrokerEvent::SwitchToProfile { profile_name });
+                }
             }
             "registerEvent" => {
                 let Some(event_name) = registered_event_name(&msg) else {

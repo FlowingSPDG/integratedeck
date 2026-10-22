@@ -66,6 +66,7 @@ fn start_orchestrator(app: &App) -> Result<(), String> {
     Orchestrator::start_background_init(state.clone());
     Orchestrator::start_usb_watch(state.clone());
     Orchestrator::start_plugin_restart_worker(state.clone());
+    Orchestrator::start_profile_switch_worker(state.clone());
     app.manage(state);
     Ok(())
 }

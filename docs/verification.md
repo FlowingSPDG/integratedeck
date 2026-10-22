@@ -224,7 +224,7 @@ UI（SettingsEditor）から設定する場合はプリセット経由が確実�
 | 項目 | 状態 | 理由 |
 |---|---|---|
 | HTML プラグインのホスティング | 非対応 | ユーザー判断で対象外（Property Inspector の WebView は対応済み） |
-| `switchToProfile` | 非対応 | プロファイルは1つのみ編集するモデルのため。プラグインが呼ぶと警告ログを出す |
+| `switchToProfile` | 実機 | プラグインの要求で同名プロファイルへ切替（検証用プラグインで Default→Second を確認）。該当名が無ければ警告 |
 | Stream Deck のプロファイル自動切替（アプリ連動） | 非対応 | 上記と同じ理由 |
 | `applicationDidLaunch` / `applicationDidTerminate` | 非対応 | プロファイル自動切替のためのプロセス監視。単一プロファイルモデルでは用途がない |
 | `systemDidWakeUp` | 非対応 | スリープ復帰イベントの購読が未実装（復帰後の HID 再試行は実装済み） |

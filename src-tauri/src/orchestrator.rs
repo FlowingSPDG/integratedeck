@@ -59,11 +59,14 @@ pub struct Orchestrator {
     last_pi_plugin_uuid: Option<String>,
     nfc: std::collections::HashMap<SurfaceId, Vec<u8>>,
     comp_status: std::collections::HashMap<String, serde_json::Value>,
+    /// A Stream Deck plugin asked for a profile switch (handled by the worker).
+    pending_profile_switch: Option<String>,
     last_input: std::collections::HashMap<SurfaceId, Vec<SurfaceInput>>,
     input_count: std::collections::HashMap<SurfaceId, u64>,
     vsd_server: Option<tokio::task::JoinHandle<()>>,
     vsd_addr: Option<std::net::SocketAddr>,
     vsd_images: Option<tokio::sync::broadcast::Sender<ideck_vsd::server::VsdImage>>,
+
     /// Automatic restart attempts per plugin after a crash; reset when the user
     /// loads the plugin again.
     plugin_restart_attempts: std::collections::HashMap<String, u32>,
@@ -770,11 +773,13 @@ impl Orchestrator {
             last_pi_plugin_uuid: None,
             nfc: std::collections::HashMap::new(),
             comp_status: std::collections::HashMap::new(),
+            pending_profile_switch: None,
             last_input: std::collections::HashMap::new(),
             input_count: std::collections::HashMap::new(),
             vsd_server: None,
             vsd_addr: None,
             vsd_images: None,
+
             plugin_restart_attempts: std::collections::HashMap::new(),
             plugin_restart_tx,
             plugin_restart_rx: Some(plugin_restart_rx),
@@ -3736,6 +3741,51 @@ impl Orchestrator {
         });
     }
 
+    /// Apply `switchToProfile` requests from plugins (they arrive from the broker
+    /// drain, which has no handle to the orchestrator).
+    pub fn start_profile_switch_worker(state: Arc<RwLock<Self>>) {
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                let pending = {
+                    let mut o = state.write().await;
+                    o.pending_profile_switch.take()
+                };
+                let Some(name) = pending else { continue };
+                let target = {
+                    let o = state.read().await;
+                    o.list_profiles()
+                        .into_iter()
+                        .find(|entry| {
+                            entry
+                                .get("name")
+                                .and_then(|value| value.as_str())
+                                .map(|candidate| candidate.eq_ignore_ascii_case(&name))
+                                .unwrap_or(false)
+                        })
+                        .and_then(|entry| {
+                            entry
+                                .get("id")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_string)
+                        })
+                };
+                match target {
+                    Some(id) => {
+                        let handle = state.clone();
+                        let mut o = state.write().await;
+                        if let Err(error) = o.switch_profile(&id, handle).await {
+                            warn!(%name, "switchToProfile failed: {error}");
+                        } else {
+                            info!(%name, "switched profile on a plugin request");
+                        }
+                    }
+                    None => warn!(%name, "switchToProfile: no profile with that name"),
+                }
+            }
+        });
+    }
+
     /// Stop the Companion sidecar. Called on app exit, because Node children are
     /// not reaped by the OS and would keep the module engine alive.
     pub async fn shutdown_companion(&mut self) {
@@ -6426,6 +6476,10 @@ impl Orchestrator {
             }
             // Handled by the supervisor drain closure with a grace period.
             BrokerEvent::PluginDisconnected { .. } => {}
+            BrokerEvent::SwitchToProfile { profile_name } => {
+                info!(%profile_name, "plugin requested a profile switch");
+                self.pending_profile_switch = Some(profile_name.to_string());
+            }
             BrokerEvent::ShowAlert { context } => {
                 if let Some((surface_id, row, col)) =
                     self.cell_location_for_context(plugin_uuid, context)
