@@ -668,8 +668,13 @@ impl Orchestrator {
                 action_id,
                 options,
             } => {
-                self.execute_companion_action(&connection_id, &action_id, options)
-                    .await?;
+                // Companion actions are press-only on dials; rotation belongs to
+                // presets (which define rotate_left/rotate_right) - firing the
+                // action on every tick would repeat it dozens of times.
+                if ticks.is_none() && pressed {
+                    self.execute_companion_action(&connection_id, &action_id, options)
+                        .await?;
+                }
             }
             // Companion presets define what a dial does per phase, which is how
             // Companion itself models dials.
