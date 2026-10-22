@@ -3,6 +3,7 @@ mod commands;
 mod conflict_check;
 mod errors;
 mod hub;
+mod logging;
 mod orchestrator;
 mod paths;
 mod plugin_host;
@@ -17,6 +18,28 @@ use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
 pub use orchestrator::Orchestrator;
+
+/// Log to stdout and to a rotating file so a packaged app leaves a trace.
+fn init_tracing() {
+    let filter = EnvFilter::from_default_env().add_directive("integratedeck=info".parse().unwrap());
+    match logging::LogFileMaker::open(&paths::log_file()) {
+        Ok(file) => {
+            use tracing_subscriber::fmt::writer::MakeWriterExt;
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_ansi(false)
+                .with_writer(file.and(std::io::stdout))
+                .init();
+        }
+        Err(error) => {
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_writer(std::io::stdout)
+                .init();
+            tracing::warn!("log file unavailable: {error}");
+        }
+    }
+}
 
 fn start_orchestrator(app: &App) -> Result<(), String> {
     let handle = app.handle().clone();
@@ -33,11 +56,7 @@ fn start_orchestrator(app: &App) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env().add_directive("integratedeck=info".parse().unwrap()),
-        )
-        .init();
+    init_tracing();
 
     // Keep the login registration in sync with the saved preference (it may
     // have been removed externally, or the binary may have moved).
@@ -93,6 +112,7 @@ pub fn run() {
             commands::save_profile,
             commands::scan_plugins,
             commands::open_plugins_folder,
+            commands::open_logs_folder,
             commands::open_companion_modules_folder,
             commands::scan_hid_devices,
             commands::list_surface_drivers,

@@ -81,6 +81,14 @@ pub async fn open_plugins_folder() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn open_logs_folder() -> Result<String, String> {
+    paths::ensure_dirs().map_err(|e| e.to_string())?;
+    let dir = paths::logs_dir();
+    open_path_in_file_manager(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.display().to_string())
+}
+
+#[tauri::command]
 pub async fn open_companion_modules_folder() -> Result<String, String> {
     paths::ensure_dirs().map_err(|e| e.to_string())?;
     let dir = paths::companion_modules_dir();

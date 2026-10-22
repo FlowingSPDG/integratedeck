@@ -101,6 +101,14 @@ pub fn cache_dir() -> PathBuf {
     data_dir().join("cache")
 }
 
+pub fn logs_dir() -> PathBuf {
+    data_dir().join("logs")
+}
+
+pub fn log_file() -> PathBuf {
+    logs_dir().join("integratedeck.log")
+}
+
 /// Last image pushed to a Studio LCD, so it can be restored on reconnect.
 pub fn studio_lcd_file(surface_id: &str) -> PathBuf {
     cache_dir().join("lcd").join(format!("{surface_id}.jpg"))
@@ -113,6 +121,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     std::fs::create_dir_all(global_settings_dir())?;
     std::fs::create_dir_all(device_presets_dir())?;
     std::fs::create_dir_all(cache_dir())?;
+    std::fs::create_dir_all(logs_dir())?;
     Ok(())
 }
 

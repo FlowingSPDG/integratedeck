@@ -55,6 +55,7 @@ const I18N = {
     presets: "Presets",
     version: "バージョン",
     dataDir: "データフォルダ",
+    openLogs: "ログフォルダを開く",
     language: "設定画面の言語",
     startup: "Windows 起動時に integratedeck を起動する",
     save: "保存",
@@ -101,6 +102,7 @@ const I18N = {
     presets: "Presets",
     version: "Version",
     dataDir: "Data folder",
+    openLogs: "Open logs folder",
     language: "Settings language",
     startup: "Launch integratedeck at Windows startup",
     save: "Save",
@@ -379,6 +381,18 @@ export default function SettingsApp() {
               <dt>{s.dataDir}</dt>
               <dd>{appInfo.data_dir}</dd>
             </dl>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  invoke("open_logs_folder").catch((err) =>
+                    setStatusLine(formatUserError(err), "error"),
+                  );
+                }}
+              >
+                {s.openLogs}
+              </button>
+            </div>
             <div className="field">
               <label htmlFor="language-select">{s.language}</label>
               <select

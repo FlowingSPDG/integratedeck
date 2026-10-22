@@ -71,6 +71,9 @@
 | 設定画面のタブ描画 | 実機 | [x] | General / Devices / Presets / Companion の4タブが実データで描画 |
 | スタートアップ登録 | 実機 | [x] | 設定トグルで `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` に exe を登録／削除（`reg query` で確認）。起動時に保存値と同期し、外部で削除しても再登録される |
 | スタートアップ状態の表示 | 実装 | [x] | `get_global_settings` は保存値ではなく OS の実状態（`is_enabled`）を返す |
+| コマンドACLの整合性 | 実機 | [x] | `generate_handler!` の96コマンドと許可リストを突合。`check_startup_conflicts` / `open_companion_modules_folder` が未許可で機能停止していたのを修正 |
+| 起動時競合チェック | 実機 | [x] | `check_startup_conflicts` が `{conflicts: []}` を返す（以前はACLエラーで常に失敗） |
+| ログファイル出力 | 実装 | [x] | `%APPDATA%\integratedeck\logs\integratedeck.log` に出力。5MB超で `.log.1` へローテーション。設定に「ログフォルダを開く」ボタン |
 | Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |
 
 ## Studio
