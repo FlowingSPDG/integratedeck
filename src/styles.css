@@ -1234,3 +1234,28 @@ button:hover {
 .page-breadcrumb {
   cursor: text;
 }
+
+.multi-action-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.multi-action-delay {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.multi-action-delay input {
+  width: 62px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--slot-bg);
+  color: var(--text);
+  font-size: 0.68rem;
+}

@@ -199,6 +199,48 @@ function MultiActionEditor({
           steps.map((step, i) => (
             <li key={i} className="multi-action-step">
               <span>{bindingStepLabel(step)}</span>
+              <label className="multi-action-delay">
+                待機
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  defaultValue={step.delay_before_ms ?? 0}
+                  onChange={(e) => {
+                    const next = steps.map((entry, index) =>
+                      index === i
+                        ? { ...entry, delay_before_ms: Number(e.target.value) }
+                        : entry,
+                    );
+                    void onSave(next, delayMs);
+                  }}
+                />
+                ms
+              </label>
+              <button
+                type="button"
+                className="btn-xs"
+                disabled={i === 0}
+                onClick={() => {
+                  const next = [...steps];
+                  [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                  void onSave(next, delayMs);
+                }}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="btn-xs"
+                disabled={i === steps.length - 1}
+                onClick={() => {
+                  const next = [...steps];
+                  [next[i + 1], next[i]] = [next[i], next[i + 1]];
+                  void onSave(next, delayMs);
+                }}
+              >
+                ↓
+              </button>
               <button
                 type="button"
                 className="btn-xs btn-remove-step"
