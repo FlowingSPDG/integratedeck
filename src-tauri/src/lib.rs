@@ -21,7 +21,10 @@ pub use orchestrator::Orchestrator;
 
 /// Log to stdout and to a rotating file so a packaged app leaves a trace.
 fn init_tracing() {
-    let filter = EnvFilter::from_default_env().add_directive("integratedeck=info".parse().unwrap());
+    let filter = EnvFilter::from_default_env()
+        .add_directive("integratedeck=info".parse().unwrap())
+        // One system font on Windows refuses to parse; the warning is harmless.
+        .add_directive("fontdb=error".parse().unwrap());
     match logging::LogFileMaker::open(&paths::log_file()) {
         Ok(file) => {
             use tracing_subscriber::fmt::writer::MakeWriterExt;

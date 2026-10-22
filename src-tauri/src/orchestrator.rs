@@ -174,9 +174,21 @@ impl Orchestrator {
         };
 
         for (serial, kind) in targets {
+            // The USB watcher and the startup path can race for the same device;
+            // losing that race means it is already connected, not an error.
+            let already = {
+                let o = state.read().await;
+                o.hid_serials.contains_key(&serial)
+            };
+            if already {
+                continue;
+            }
             match Self::connect_hid_with_loops(state.clone(), serial.clone(), kind).await {
                 Ok(_) => info!("auto-connected HID device {serial}"),
-                Err(e) => warn!("auto-connect HID {serial} failed: {e}"),
+                Err(error) if error == "device already connected" => {
+                    debug!("HID device {serial} was connected by another task")
+                }
+                Err(error) => warn!("auto-connect HID {serial} failed: {error}"),
             }
         }
 
