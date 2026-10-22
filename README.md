@@ -13,6 +13,21 @@ Cross-platform desktop app bridging **Elgato Stream Deck plugins** and **Bitfocu
 
 All routing flows: **physical device ↔ Orchestrator ↔ plugin system**.
 
+## What works
+
+- **Surfaces** — Stream Deck + (keys, dials, touch strip), Studio over USB and LAN
+  (keys, dials, LCD, NFC reads), XL/Mk.2 (HID), virtual surfaces over VSD2, and
+  Raspberry Pi GPIO behind the `gpio` feature
+- **Stream Deck plugins** — native binaries, Node SDK plugins and HTML/WebView
+  plugins, including Property Inspector settings, dial feedback, touch taps and
+  plugin crash recovery
+- **Companion modules** — actions, feedbacks (tally colours), variables and
+  presets, with a generated option form and defaults filled in automatically
+- **Editing** — pages and folders (create/rename/delete, hardware and UI stay in
+  sync), multi-actions, drag & drop, copy/paste, per-device presets and profile
+  import/export
+- **Operations** — atomic state files, log file with rotation, launch-at-login
+
 ## Development
 
 ```bash
@@ -38,6 +53,7 @@ Data lives under the OS app data folder (`integratedeck/`):
 - `plugins/companion/` — `companion-module-*` folders
 - `profiles/default.json` — active profile
 - `connections.json` — Companion connection records
+- `logs/integratedeck.log` — app log (rotated to `.log.1` past 5 MiB)
 
 ## MVP flow
 
