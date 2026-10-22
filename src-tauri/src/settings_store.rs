@@ -37,6 +37,10 @@ pub struct DeviceRecord {
     pub last_seen: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_id: Option<String>,
+    /// The user pressed 切断 in Settings; auto-connect leaves the device alone
+    /// until they press 接続 again.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 fn default_brightness() -> u8 {

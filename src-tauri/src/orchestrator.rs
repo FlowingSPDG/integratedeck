@@ -153,6 +153,11 @@ impl Orchestrator {
 
     /// Register newly discovered USB devices and connect any that are not yet active.
     pub async fn auto_connect_available_devices(state: Arc<RwLock<Self>>) {
+        let disabled: std::collections::HashSet<String> = settings_store::load_device_registry()
+            .into_iter()
+            .filter(|record| record.disabled)
+            .map(|record| record.device_key)
+            .collect();
         let targets: Vec<(String, String)> = {
             let o = state.read().await;
             let _ = o.sync_device_registry();
@@ -160,6 +165,7 @@ impl Orchestrator {
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|d| !o.hid_serials.contains_key(&d.serial))
+                .filter(|d| !disabled.contains(&settings_store::device_key(&d.kind, &d.serial)))
                 .map(|d| (d.serial.clone(), d.kind.clone()))
                 .collect()
         };
@@ -184,6 +190,12 @@ impl Orchestrator {
                         surface.label.contains(&device.device_id)
                             && o.inner.surfaces.physical(surface.surface_id).is_some()
                     })
+                })
+                .filter(|device| {
+                    !disabled.contains(&settings_store::device_key(
+                        &device.driver_id,
+                        &device.device_id,
+                    ))
                 })
                 .map(|device| (device.driver_id, device.device_id))
                 .collect()
@@ -237,6 +249,7 @@ impl Orchestrator {
                         .hid_serials
                         .get(&device.serial)
                         .map(|id| id.0.to_string()),
+                    disabled: false,
                 });
                 changed = true;
             }
@@ -2927,6 +2940,7 @@ impl Orchestrator {
             brightness,
             last_seen: settings_store::now_iso(),
             surface_id: Some(surface_id.0.to_string()),
+            disabled: false,
         });
 
         let result = ConnectHidResult {
@@ -3021,6 +3035,7 @@ impl Orchestrator {
             brightness: 50,
             last_seen: settings_store::now_iso(),
             surface_id: Some(surface_id.0.to_string()),
+            disabled: false,
         });
 
         let _ = self.save_profile().await;
@@ -3459,6 +3474,19 @@ impl Orchestrator {
         if !self.hid_meta.contains_key(&surface_id) {
             return Err("指定の物理デバイスは接続されていません。".into());
         }
+        if self
+            .hid_meta
+            .get(&surface_id)
+            .is_some_and(|meta| meta.kind.starts_with("studio"))
+        {
+            // The Studio driver keeps its device handle inside tasks we cannot
+            // cancel, so re-opening it in the same session fails. Leave the
+            // device alone and let the user unplug it or quit the app.
+            return Err(
+                "Studio はこの画面から切断できません。USB ケーブルを抜くかアプリを終了してください。"
+                    .into(),
+            );
+        }
         if let Some(handles) = self.hid_task_handles.remove(&surface_id) {
             for handle in handles {
                 handle.abort();
@@ -3480,6 +3508,8 @@ impl Orchestrator {
         let mut records = settings_store::load_device_registry();
         if let Some(record) = records.iter_mut().find(|r| r.device_key == device_key) {
             record.last_seen = settings_store::now_iso();
+            // Keep the auto-connect watcher from grabbing the device right back.
+            record.disabled = true;
         }
         let _ = settings_store::save_device_registry(&records);
 

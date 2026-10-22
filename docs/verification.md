@@ -116,6 +116,8 @@
 | スナップショット貼付（SD binding） | 実機 | [x] | `apply_slot_snapshot` で Tutorial binding を貼付→押下が `keyDown -> plugin` に解決（コンテキストが再登録される） |
 | 接続直後のCompanionステータス | 実機 | [x] | `connection.add` の直後に出る status イベントが購読前に失われ、再起動直後は状態が空だった。add成功時に `comp_status` を補完し、Settings の Companion タブに `✓ ok` が即表示される |
 | プロファイル全体の書き出し/読み込み | 実機 | [x] | Settings > Presets から約157KBのJSONを書き出し、「上書きする」をチェックして読み込み→「プロファイルを復元しました」。ページ7・32/8セルを維持 |
+| デバイスの切断／再接続 | 実機 | [x] | Settings > Devices の「切断」で Plus を解放（`available`）。自動接続が取り戻さないよう `disabled` を記録し、「接続」で復帰（8セル） |
+| Studio の切断制限 | 制限 | [x] | Studio はドライバ内部のタスクがハンドルを保持し、同一セッションでの再接続に失敗するため、切断操作を明示的に拒否（ケーブルを抜くかアプリ終了） |
 | キー解決の診断ログ | 実装 | [x] | `keyDown -> plugin` / `keyDown not bound to a plugin` を debug で出力 |
 | サーフェスごとのダイヤル数尊重 | 実装 | [x] | `surface_dial_count` で上限を設け、2ダイヤルのStudioに3つ目のゾーンを作らない（Studio: 0,1 / Plus: 0,1,2）。回転も 10→11 で動作 |
 | 連続入力のスループット | 実機 | [x] | ダイヤル押下20連打=25ms、回転40ノッチ=42ms。実行中もプラグイン6本・2サーフェス接続を維持（Plus Dial の値は上限30でクランプ） |

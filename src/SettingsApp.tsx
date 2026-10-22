@@ -70,7 +70,9 @@ const I18N = {
     grid: "キーレイアウト",
     status: "状態",
     connect: "接続",
+    disconnect: "切断",
     connected: "接続中",
+    disconnected: "切断しました",
     available: "利用可能",
     offline: "オフライン",
     unknownFirmware: "—（未接続）",
@@ -122,7 +124,9 @@ const I18N = {
     grid: "Key layout",
     status: "Status",
     connect: "Connect",
+    disconnect: "Disconnect",
     connected: "Connected",
+    disconnected: "Disconnected",
     available: "Available",
     offline: "Offline",
     unknownFirmware: "— (not connected)",
@@ -674,7 +678,32 @@ export default function SettingsApp() {
                       {s.connect}
                     </button>
                   </div>
-                ) : null}
+                ) : selectedDevice.kind.startsWith("studio") ? (
+                  <p className="muted">
+                    このデバイスはアプリ終了またはUSBケーブルを抜いて切断します。
+                  </p>
+                ) : (
+                  <div className="actions">
+                    <button
+                      type="button"
+                      id="btn-disconnect-device"
+                      onClick={async () => {
+                        if (!selectedDeviceKey || !selectedDevice.surfaceId) return;
+                        try {
+                          await invoke("disconnect_hid_device", {
+                            surfaceId: selectedDevice.surfaceId,
+                          });
+                          setStatusLine(s.disconnected, "success");
+                          await loadDevices();
+                        } catch (err) {
+                          setStatusLine(formatUserError(err), "error");
+                        }
+                      }}
+                    >
+                      {s.disconnect}
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
               <p className="empty-state">{s.noDevices}</p>

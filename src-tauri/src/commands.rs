@@ -1427,6 +1427,14 @@ pub async fn connect_settings_device(
         let record = o.resolve_device_record(&device_key)?;
         (record.serial, record.kind)
     };
+    // Re-enable auto-connect for this device.
+    {
+        let mut records = settings_store::load_device_registry();
+        if let Some(record) = records.iter_mut().find(|r| r.device_key == device_key) {
+            record.disabled = false;
+        }
+        let _ = settings_store::save_device_registry(&records);
+    }
     Orchestrator::connect_hid_with_loops(state.inner().clone(), serial, kind).await
 }
 
