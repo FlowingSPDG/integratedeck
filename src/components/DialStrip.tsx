@@ -96,6 +96,22 @@ export const DialStrip = memo(function DialStrip() {
         g: 120,
         b: 40,
       });
+    } else if (selected.type === "multi_action") {
+      await invoke("bind_encoder_multi_action", {
+        args: {
+          surfaceId: selectedSurfaceId,
+          index,
+          steps: selected.steps ?? [],
+          delayMs: selected.delayMs ?? 200,
+        },
+      });
+      await invoke("set_encoder_led", {
+        surfaceId: selectedSurfaceId,
+        index,
+        r: 220,
+        g: 180,
+        b: 60,
+      });
     } else if (selected.type === "stream_deck") {
       await invoke("bind_encoder_sd", {
         args: {

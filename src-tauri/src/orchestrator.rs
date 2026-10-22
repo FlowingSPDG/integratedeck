@@ -5143,6 +5143,37 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Bind a dial to a multi-action (the slot editor builds the steps, the dial
+    /// gets a copy of them).
+    pub async fn bind_encoder_multi_action(
+        &mut self,
+        surface_id: SurfaceId,
+        index: u32,
+        steps: serde_json::Value,
+        delay_ms: Option<u32>,
+    ) -> anyhow::Result<()> {
+        let steps: Vec<MultiActionStep> = serde_json::from_value(steps)
+            .map_err(|e| anyhow::anyhow!("invalid multi-action steps: {e}"))?;
+        let page_id = self
+            .inner
+            .surface_pages
+            .get(&surface_id)
+            .copied()
+            .or(self.inner.profile.active_page_id)
+            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        page.encoders
+            .insert(index, Binding::multi_action(steps, delay_ms.unwrap_or(200)));
+        self.save_profile().await?;
+        Ok(())
+    }
+
     /// Register the Stream Deck action context that backs a physical dial.
     ///
     /// Dials are addressed as row 0 / column `index`, which is what

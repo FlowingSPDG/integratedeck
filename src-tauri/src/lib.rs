@@ -158,6 +158,7 @@ pub fn run() {
             commands::bind_encoder_companion_preset,
             commands::bind_encoder_sd,
             commands::bind_encoder_builtin,
+            commands::bind_encoder_multi_action,
             commands::simulate_encoder,
             commands::simulate_encoder_rotate,
             commands::unbind_encoder,

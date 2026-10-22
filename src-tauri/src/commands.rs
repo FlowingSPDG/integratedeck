@@ -553,6 +553,30 @@ pub async fn bind_encoder_builtin(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BindEncoderMultiActionArgs {
+    pub surface_id: String,
+    pub index: u32,
+    pub steps: serde_json::Value,
+    #[serde(default)]
+    pub delay_ms: Option<u32>,
+}
+
+#[tauri::command]
+pub async fn bind_encoder_multi_action(
+    state: State<'_, OrchState>,
+    args: BindEncoderMultiActionArgs,
+) -> Result<(), String> {
+    let surface_id =
+        ideck_core::SurfaceId(uuid::Uuid::parse_str(&args.surface_id).map_err(|e| e.to_string())?);
+    let mut orchestrator = state.write().await;
+    orchestrator
+        .bind_encoder_multi_action(surface_id, args.index, args.steps, args.delay_ms)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BindEncoderSdArgs {
     pub surface_id: String,
     pub index: u32,

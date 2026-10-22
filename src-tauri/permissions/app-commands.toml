@@ -38,6 +38,7 @@ commands.allow = [
   "bind_encoder_companion_preset",
   "bind_encoder_sd",
   "bind_encoder_builtin",
+  "bind_encoder_multi_action",
   "simulate_encoder",
   "simulate_encoder_rotate",
   "unbind_encoder",
