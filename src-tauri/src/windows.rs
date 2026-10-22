@@ -28,6 +28,25 @@ pub fn ensure_main_window(app: &App) -> Result<(), String> {
 
         match build_window(app.handle(), &config, false) {
             Ok(window) => {
+                // `build()` can succeed while the WebView itself fails to start
+                // (0x800700AA from a locked profile): the window then has no page
+                // and the app would run headless. Give the page a moment to load.
+                let mut loaded = false;
+                for _ in 0..40 {
+                    if window.url().is_ok() {
+                        loaded = true;
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                if !loaded {
+                    warn!("main window has no page; retrying with a fresh WebView2 profile");
+                    let _ = window.close();
+                    if !profile_reset && park_webview_profile(app.handle()) {
+                        profile_reset = true;
+                    }
+                    continue;
+                }
                 attach_exit_on_close(&window);
                 let _ = window.show();
                 let _ = window.set_focus();

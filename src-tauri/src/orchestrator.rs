@@ -6395,6 +6395,42 @@ impl Orchestrator {
             warn!(?slot_id, "unbinding a button whose page was deleted");
             self.unbind_slot(slot_id).await.ok();
         }
+        // Device presets snapshot whole pages; drop the deleted ones so a stale
+        // preset cannot resurrect them on the next device connect.
+        let profile_id = self.inner.profile.id.0.to_string();
+        if let Ok(entries) = std::fs::read_dir(paths::device_presets_dir_for(&profile_id)) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                    continue;
+                }
+                let Ok(data) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Ok(mut preset) = serde_json::from_str::<serde_json::Value>(&data) else {
+                    continue;
+                };
+                let Some(pages) = preset
+                    .get_mut("pages")
+                    .and_then(|value| value.as_array_mut())
+                else {
+                    continue;
+                };
+                let before = pages.len();
+                pages.retain(|page| {
+                    page.get("id")
+                        .and_then(|value| value.as_str())
+                        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+                        .map(|id| !remove.contains(&PageId(id)))
+                        .unwrap_or(true)
+                });
+                if pages.len() != before {
+                    if let Ok(updated) = serde_json::to_string_pretty(&preset) {
+                        let _ = paths::write_atomic(&path, updated.as_bytes());
+                    }
+                }
+            }
+        }
         for surface_id in self.inner.surfaces.list().await.iter().map(|d| d.id) {
             self.render_surface_visuals(surface_id).await;
         }
