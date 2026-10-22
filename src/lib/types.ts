@@ -60,6 +60,13 @@ export interface MultiActionStep {
   delay_before_ms?: number;
 }
 
+export interface ProfileSummary {
+  id: string;
+  name: string;
+  active: boolean;
+  pages: number;
+}
+
 export interface VisualState {
   image?: { format: string; data: string };
   title?: string;

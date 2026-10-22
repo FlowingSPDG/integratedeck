@@ -10,6 +10,16 @@ pub fn profiles_dir() -> PathBuf {
     data_dir().join("profiles")
 }
 
+/// File holding one profile (profiles are stored one file per id).
+pub fn profile_file_for(profile_id: &str) -> PathBuf {
+    profiles_dir().join(format!("{profile_id}.json"))
+}
+
+/// Legacy single-profile file, migrated into `profile_file_for` on startup.
+pub fn legacy_profile_file() -> PathBuf {
+    profiles_dir().join("default.json")
+}
+
 pub fn sd_plugins_dir() -> PathBuf {
     data_dir().join("plugins").join("streamdeck")
 }
@@ -34,9 +44,15 @@ pub fn device_presets_dir() -> PathBuf {
     profiles_dir().join("presets")
 }
 
-pub fn device_preset_file(device_key: &str) -> PathBuf {
+/// Device presets belong to a profile: each profile keeps its own snapshot of
+/// what a device shows, so a fresh profile does not inherit the old pages.
+pub fn device_presets_dir_for(profile_id: &str) -> PathBuf {
+    device_presets_dir().join(profile_id)
+}
+
+pub fn device_preset_file(profile_id: &str, device_key: &str) -> PathBuf {
     let safe = device_key.replace(':', "_");
-    device_presets_dir().join(format!("{safe}.json"))
+    device_presets_dir_for(profile_id).join(format!("{safe}.json"))
 }
 
 pub fn connections_file() -> PathBuf {

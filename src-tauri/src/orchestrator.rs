@@ -181,15 +181,25 @@ impl Orchestrator {
         // driver registry as soon as the device enumerates.
         let studio_targets: Vec<(String, String)> = {
             let o = state.read().await;
+            // Decide from the registered surfaces, not from the profile's
+            // assignments: a profile may not list a device that is already open.
+            let connected_labels: Vec<String> = {
+                let mut labels = Vec::new();
+                for descriptor in o.inner.surfaces.list().await {
+                    if o.inner.surfaces.physical(descriptor.id).is_some() {
+                        labels.push(descriptor.name.clone());
+                    }
+                }
+                labels
+            };
             o.scan_surface_devices()
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|device| device.driver_id == "studio-usb")
                 .filter(|device| {
-                    !o.inner.profile.surfaces.iter().any(|surface| {
-                        surface.label.contains(&device.device_id)
-                            && o.inner.surfaces.physical(surface.surface_id).is_some()
-                    })
+                    !connected_labels
+                        .iter()
+                        .any(|label| label.contains(&device.device_id))
                 })
                 .filter(|device| {
                     !disabled.contains(&settings_store::device_key(
@@ -649,7 +659,7 @@ impl Orchestrator {
     pub async fn new_core(app: &AppHandle) -> anyhow::Result<Self> {
         paths::ensure_dirs()?;
         let profile_path = paths::profiles_dir().join("default.json");
-        let profile = match std::fs::read_to_string(&profile_path) {
+        let mut profile = match std::fs::read_to_string(&profile_path) {
             Ok(data) => match serde_json::from_str::<Profile>(&data) {
                 Ok(profile) => profile,
                 Err(error) => {
@@ -666,6 +676,73 @@ impl Orchestrator {
                 Profile::new("Default")
             }
         };
+
+        // Profiles live one file per id. Adopt the active one (or the legacy
+        // default.json) and make sure its own file exists.
+        let settings = settings_store::load_global_settings();
+        let mut adopted = false;
+        if let Some(active) = settings.active_profile.as_deref() {
+            if let Ok(data) = std::fs::read_to_string(paths::profile_file_for(active)) {
+                if let Ok(loaded) = serde_json::from_str::<Profile>(&data) {
+                    profile = loaded;
+                    adopted = true;
+                }
+            }
+        }
+        if !adopted {
+            // The remembered profile is gone (renamed file, deleted folder):
+            // fall back to any profile on disk instead of starting blank.
+            if let Ok(entries) = std::fs::read_dir(paths::profiles_dir()) {
+                let mut candidates: Vec<std::path::PathBuf> = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+                    .collect();
+                candidates.sort();
+                for path in candidates {
+                    let Ok(data) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    let Ok(loaded) = serde_json::from_str::<Profile>(&data) else {
+                        continue;
+                    };
+                    warn!(profile = %path.display(), "active profile missing; using this one");
+                    profile = loaded;
+                    break;
+                }
+            }
+        }
+        let profile_id = profile.id.0.to_string();
+        let profile_file = paths::profile_file_for(&profile_id);
+        if !profile_file.exists() {
+            let data = serde_json::to_string_pretty(&profile)?;
+            paths::write_atomic(&profile_file, data.as_bytes())?;
+            if paths::legacy_profile_file().exists() {
+                let _ = std::fs::remove_file(paths::legacy_profile_file());
+            }
+        }
+        let mut settings = settings_store::load_global_settings();
+        settings.active_profile = Some(profile_id.clone());
+        let _ = settings_store::save_global_settings(&settings);
+
+        // Device presets used to live outside the profile; move them into this
+        // profile's folder so other profiles do not inherit them.
+        let profile_presets = paths::device_presets_dir_for(&profile_id);
+        if paths::device_presets_dir().exists() {
+            let _ = std::fs::create_dir_all(&profile_presets);
+            if let Ok(entries) = std::fs::read_dir(paths::device_presets_dir()) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file()
+                        && path.extension().and_then(|ext| ext.to_str()) == Some("json")
+                    {
+                        if let Some(name) = path.file_name() {
+                            let _ = std::fs::rename(&path, profile_presets.join(name));
+                        }
+                    }
+                }
+            }
+        }
 
         let inner = AppStateInner::new(profile);
         for assignment in inner.profile.surfaces.clone() {
@@ -1219,6 +1296,37 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         *self.profile_mut() = profile;
         self.save_profile().await?;
+
+        // Reconcile registered surfaces with the new profile: drop mocks that
+        // belonged to the previous profile and register the new assignments,
+        // otherwise every switch leaves duplicate surface entries behind.
+        let keep: Vec<SurfaceId> = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .map(|assignment| assignment.surface_id)
+            .collect();
+        let registered = self.inner.surfaces.list().await;
+        for descriptor in registered {
+            if self.inner.surfaces.physical(descriptor.id).is_some() {
+                continue;
+            }
+            if !keep.contains(&descriptor.id) {
+                self.inner.surfaces.unregister(descriptor.id).await;
+            }
+        }
+        for assignment in self.inner.profile.surfaces.clone() {
+            if self
+                .inner
+                .surfaces
+                .physical(assignment.surface_id)
+                .is_none()
+            {
+                let mock = MockSurface::with_id(assignment.surface_id, assignment.label.clone());
+                self.inner.surfaces.register_mock(mock).await;
+            }
+        }
 
         self.inner.routing = crate::hub::RoutingTable::default();
         for bridge in self.inner.bridges.values_mut() {
@@ -2605,6 +2713,70 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Move slots from surface ids that are no longer registered (the id is
+    /// allocated per connection) onto the surface of the same device that just
+    /// connected, so a profile keeps working across restarts.
+    async fn adopt_stale_slots(&mut self, surface_id: SurfaceId) {
+        let registered: Vec<SurfaceId> = self
+            .inner
+            .surfaces
+            .list()
+            .await
+            .into_iter()
+            .map(|descriptor| descriptor.id)
+            .collect();
+        let Some(new_label) = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .find(|assignment| assignment.surface_id == surface_id)
+            .map(|assignment| assignment.label.clone())
+        else {
+            return;
+        };
+        let stale: Vec<SurfaceId> = self
+            .inner
+            .profile
+            .surfaces
+            .iter()
+            .filter(|assignment| {
+                assignment.surface_id != surface_id
+                    && registered.contains(&assignment.surface_id)
+                    && self
+                        .inner
+                        .surfaces
+                        .physical(assignment.surface_id)
+                        .is_none()
+                    && assignment.label == new_label
+            })
+            .map(|assignment| assignment.surface_id)
+            .collect();
+        if stale.is_empty() {
+            return;
+        }
+        let mut moved = 0usize;
+        for page in &mut self.inner.profile.pages {
+            for slot in page.slots.values_mut() {
+                if stale.contains(&slot.locator.surface_id) {
+                    slot.locator.surface_id = surface_id;
+                    moved += 1;
+                }
+            }
+        }
+        self.inner
+            .profile
+            .surfaces
+            .retain(|assignment| !stale.contains(&assignment.surface_id));
+        for id in &stale {
+            self.inner.surfaces.unregister(*id).await;
+        }
+        if moved > 0 {
+            info!(?surface_id, moved, "adopted slots from a stale surface id");
+            let _ = self.save_profile().await;
+        }
+    }
+
     pub async fn finalize_hid_connection(
         &mut self,
         surface_id: SurfaceId,
@@ -2614,6 +2786,7 @@ impl Orchestrator {
         // dial bindings (which are resolved through the surface → page map) are
         // skipped.
         self.inner.ensure_surface_page(surface_id);
+        self.adopt_stale_slots(surface_id).await;
         if let Some(device_key) = self.device_key_for_surface(surface_id) {
             if let Ok(Some(json)) = self.load_saved_device_preset(&device_key) {
                 self.merge_device_preset(&device_key, &json, surface_id)
@@ -2744,9 +2917,129 @@ impl Orchestrator {
     }
 
     pub async fn save_profile(&self) -> anyhow::Result<()> {
-        let path = paths::profiles_dir().join("default.json");
+        let id = self.inner.profile.id.0.to_string();
+        let path = paths::profile_file_for(&id);
         let data = serde_json::to_string_pretty(&self.inner.profile)?;
         paths::write_atomic(&path, data.as_bytes())?;
+        Ok(())
+    }
+
+    /// Every profile on disk, newest name first ordering by name.
+    pub fn list_profiles(&self) -> Vec<serde_json::Value> {
+        let active = self.inner.profile.id.0.to_string();
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+        let Ok(dir) = std::fs::read_dir(paths::profiles_dir()) else {
+            return entries;
+        };
+        for entry in dir.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(profile) = serde_json::from_str::<Profile>(&data) else {
+                continue;
+            };
+            let id = profile.id.0.to_string();
+            entries.push(json!({
+                "id": id,
+                "name": profile.name,
+                "active": id == active,
+                "pages": profile.pages.len(),
+            }));
+        }
+        entries.sort_by(|a, b| {
+            let left = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let right = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            left.cmp(right)
+        });
+        entries
+    }
+
+    /// Create a profile and switch to it.
+    pub async fn create_profile(
+        &mut self,
+        name: &str,
+        orch: Arc<RwLock<Self>>,
+    ) -> anyhow::Result<String> {
+        let name = name.trim();
+        if name.is_empty() {
+            anyhow::bail!("プロファイル名を入力してください");
+        }
+        let profile = Profile::new(name);
+        let id = profile.id.0.to_string();
+        let data = serde_json::to_string_pretty(&profile)?;
+        paths::write_atomic(&paths::profile_file_for(&id), data.as_bytes())?;
+        self.switch_profile(&id, orch).await?;
+        Ok(id)
+    }
+
+    pub async fn rename_profile(&mut self, profile_id: &str, name: &str) -> anyhow::Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            anyhow::bail!("プロファイル名を入力してください");
+        }
+        if self.inner.profile.id.0.to_string() == profile_id {
+            self.inner.profile.name = name.to_string();
+            self.save_profile().await?;
+            return Ok(());
+        }
+        let path = paths::profile_file_for(profile_id);
+        let data = std::fs::read_to_string(&path)?;
+        let mut profile: Profile = serde_json::from_str(&data)?;
+        profile.name = name.to_string();
+        let data = serde_json::to_string_pretty(&profile)?;
+        paths::write_atomic(&path, data.as_bytes())?;
+        Ok(())
+    }
+
+    /// Switch the whole app to another profile file.
+    pub async fn switch_profile(
+        &mut self,
+        profile_id: &str,
+        orch: Arc<RwLock<Self>>,
+    ) -> anyhow::Result<()> {
+        if self.inner.profile.id.0.to_string() == profile_id {
+            return Ok(());
+        }
+        let path = paths::profile_file_for(profile_id);
+        let data = std::fs::read_to_string(&path)
+            .map_err(|_| anyhow::anyhow!("プロファイルが見つかりません"))?;
+        let profile: Profile = serde_json::from_str(&data)?;
+        if profile.id.0.to_string() != profile_id {
+            anyhow::bail!("プロファイルの内容が一致しません");
+        }
+        self.save_profile().await?;
+        let mut settings = settings_store::load_global_settings();
+        settings.active_profile = Some(profile_id.to_string());
+        let _ = settings_store::save_global_settings(&settings);
+        self.apply_imported_profile(profile, orch).await?;
+        Ok(())
+    }
+
+    pub async fn delete_profile(
+        &mut self,
+        profile_id: &str,
+        orch: Arc<RwLock<Self>>,
+    ) -> anyhow::Result<()> {
+        let profiles = self.list_profiles();
+        if profiles.len() <= 1 {
+            anyhow::bail!("最後のプロファイルは削除できません");
+        }
+        if self.inner.profile.id.0.to_string() == profile_id {
+            let fallback = profiles
+                .iter()
+                .find(|entry| entry.get("id").and_then(|v| v.as_str()) != Some(profile_id))
+                .and_then(|entry| entry.get("id").and_then(|v| v.as_str()).map(str::to_string))
+                .ok_or_else(|| anyhow::anyhow!("切り替え先のプロファイルがありません"))?;
+            self.switch_profile(&fallback, orch).await?;
+        }
+        let path = paths::profile_file_for(profile_id);
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
         Ok(())
     }
 
@@ -3792,8 +4085,12 @@ impl Orchestrator {
         };
         let json = serde_json::to_string_pretty(&preset).map_err(|e| e.to_string())?;
         paths::ensure_dirs().map_err(|e| e.to_string())?;
-        paths::write_atomic(&paths::device_preset_file(device_key), json.as_bytes())
-            .map_err(|e| e.to_string())?;
+        let profile_id = self.inner.profile.id.0.to_string();
+        paths::write_atomic(
+            &paths::device_preset_file(&profile_id, device_key),
+            json.as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
         Ok(json)
     }
 
@@ -3816,8 +4113,12 @@ impl Orchestrator {
             .map_err(|e| e.to_string())?;
         self.save_profile().await.map_err(|e| e.to_string())?;
         paths::ensure_dirs().map_err(|e| e.to_string())?;
-        paths::write_atomic(&paths::device_preset_file(device_key), json.as_bytes())
-            .map_err(|e| e.to_string())?;
+        let profile_id = self.inner.profile.id.0.to_string();
+        paths::write_atomic(
+            &paths::device_preset_file(&profile_id, device_key),
+            json.as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
         self.rehydrate_profile_bindings(orch.clone())
             .await
             .map_err(|e| e.to_string())?;
@@ -3829,7 +4130,8 @@ impl Orchestrator {
     }
 
     pub fn load_saved_device_preset(&self, device_key: &str) -> Result<Option<String>, String> {
-        let path = paths::device_preset_file(device_key);
+        let profile_id = self.inner.profile.id.0.to_string();
+        let path = paths::device_preset_file(&profile_id, device_key);
         if !path.exists() {
             return Ok(None);
         }

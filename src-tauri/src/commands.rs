@@ -1017,6 +1017,78 @@ pub struct CreatePageArgs {
 }
 
 /// Create a page and return its id. The frontend switches to it afterwards.
+#[tauri::command]
+pub async fn list_profiles(state: State<'_, OrchState>) -> Result<Vec<serde_json::Value>, String> {
+    let o = state.read().await;
+    Ok(o.list_profiles())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProfileArgs {
+    pub name: String,
+}
+
+#[tauri::command]
+pub async fn create_profile(
+    state: State<'_, OrchState>,
+    args: CreateProfileArgs,
+) -> Result<String, String> {
+    let state_clone = state.inner().clone();
+    let mut o = state.write().await;
+    o.create_profile(&args.name, state_clone)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchProfileArgs {
+    pub profile_id: String,
+}
+
+#[tauri::command]
+pub async fn switch_profile(
+    state: State<'_, OrchState>,
+    args: SwitchProfileArgs,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    let mut o = state.write().await;
+    o.switch_profile(&args.profile_id, state_clone)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rename_profile(
+    state: State<'_, OrchState>,
+    args: RenameProfileArgs,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.rename_profile(&args.profile_id, &args.name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameProfileArgs {
+    pub profile_id: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub async fn delete_profile(
+    state: State<'_, OrchState>,
+    args: SwitchProfileArgs,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    let mut o = state.write().await;
+    o.delete_profile(&args.profile_id, state_clone)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamePageArgs {

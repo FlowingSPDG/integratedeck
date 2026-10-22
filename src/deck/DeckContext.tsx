@@ -23,6 +23,7 @@ import type {
   FlashState,
   MultiActionStep,
   Profile,
+  ProfileSummary,
   RuntimeStatus,
   Slot,
   SlotClipboard,
@@ -82,6 +83,11 @@ interface DeckContextValue {
   setActivePage: (pageId: string) => Promise<void>;
   addPage: () => Promise<void>;
   renamePage: (pageId: string, name: string) => Promise<void>;
+  profiles: ProfileSummary[];
+  switchProfile: (profileId: string) => Promise<void>;
+  createProfile: (name: string) => Promise<void>;
+  renameProfile: (profileId: string, name: string) => Promise<void>;
+  deleteProfile: (profileId: string) => Promise<void>;
   deletePage: (pageId: string) => Promise<void>;
   onSlotClick: (row: number, col: number, existing?: Slot) => Promise<void>;
   applyActionToCell: (row: number, col: number, payload: DragActionPayload) => Promise<void>;
@@ -155,6 +161,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [selectedSurfaceId, setSelectedSurfaceId] = useState<string | null>(null);
   const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [gridRows, setGridRows] = useState(3);
   const [gridCols, setGridCols] = useState(5);
   const [cellVisuals, setCellVisuals] = useState<Record<string, VisualState>>({});
@@ -302,10 +309,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           ? Promise.resolve(actionLibraryRef.current)
           : invoke<ActionLibrary>("list_action_library");
 
-      const [visuals, library] = await Promise.all([
+      const [visuals, library, profileList] = await Promise.all([
         invoke<Record<string, VisualState>>("get_cell_visuals", { surfaceId }),
         libraryPromise,
+        invoke<ProfileSummary[]>("list_profiles").catch(() => [] as ProfileSummary[]),
       ]);
+      setProfiles(profileList);
       setCellVisuals(visuals);
       if (!isDraggingAction.current && !isDraggingSlot.current) {
         setActionLibrary(library);
@@ -464,6 +473,51 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const switchProfile = useCallback(async (profileId: string) => {
+    try {
+      await invoke("switch_profile", { args: { profileId } });
+      setSelectedSlotId(null);
+      selectedSlotIdRef.current = null;
+      await refreshRef.current();
+      setStatusText("プロファイルを切り替えました");
+    } catch (err) {
+      setStatusText(`プロファイル切替に失敗: ${formatUserError(err)}`);
+    }
+  }, []);
+
+  const createProfile = useCallback(
+    async (name: string) => {
+      try {
+        await invoke("create_profile", { args: { name } });
+        await refreshRef.current();
+        setStatusText("プロファイルを作成しました");
+      } catch (err) {
+        setStatusText(`プロファイル作成に失敗: ${formatUserError(err)}`);
+      }
+    },
+    [],
+  );
+
+  const renameProfile = useCallback(async (profileId: string, name: string) => {
+    try {
+      await invoke("rename_profile", { args: { profileId, name } });
+      await refreshRef.current();
+      setStatusText("プロファイル名を変更しました");
+    } catch (err) {
+      setStatusText(`プロファイル名の変更に失敗: ${formatUserError(err)}`);
+    }
+  }, []);
+
+  const deleteProfile = useCallback(async (profileId: string) => {
+    try {
+      await invoke("delete_profile", { args: { profileId } });
+      await refreshRef.current();
+      setStatusText("プロファイルを削除しました");
+    } catch (err) {
+      setStatusText(`プロファイル削除に失敗: ${formatUserError(err)}`);
+    }
+  }, []);
 
   const renamePage = useCallback(async (pageId: string, name: string) => {
     try {
@@ -1281,6 +1335,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setActivePage,
       addPage,
       renamePage,
+      profiles,
+      switchProfile,
+      createProfile,
+      renameProfile,
+      deleteProfile,
       deletePage,
       onSlotClick,
       applyActionToCell,
@@ -1333,6 +1392,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setActivePage,
       addPage,
       renamePage,
+      profiles,
+      switchProfile,
+      createProfile,
+      renameProfile,
+      deleteProfile,
       deletePage,
       onSlotClick,
       applyActionToCell,

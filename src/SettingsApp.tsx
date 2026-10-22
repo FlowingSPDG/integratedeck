@@ -57,6 +57,12 @@ const I18N = {
     dataDir: "データフォルダ",
     openLogs: "ログフォルダを開く",
     openPlugins: "プラグインフォルダを開く",
+    profiles: "プロファイル",
+    newProfileName: "新しいプロファイル名",
+    createProfile: "作成",
+    switchProfile: "切替",
+    renameProfile: "名前変更",
+    deleteProfile: "削除",
     variables: "変数（Companion）",
     refresh: "更新",
     language: "設定画面の言語",
@@ -115,6 +121,12 @@ const I18N = {
     dataDir: "Data folder",
     openLogs: "Open logs folder",
     openPlugins: "Open plugins folder",
+    profiles: "Profiles",
+    newProfileName: "New profile name",
+    createProfile: "Create",
+    switchProfile: "Switch",
+    renameProfile: "Rename",
+    deleteProfile: "Delete",
     variables: "Variables (Companion)",
     refresh: "Refresh",
     language: "Settings language",
@@ -191,6 +203,12 @@ export default function SettingsApp() {
   const [profileOverwrite, setProfileOverwrite] = useState(false);
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [nfcTag, setNfcTag] = useState<string | null>(null);
+  const [settingsProfiles, setSettingsProfiles] = useState<
+    Array<{ id: string; name: string; active: boolean; pages: number }>
+  >([]);
+  const [newProfileName, setNewProfileName] = useState("");
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [profileNameDraft, setProfileNameDraft] = useState("");
   const [status, setStatus] = useState<{ message: string; kind: "normal" | "error" | "success" }>({
     message: "読み込み中…",
     kind: "normal",
@@ -234,6 +252,15 @@ export default function SettingsApp() {
   );
 
   const loadGeneral = useCallback(async () => {
+    try {
+      setSettingsProfiles(
+        await invoke<Array<{ id: string; name: string; active: boolean; pages: number }>>(
+          "list_profiles",
+        ),
+      );
+    } catch {
+      // Profile list is optional here; keep the rest of the tab usable.
+    }
     setAppInfo(await invoke("get_app_info"));
   }, []);
 
@@ -427,6 +454,142 @@ export default function SettingsApp() {
                 }}
               >
                 {s.openPlugins}
+              </button>
+            </div>
+            <h3 className="section-subtitle">{s.profiles}</h3>
+            <table className="simple-table">
+              <thead>
+                <tr>
+                  <th>{s.presets}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {settingsProfiles.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      {editingProfileId === p.id ? (
+                        <input
+                          type="text"
+                          value={profileNameDraft}
+                          autoFocus
+                          onChange={(e) => setProfileNameDraft(e.target.value)}
+                          onBlur={async () => {
+                            const name = profileNameDraft.trim();
+                            setEditingProfileId(null);
+                            if (!name || name === p.name) return;
+                            try {
+                              await invoke("rename_profile", {
+                                args: { profileId: p.id, name },
+                              });
+                              await loadGeneral();
+                            } catch (err) {
+                              setStatusLine(formatUserError(err), "error");
+                            }
+                          }}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const name = profileNameDraft.trim();
+                              setEditingProfileId(null);
+                              if (!name || name === p.name) return;
+                              try {
+                                await invoke("rename_profile", {
+                                  args: { profileId: p.id, name },
+                                });
+                                await loadGeneral();
+                              } catch (err) {
+                                setStatusLine(formatUserError(err), "error");
+                              }
+                            } else if (e.key === "Escape") {
+                              setEditingProfileId(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <>
+                          {p.name}
+                          {p.active ? " ✓" : ""}
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      {p.active ? null : (
+                        <button
+                          type="button"
+                          className="page-btn"
+                          onClick={async () => {
+                            try {
+                              await invoke("switch_profile", {
+                                args: { profileId: p.id },
+                              });
+                              setStatusLine(s.saved, "success");
+                              await loadGeneral();
+                            } catch (err) {
+                              setStatusLine(formatUserError(err), "error");
+                            }
+                          }}
+                        >
+                          {s.switchProfile}
+                        </button>
+                      )}{" "}
+                      <button
+                        type="button"
+                        className="page-btn"
+                        onClick={() => {
+                          setEditingProfileId(p.id);
+                          setProfileNameDraft(p.name);
+                        }}
+                      >
+                        {s.renameProfile}
+                      </button>{" "}
+                      <button
+                        type="button"
+                        className="page-btn"
+                        onClick={async () => {
+                          try {
+                            await invoke("delete_profile", {
+                              args: { profileId: p.id },
+                            });
+                            setStatusLine(s.saved, "success");
+                            await loadGeneral();
+                          } catch (err) {
+                            setStatusLine(formatUserError(err), "error");
+                          }
+                        }}
+                      >
+                        {s.deleteProfile}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="actions">
+              <input
+                type="text"
+                placeholder={s.newProfileName}
+                value={newProfileName}
+                onChange={(e) => setNewProfileName(e.target.value)}
+              />
+              <button
+                type="button"
+                className="primary"
+                disabled={!newProfileName.trim()}
+                onClick={async () => {
+                  try {
+                    await invoke("create_profile", {
+                      args: { name: newProfileName },
+                    });
+                    setNewProfileName("");
+                    setStatusLine(s.saved, "success");
+                    await loadGeneral();
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.createProfile}
               </button>
             </div>
             <div className="field">

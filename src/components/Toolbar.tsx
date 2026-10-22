@@ -8,6 +8,8 @@ export const Toolbar = memo(function Toolbar() {
     connectedSurfaces,
     selectedSurfaceId,
     activePageId,
+    profiles,
+    switchProfile,
     executeMode,
     setExecuteMode,
     selectSurface,
@@ -35,6 +37,19 @@ export const Toolbar = memo(function Toolbar() {
       </div>
       <div className="toolbar-select">
         <label>プロファイル</label>
+        <select
+          value={profiles.find((p) => p.active)?.id ?? ""}
+          onChange={(e) => void switchProfile(e.target.value)}
+        >
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="toolbar-select">
+        <label>ページ</label>
         <div className="toolbar-page-row">
           <select
             value={activePageId ?? ""}

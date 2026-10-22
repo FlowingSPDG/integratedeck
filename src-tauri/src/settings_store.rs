@@ -9,6 +9,9 @@ pub struct AppGlobalSettings {
     pub language: String,
     #[serde(default)]
     pub launch_on_startup: bool,
+    /// Id of the profile shown in the UI (one file per profile).
+    #[serde(default)]
+    pub active_profile: Option<String>,
 }
 
 fn default_language() -> String {
@@ -20,6 +23,7 @@ impl Default for AppGlobalSettings {
         Self {
             language: default_language(),
             launch_on_startup: false,
+            active_profile: None,
         }
     }
 }
