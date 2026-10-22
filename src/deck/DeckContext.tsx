@@ -81,6 +81,7 @@ interface DeckContextValue {
   selectSurface: (surfaceId: string) => Promise<void>;
   setActivePage: (pageId: string) => Promise<void>;
   addPage: () => Promise<void>;
+  renamePage: (pageId: string, name: string) => Promise<void>;
   deletePage: (pageId: string) => Promise<void>;
   onSlotClick: (row: number, col: number, existing?: Slot) => Promise<void>;
   applyActionToCell: (row: number, col: number, payload: DragActionPayload) => Promise<void>;
@@ -462,6 +463,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const renamePage = useCallback(async (pageId: string, name: string) => {
+    try {
+      await invoke("rename_page", { args: { pageId, name } });
+      await refreshRef.current();
+      setStatusText("ページ名を変更しました");
+    } catch (err) {
+      setStatusText(`ページ名の変更に失敗: ${formatUserError(err)}`);
+    }
+  }, []);
 
   const addPage = useCallback(async () => {
     try {
@@ -1268,6 +1279,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       selectSurface,
       setActivePage,
       addPage,
+      renamePage,
       deletePage,
       onSlotClick,
       applyActionToCell,
@@ -1319,6 +1331,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       selectSurface,
       setActivePage,
       addPage,
+      renamePage,
       deletePage,
       onSlotClick,
       applyActionToCell,

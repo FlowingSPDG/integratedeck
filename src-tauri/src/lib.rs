@@ -148,6 +148,7 @@ pub fn run() {
             commands::update_slot_settings,
             commands::set_active_page,
             commands::create_page,
+            commands::rename_page,
             commands::delete_page,
             commands::set_surface_page,
             commands::register_mock_surface,

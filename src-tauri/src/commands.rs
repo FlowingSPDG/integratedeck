@@ -1009,6 +1009,22 @@ pub struct CreatePageArgs {
 }
 
 /// Create a page and return its id. The frontend switches to it afterwards.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamePageArgs {
+    pub page_id: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub async fn rename_page(state: State<'_, OrchState>, args: RenamePageArgs) -> Result<(), String> {
+    let page_id = PageId(uuid::Uuid::parse_str(&args.page_id).map_err(|e| e.to_string())?);
+    let mut o = state.write().await;
+    o.rename_page(page_id, &args.name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn delete_page(state: State<'_, OrchState>, page_id: String) -> Result<(), String> {
     let page_id = ideck_core::PageId(uuid::Uuid::parse_str(&page_id).map_err(|e| e.to_string())?);

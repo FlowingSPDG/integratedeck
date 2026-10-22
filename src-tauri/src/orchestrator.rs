@@ -5668,6 +5668,29 @@ impl Orchestrator {
         Ok(page_id)
     }
 
+    /// Rename a page (the Studio LCD and the breadcrumb show this name).
+    pub async fn rename_page(&mut self, page_id: PageId, name: &str) -> anyhow::Result<()> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("ページ名を入力してください");
+        }
+        let page = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|page| page.id == page_id)
+            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+        page.name = trimmed.to_string();
+        self.save_profile().await?;
+        for surface_id in self.inner.surfaces.list().await.iter().map(|d| d.id) {
+            if self.inner.page_for_surface(surface_id) == Some(page_id) {
+                self.render_surface_visuals(surface_id).await;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn delete_page(&mut self, page_id: PageId) -> anyhow::Result<()> {
         if !self
             .inner
