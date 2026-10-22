@@ -69,6 +69,8 @@
 | デバイスプリセット書き出し | 実機 | [x] | studio-usb のプリセットが32スロットの JSON として出力 |
 | デバイスプリセットのインポート | 実機 | [x] | Plus のプリセットを export→import、8セル再描画とダイヤル 9→10 を確認（インポート後にダイヤル文脈も再登録） |
 | 設定画面のタブ描画 | 実機 | [x] | General / Devices / Presets / Companion の4タブが実データで描画 |
+| スタートアップ登録 | 実機 | [x] | 設定トグルで `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` に exe を登録／削除（`reg query` で確認）。起動時に保存値と同期し、外部で削除しても再登録される |
+| スタートアップ状態の表示 | 実装 | [x] | `get_global_settings` は保存値ではなく OS の実状態（`is_enabled`）を返す |
 | Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |
 
 ## Studio

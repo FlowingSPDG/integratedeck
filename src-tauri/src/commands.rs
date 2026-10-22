@@ -1346,12 +1346,17 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn get_global_settings() -> Result<AppGlobalSettings, String> {
-    Ok(settings_store::load_global_settings())
+    let mut settings = settings_store::load_global_settings();
+    // Report what the OS actually has, not just what we stored.
+    settings.launch_on_startup = crate::autostart::is_enabled();
+    Ok(settings)
 }
 
 #[tauri::command]
 pub async fn set_global_settings(settings: AppGlobalSettings) -> Result<(), String> {
-    settings_store::save_global_settings(&settings)
+    settings_store::save_global_settings(&settings)?;
+    // The toggle only means something once the OS knows about it.
+    crate::autostart::apply(settings.launch_on_startup)
 }
 
 #[tauri::command]

@@ -1,3 +1,4 @@
+mod autostart;
 mod commands;
 mod conflict_check;
 mod errors;
@@ -37,6 +38,13 @@ pub fn run() {
             EnvFilter::from_default_env().add_directive("integratedeck=info".parse().unwrap()),
         )
         .init();
+
+    // Keep the login registration in sync with the saved preference (it may
+    // have been removed externally, or the binary may have moved).
+    let settings = settings_store::load_global_settings();
+    if let Err(error) = autostart::apply(settings.launch_on_startup) {
+        tracing::warn!("launch-at-login: {error}");
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
