@@ -69,6 +69,7 @@ const I18N = {
     product: "製品名",
     serial: "シリアル",
     firmware: "ファームウェア",
+    nfc: "最後に読んだNFCタグ",
     brightness: "明るさ",
     grid: "キーレイアウト",
     status: "状態",
@@ -126,6 +127,7 @@ const I18N = {
     product: "Product",
     serial: "Serial",
     firmware: "Firmware",
+    nfc: "Last NFC tag",
     brightness: "Brightness",
     grid: "Key layout",
     status: "Status",
@@ -188,6 +190,7 @@ export default function SettingsApp() {
   const [profileJson, setProfileJson] = useState("");
   const [profileOverwrite, setProfileOverwrite] = useState(false);
   const [variables, setVariables] = useState<Record<string, string>>({});
+  const [nfcTag, setNfcTag] = useState<string | null>(null);
   const [status, setStatus] = useState<{ message: string; kind: "normal" | "error" | "success" }>({
     message: "読み込み中…",
     kind: "normal",
@@ -657,6 +660,25 @@ export default function SettingsApp() {
                   <dt>{s.grid}</dt>
                   <dd>
                     {selectedDevice.rows} × {selectedDevice.columns}
+                  </dd>
+                  <dt>{s.nfc}</dt>
+                  <dd>
+                    {nfcTag ?? "—"}{" "}
+                    {selectedDevice.surfaceId ? (
+                      <button
+                        type="button"
+                        className="btn-xs"
+                        onClick={() => {
+                          void invoke<string | null>("get_last_nfc", {
+                            surfaceId: selectedDevice.surfaceId!,
+                          })
+                            .then((tag) => setNfcTag(tag))
+                            .catch((err) => setStatusLine(formatUserError(err), "error"));
+                        }}
+                      >
+                        {s.refresh}
+                      </button>
+                    ) : null}
                   </dd>
                 </dl>
                 <DeviceForm

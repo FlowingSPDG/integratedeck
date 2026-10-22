@@ -119,6 +119,8 @@
 | デバイスの切断／再接続 | 実機 | [x] | Settings > Devices の「切断」で Plus を解放（`available`）。自動接続が取り戻さないよう `disabled` を記録し、「接続」で復帰（8セル） |
 | Companion変数の一覧 | 実機 | [x] | Settings > Companion に「変数」表を追加。「更新」で vMix の24変数（`$(connected_state) true` 等）を表示 |
 | マルチアクションのステップ編集 | 実機 | [x] | ステップごとの待機ms入力と↑↓並べ替えを追加。2ステップで 750ms 設定＋並べ替えが `steps:[750,0]` として保存され、実行も確認 |
+| NFCタグの表示 | 実装 | [x] | Settings > Devices の詳細に「最後に読んだNFCタグ」と更新ボタンを追加。未読取時は「—」 |
+| showAlert / showOk のフラッシュ | 実装 | [ ] | 実装済み（450msの色フラッシュ）だが、インストール済みプラグインで発火を確認できていない |
 | プラグインフォルダを開く | 実装 | [x] | Settings > General にボタン追加（`open_plugins_folder`）。SDプラグインの配置先を開く |
 | Studio の切断制限 | 制限 | [x] | Studio はドライバ内部のタスクがハンドルを保持し、同一セッションでの再接続に失敗するため、切断操作を明示的に拒否（ケーブルを抜くかアプリ終了） |
 | キー解決の診断ログ | 実装 | [x] | `keyDown -> plugin` / `keyDown not bound to a plugin` を debug で出力 |
