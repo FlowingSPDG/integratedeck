@@ -133,6 +133,9 @@
 | ページ名の変更 | 実機 | [x] | ブレッドクラムのダブルクリック／✎ でインライン編集。`rename_page` で保存（例: "Main Deck"）、空文字は「ページ名を入力してください」で拒否 |
 | ページ名変更時のLCD再描画 | 実機 | [x] | 名前変更で Studio LCD のキャッシュが再生成（mtime とハッシュが変化）。ページ名が即座に反映される |
 | ハードウェアのページ移動にUIが追従 | 実機 | [x] | `page-changed` イベントを追加。選択中サーフェスのページを切り替えるとブレッドクラムが「Page 1」→「Folder」→「Page 1」と追従 |
+| 言語設定の適用範囲 | 仕様 | [x] | 言語設定は設定画面のみ（メイン画面は日本語固定）。ラベルを「設定画面の言語」に変更して誤解を解消 |
+| 強制終了時のプラグイン残留 | 制限 | [x] | タスクマネージャ等で強制終了すると、終了処理が走らず第三者プラグインのプロセスが残ることがある（ATEMプラグインで確認）。通常の終了では全て停止する |
+| マルチアクションのD&D作成 | 実機 | [x] | サイドバーのアクションをマルチアクション編集領域へドラッグ→step追加。Companion step を含む Multi Action を実行しカット（active 1→2） |
 | リリースビルドの動作確認 | ビルド | [x] | `npm run tauri build -- --no-bundle` の exe を Vite 停止状態で起動 → `http://tauri.localhost/` から埋め込みアセットを読み込み、2サーフェス・32/8セル・Companion `ok`・6プラグイン・`rename_page` まで動作 |
 | release ビルド方法の注意 | — | [x] | `cargo build --release` 単体では tauri-build が dev cfg を付け devUrl を読む exe になる。`npm run tauri build`（または CI の tauri-action）を使う |
 | フォルダ割当時の子ページ自動作成 | 仕様 | [x] | `bind_slot_builtin(openchild)` は "Folder" 子ページを自動作成（Elgato同等）。遷移先は後から変更できる |
