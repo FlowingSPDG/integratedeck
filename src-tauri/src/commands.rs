@@ -1091,6 +1091,25 @@ pub async fn delete_profile(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SetSlotProfileTargetArgs {
+    pub slot_id: String,
+    pub profile_id: String,
+}
+
+#[tauri::command]
+pub async fn set_slot_profile_target(
+    state: State<'_, OrchState>,
+    args: SetSlotProfileTargetArgs,
+) -> Result<(), String> {
+    let slot_id = parse_slot_id(&args.slot_id)?;
+    let mut o = state.write().await;
+    o.set_slot_profile_target(slot_id, &args.profile_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenamePageArgs {
     pub page_id: String,
     pub name: String,

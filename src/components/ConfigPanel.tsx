@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useDeck } from "../deck/DeckContext";
 import {
   BUILTIN_OPEN_FOLDER,
+  BUILTIN_SWITCH_PROFILE,
   bindingStepLabel,
   folderChildPageId,
   normalizeBinding,
@@ -30,6 +31,7 @@ export const ConfigPanel = memo(function ConfigPanel() {
     setActivePage,
     piNativeSettingsVisible,
     piSettingsJson,
+    profiles,
     refresh,
   } = useDeck();
 
@@ -71,7 +73,15 @@ export const ConfigPanel = memo(function ConfigPanel() {
           <BuiltinSettings
             binding={binding}
             profile={profile}
+            profileOptions={profiles}
             onSwitchPage={setSwitchPageTarget}
+            onSwitchProfile={async (profileId) => {
+              if (!selectedSlotId) return;
+              await invoke("set_slot_profile_target", {
+                args: { slotId: selectedSlotId, profileId },
+              });
+              await refresh();
+            }}
             onOpenFolder={(pageId) => void setActivePage(pageId)}
           />
         ) : null}
@@ -273,12 +283,16 @@ function MultiActionEditor({
 function BuiltinSettings({
   binding,
   profile,
+  profileOptions,
   onSwitchPage,
+  onSwitchProfile,
   onOpenFolder,
 }: {
   binding: NonNullable<ReturnType<typeof normalizeBinding>>;
   profile: NonNullable<ReturnType<typeof useDeck>["profile"]>;
+  profileOptions: Array<{ id: string; name: string }>;
   onSwitchPage: (targetPageId: string) => Promise<void>;
+  onSwitchProfile: (profileId: string) => Promise<void>;
   onOpenFolder: (pageId: string) => void;
 }) {
   return (
@@ -300,6 +314,26 @@ function BuiltinSettings({
               {profile.pages.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : binding.actionId === BUILTIN_SWITCH_PROFILE ? (
+          <label>
+            切り替え先プロファイル
+            <select
+              defaultValue={
+                ((binding.settings as Record<string, unknown> | undefined)?.profileId ??
+                  (binding.settings as Record<string, unknown> | undefined)?.profile_id) as
+                  | string
+                  | undefined
+              }
+              onChange={(e) => void onSwitchProfile(e.target.value)}
+            >
+              <option value="">未設定</option>
+              {profileOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name}
                 </option>
               ))}
             </select>

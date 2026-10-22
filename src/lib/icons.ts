@@ -3,6 +3,7 @@ import {
   BUILTIN_MULTI,
   BUILTIN_OPEN_FOLDER,
   BUILTIN_SWITCH_PAGE,
+  BUILTIN_SWITCH_PROFILE,
   normalizeBinding,
 } from "./binding";
 import type { ActionLibrary, NormalizedBinding, Slot } from "./types";
@@ -38,6 +39,8 @@ export function builtinActionIcon(actionId?: string): string {
       return glyphIcon("◀", "#3a3a22", "#d8e07a");
     case BUILTIN_SWITCH_PAGE:
       return glyphIcon("⇄", "#1c3a3a", "#7ad8d8");
+    case BUILTIN_SWITCH_PROFILE:
+      return glyphIcon("🗂", "#2a1f3a", "#c79cff");
     case BUILTIN_MULTI:
       return glyphIcon("⚡", "#3a2c1c", "#ffb060");
     default:

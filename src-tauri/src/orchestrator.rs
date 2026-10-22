@@ -10,7 +10,7 @@ use ideck_core::{
     transparent_key_png, ActionInstanceId, Binding, BindingKind, CompanionFeedbackConfig,
     FolderSettings, MultiActionStep, Page, PageId, Profile, Slot, SlotAppearance, SlotId,
     SlotLocator, SurfaceId, SwitchPageSettings, VisualState, BACK_TO_PARENT, MULTI_ACTION,
-    OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE,
+    OPEN_FOLDER, PLUGIN_ID as BUILTIN_PLUGIN_ID, SWITCH_PAGE, SWITCH_PROFILE,
 };
 use ideck_sd_host::{
     action_icon_data_url, close_webview_plugin, effective_plugin_uuid, scan_sd_plugins_roots,
@@ -542,6 +542,29 @@ impl Orchestrator {
         };
         match action_id {
             BACK_TO_PARENT => self.navigate_surface_back(surface_id).await?,
+            SWITCH_PROFILE => {
+                let profile_id = settings
+                    .get("profileId")
+                    .or_else(|| settings.get("profile_id"))
+                    .and_then(|value| value.as_str());
+                let name = profile_id.and_then(|id| {
+                    self.list_profiles()
+                        .into_iter()
+                        .find(|entry| entry.get("id").and_then(|v| v.as_str()) == Some(id))
+                        .and_then(|entry| {
+                            entry
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        })
+                });
+                match name {
+                    Some(name) => {
+                        self.pending_profile_switch = Some(name);
+                    }
+                    None => warn!("switch profile: no profile configured"),
+                }
+            }
             SWITCH_PAGE => {
                 if let Some(page_id) = target("targetPageId").or_else(|| target("target_page_id")) {
                     self.navigate_surface_to_page(surface_id, page_id, true)
@@ -2303,7 +2326,7 @@ impl Orchestrator {
                 json!({ "childPageId": child_id.0.to_string() })
             }
             MULTI_ACTION => json!({}),
-            BACK_TO_PARENT | SWITCH_PAGE => json!({}),
+            BACK_TO_PARENT | SWITCH_PAGE | SWITCH_PROFILE => json!({}),
             _ => anyhow::bail!("unknown built-in action: {action_id}"),
         };
 
@@ -2366,6 +2389,54 @@ impl Orchestrator {
             if let Some(slot) = page.slots.get_mut(&slot_id) {
                 let delay = delay_ms.unwrap_or(200);
                 slot.binding = Some(Binding::multi_action(steps, delay));
+            }
+        }
+        self.persist_slot_changes(surface_id).await?;
+        Ok(())
+    }
+
+    /// Point a "Switch Profile" key at a profile.
+    pub async fn set_slot_profile_target(
+        &mut self,
+        slot_id: SlotId,
+        profile_id: &str,
+    ) -> anyhow::Result<()> {
+        let page_id = self
+            .page_id_for_slot(slot_id)
+            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+        let surface_id = {
+            let page = self
+                .inner
+                .profile
+                .pages
+                .iter()
+                .find(|p| p.id == page_id)
+                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            page.slots
+                .get(&slot_id)
+                .map(|s| s.locator.surface_id)
+                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+        };
+        if let Some(page) = self
+            .inner
+            .profile
+            .pages
+            .iter_mut()
+            .find(|p| p.id == page_id)
+        {
+            if let Some(slot) = page.slots.get_mut(&slot_id) {
+                if let Some(Binding {
+                    kind:
+                        BindingKind::BuiltIn {
+                            action_id,
+                            settings,
+                        },
+                }) = &mut slot.binding
+                {
+                    if action_id == SWITCH_PROFILE {
+                        *settings = json!({ "profileId": profile_id });
+                    }
+                }
             }
         }
         self.persist_slot_changes(surface_id).await?;
@@ -2566,6 +2637,29 @@ impl Orchestrator {
                     {
                         self.set_active_page(parent).await?;
                     }
+                }
+            }
+            SWITCH_PROFILE => {
+                let profile_id = settings
+                    .get("profileId")
+                    .or_else(|| settings.get("profile_id"))
+                    .and_then(|value| value.as_str());
+                let name = profile_id.and_then(|id| {
+                    self.list_profiles()
+                        .into_iter()
+                        .find(|entry| entry.get("id").and_then(|v| v.as_str()) == Some(id))
+                        .and_then(|entry| {
+                            entry
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        })
+                });
+                match name {
+                    Some(name) => {
+                        self.pending_profile_switch = Some(name);
+                    }
+                    None => warn!("switch profile: no profile configured"),
                 }
             }
             SWITCH_PAGE => {
@@ -7445,20 +7539,26 @@ impl Orchestrator {
                         source: "builtin".into(),
                         status: "available".into(),
                         port: None,
-                        actions: vec![OPEN_FOLDER, BACK_TO_PARENT, SWITCH_PAGE, MULTI_ACTION]
-                            .into_iter()
-                            .filter_map(|id| {
-                                Some(PluginActionInfo {
-                                    id: id.into(),
-                                    name: action_display_name(id)?.into(),
-                                    source: "builtin".into(),
-                                    icon: None,
-                                    controllers: None,
-                                    encoder_layout: None,
-                                    encoder_stack_color: None,
-                                })
+                        actions: vec![
+                            OPEN_FOLDER,
+                            BACK_TO_PARENT,
+                            SWITCH_PAGE,
+                            SWITCH_PROFILE,
+                            MULTI_ACTION,
+                        ]
+                        .into_iter()
+                        .filter_map(|id| {
+                            Some(PluginActionInfo {
+                                id: id.into(),
+                                name: action_display_name(id)?.into(),
+                                source: "builtin".into(),
+                                icon: None,
+                                controllers: None,
+                                encoder_layout: None,
+                                encoder_stack_color: None,
                             })
-                            .collect(),
+                        })
+                        .collect(),
                     },
                 );
                 list

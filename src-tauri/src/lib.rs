@@ -164,6 +164,7 @@ pub fn run() {
             commands::bind_slot_builtin,
             commands::update_slot_appearance,
             commands::update_multi_action,
+            commands::set_slot_profile_target,
             commands::set_switch_page_target,
             commands::add_multi_action_step,
             commands::unbind_slot,

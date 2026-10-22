@@ -4,6 +4,7 @@ export const BUILTIN_OPEN_FOLDER = "com.elgato.streamdeck.profile.openchild";
 export const BUILTIN_BACK = "com.elgato.streamdeck.profile.backtoparent";
 export const BUILTIN_SWITCH_PAGE = "com.elgato.streamdeck.profile.rotate";
 export const BUILTIN_MULTI = "com.elgato.streamdeck.multiactions.routine";
+export const BUILTIN_SWITCH_PROFILE = "com.elgato.streamdeck.profile.switchprofile";
 
 export function normalizeBinding(binding?: Record<string, unknown>): NormalizedBinding | null {
   if (!binding) return null;

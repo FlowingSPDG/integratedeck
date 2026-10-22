@@ -1,6 +1,7 @@
 import {
   BUILTIN_BACK,
   BUILTIN_MULTI,
+  BUILTIN_SWITCH_PROFILE,
   BUILTIN_OPEN_FOLDER,
   BUILTIN_SWITCH_PAGE,
   normalizeBinding,
@@ -68,6 +69,7 @@ export function slotDragLabel(
     if (b.actionId === BUILTIN_BACK) return "Back";
     if (b.actionId === BUILTIN_SWITCH_PAGE) return "Page";
     if (b.actionId === BUILTIN_MULTI) return "Multi Action";
+  if (b.actionId === BUILTIN_SWITCH_PROFILE) return "Switch Profile";
   }
   if (b?.type === "stream_deck") return "Stream Deck";
   if (b?.type === "companion") return "Companion";

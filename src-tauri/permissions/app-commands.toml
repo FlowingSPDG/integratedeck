@@ -44,6 +44,7 @@ commands.allow = [
   "bind_slot_builtin",
   "update_slot_appearance",
   "update_multi_action",
+  "set_slot_profile_target",
   "set_switch_page_target",
   "add_multi_action_step",
   "unbind_slot",
