@@ -39,6 +39,22 @@ fn init_tracing() {
             tracing::warn!("log file unavailable: {error}");
         }
     }
+
+    // Panics in commands or plugin tasks otherwise vanish in a packaged build;
+    // record them before the default handler prints to stderr.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("panic: {info}");
+        default_hook(info);
+    }));
+
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        exe = %std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "?".into()),
+        "integratedeck starting"
+    );
 }
 
 fn start_orchestrator(app: &App) -> Result<(), String> {
