@@ -5721,6 +5721,41 @@ impl Orchestrator {
         {
             self.inner.profile.active_page_id = Some(fallback);
         }
+        // Buttons that pointed at one of the removed pages (folder / page
+        // switch) would only warn on press, so drop those bindings instead.
+        let dangling: Vec<SlotId> = self
+            .inner
+            .profile
+            .pages
+            .iter()
+            .flat_map(|page| page.slots.iter())
+            .filter(|(_, slot)| {
+                let Some(Binding {
+                    kind: BindingKind::BuiltIn { settings, .. },
+                }) = &slot.binding
+                else {
+                    return false;
+                };
+                [
+                    "childPageId",
+                    "child_page_id",
+                    "targetPageId",
+                    "target_page_id",
+                ]
+                .iter()
+                .filter_map(|key| settings.get(key).and_then(|value| value.as_str()))
+                .filter_map(|value| uuid::Uuid::parse_str(value).ok())
+                .any(|uuid| remove.contains(&PageId(uuid)))
+            })
+            .map(|(slot_id, _)| *slot_id)
+            .collect();
+        for slot_id in dangling {
+            warn!(?slot_id, "unbinding a button whose page was deleted");
+            self.unbind_slot(slot_id).await.ok();
+        }
+        for surface_id in self.inner.surfaces.list().await.iter().map(|d| d.id) {
+            self.render_surface_visuals(surface_id).await;
+        }
         self.save_profile().await?;
         Ok(())
     }
