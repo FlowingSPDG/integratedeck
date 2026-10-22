@@ -16,12 +16,16 @@ jobs:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
+            node_platform: osx-arm64
           - platform: macos-latest
             args: --target x86_64-apple-darwin
+            node_platform: osx-x64
           - platform: ubuntu-22.04
             args: ""
+            node_platform: linux-x64
           - platform: windows-latest
             args: ""
+            node_platform: win-x64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -44,6 +48,12 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      # Companion modules run under Node; the bundle ships its own runtime so
+      # users do not need Node installed.
+      - name: Fetch bundled Node runtime
+        shell: pwsh
+        run: pwsh scripts/fetch-node.ps1 -Version 20.18.1 -Platform ${{ matrix.node_platform }}
 
       - uses: tauri-apps/tauri-action@v0
         env:

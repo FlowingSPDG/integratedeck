@@ -130,6 +130,8 @@
 | メインウィンドウの起動失敗検出 | 実装 | [x] | WebView2のロックで「ウィンドウはできるがページが無い」状態を検出し、プロファイル退避→再試行（従来はヘッドレスで起動していた） |
 | 起動ログのノイズ除去 | 実装 | [x] | デバイス二重接続の競合を警告ではなくdebugに、fontdbの不正フォント警告を抑制、favicon要求のエラーをインラインfaviconで解消 |
 | プラグイン子プロセスの道連れ終了 | 実機 | [x] | Windows Job Object（KILL_ON_JOB_CLOSE）に各プラグインプロセスを割当。`Stop-Process -Force`（タスクマネージャ相当）でアプリを落としても atem/plugin/plus/http_client/ESDDiscord が0件 |
+| インストーラの生成 | ビルド | [x] | `npm run tauri build` で MSI と NSIS setup.exe を生成。管理インストールで展開し、`integratedeck.exe` と `resources/node/node.exe` が含まれることを確認 |
+| Nodeランタイムの同梱 | ビルド | [x] | `scripts/fetch-node.ps1` で Node 20.18.1 を `src-tauri/resources/node` へ取得しバンドル。リリースWFにも platform 別の取得ステップを追加 |
 | タッチスワイプ入力 | 実機 | [x] | 内容のある2ページ目を作って注入すると、左スワイプで移動（1セル描画）→右スワイプで復帰。入力は `get_last_surface_input` にも記録される。物理ジェスチャ自体は実機確認待ち |
 | ダイヤルの組み込みアクション（回転） | 実機 | [x] | 回転では実行されなかった組み込みアクションを回転でも実行するよう修正。Switch Page を割当てたダイヤルを回すと Page 1→Folder へ遷移 |
 | プロファイル作成/名前変更/削除 | 実機 | [x] | Settings > General。新規作成→空の1ページ、インラインで名前変更、削除でDefaultへフォールバック。最後の1つは削除不可 |
