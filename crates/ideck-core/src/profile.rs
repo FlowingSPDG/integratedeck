@@ -163,6 +163,7 @@ mod tests {
             active_page_id: pages.first().map(|page| page.id),
             pages,
             companion_feedbacks: HashMap::new(),
+            applications: Vec::new(),
         }
     }
 
