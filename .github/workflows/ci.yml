@@ -79,6 +79,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The Windows bundle is what users install; build it here so packaging
+      # problems (resources, WebView2 config) surface before a release tag.
+      - name: Build Tauri app
+        run: npm run tauri build -- --no-bundle
+
   # Compile check for macOS (LaunchAgent autostart, no Linux-only assumptions).
   macos-check:
     runs-on: macos-latest
