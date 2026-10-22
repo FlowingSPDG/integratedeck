@@ -470,12 +470,45 @@ impl Orchestrator {
                 ticks,
                 pressed,
             } if *ticks != 0 => {
-                let o = state.read().await;
-                if let Err(e) = o
-                    .run_encoder_binding(surface_id, *index, Some(*ticks), *pressed)
-                    .await
-                {
-                    warn!("encoder rotate: {e}");
+                // Built-in dial actions (Switch Page, Switch Profile, folders)
+                // react to rotation, like Elgato's own dial actions.
+                let builtin = {
+                    let o = state.read().await;
+                    let page_id = o
+                        .inner
+                        .surface_pages
+                        .get(&surface_id)
+                        .copied()
+                        .or(o.inner.profile.active_page_id);
+                    page_id
+                        .and_then(|page_id| {
+                            o.inner.profile.pages.iter().find(|page| page.id == page_id)
+                        })
+                        .and_then(|page| page.encoders.get(index))
+                        .and_then(|binding| match &binding.kind {
+                            BindingKind::BuiltIn {
+                                action_id,
+                                settings,
+                            } => Some((action_id.clone(), settings.clone())),
+                            _ => None,
+                        })
+                };
+                if let Some((action_id, settings)) = builtin {
+                    let mut o = state.write().await;
+                    if let Err(e) = o
+                        .execute_encoder_builtin(surface_id, &action_id, &settings)
+                        .await
+                    {
+                        warn!("encoder built-in (rotate): {e}");
+                    }
+                } else {
+                    let o = state.read().await;
+                    if let Err(e) = o
+                        .run_encoder_binding(surface_id, *index, Some(*ticks), *pressed)
+                        .await
+                    {
+                        warn!("encoder rotate: {e}");
+                    }
                 }
             }
             SurfaceInput::Nfc { uid } => {
