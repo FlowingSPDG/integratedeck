@@ -33,6 +33,12 @@ base64 = "0.22"
 elgato-streamdeck = { version = "0.13", features = ["async"] }
 tokio-tungstenite = "0.26"
 tungstenite = "0.26"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 ideck-core = { path = "crates/ideck-core" }
 ideck-surface = { path = "crates/ideck-surface" }

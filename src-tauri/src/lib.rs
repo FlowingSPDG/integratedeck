@@ -3,6 +3,7 @@ mod commands;
 mod conflict_check;
 mod errors;
 mod hub;
+mod job;
 mod logging;
 mod orchestrator;
 mod paths;

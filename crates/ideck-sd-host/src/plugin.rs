@@ -41,6 +41,14 @@ pub struct PluginProcess {
 }
 
 impl PluginProcess {
+    /// OS process id of a native/Node plugin, if it has one.
+    pub fn pid(&self) -> Option<u32> {
+        match &self.runtime {
+            PluginRuntime::Native(child) | PluginRuntime::Node(child) => child.id(),
+            _ => None,
+        }
+    }
+
     /// Terminate the plugin process (or WebView) now. Called when a plugin is
     /// unloaded or the app exits: the OS does not reap children for us, and the
     /// broker can outlive the supervisor entry because of task clones.

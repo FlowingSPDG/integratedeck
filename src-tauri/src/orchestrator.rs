@@ -3752,6 +3752,11 @@ impl Orchestrator {
 
         let (broker, events) = StreamDeckBroker::start(&plugin_path, devices).await?;
         let port = broker.port();
+        // Tie the plugin process to ours: if the app is killed, the OS stops it
+        // too (some plugins never notice their socket died).
+        if let Some(pid) = broker.process_pid() {
+            crate::job::assign(pid);
+        }
 
         let bridge = SdSurfaceBridge::new(manifest.uuid.clone(), caps);
         self.inner.bridges.insert(manifest.uuid.clone(), bridge);

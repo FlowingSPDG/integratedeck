@@ -309,6 +309,14 @@ impl StreamDeckBroker {
         Ok(())
     }
 
+    /// Process id of the plugin child, used to put it in the kill-on-close job.
+    pub fn process_pid(&self) -> Option<u32> {
+        self.plugin_process
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().and_then(|process| process.pid()))
+    }
+
     /// Kill the plugin process. Called on unload and on app exit, because the
     /// OS does not terminate child processes for us and broker clones (accept
     /// loop tasks) can outlive the supervisor entry.
