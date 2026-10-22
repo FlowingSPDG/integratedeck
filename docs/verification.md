@@ -132,6 +132,8 @@
 | プラグイン子プロセスの道連れ終了 | 実機 | [x] | Windows Job Object（KILL_ON_JOB_CLOSE）に各プラグインプロセスを割当。`Stop-Process -Force`（タスクマネージャ相当）でアプリを落としても atem/plugin/plus/http_client/ESDDiscord が0件 |
 | インストーラの生成 | ビルド | [x] | `npm run tauri build` で MSI と NSIS setup.exe を生成。管理インストールで展開し、`integratedeck.exe` と `resources/node/node.exe` が含まれることを確認 |
 | Nodeランタイムの同梱 | ビルド | [x] | `scripts/fetch-node.ps1` で Node 20.18.1 を `src-tauri/resources/node` へ取得しバンドル。リリースWFにも platform 別の取得ステップを追加 |
+| 同梱Nodeの使用 | 実機 | [x] | MSI展開版を実行し、Companionサイドカーが `resources\node\node.exe` で起動することを確認（修正前はシステムのNodeを使用）。vMix `ok`・214アクション・プリセット実行も確認 |
+| パッケージ版の起動 | 実機 | [x] | MSI管理インストールで展開した exe を直接起動し、2サーフェス接続・32/8セル・LED送信まで動作 |
 | タッチスワイプ入力 | 実機 | [x] | 内容のある2ページ目を作って注入すると、左スワイプで移動（1セル描画）→右スワイプで復帰。入力は `get_last_surface_input` にも記録される。物理ジェスチャ自体は実機確認待ち |
 | ダイヤルの組み込みアクション（回転） | 実機 | [x] | 回転では実行されなかった組み込みアクションを回転でも実行するよう修正。Switch Page を割当てたダイヤルを回すと Page 1→Folder へ遷移 |
 | プロファイル作成/名前変更/削除 | 実機 | [x] | Settings > General。新規作成→空の1ページ、インラインで名前変更、削除でDefaultへフォールバック。最後の1つは削除不可 |

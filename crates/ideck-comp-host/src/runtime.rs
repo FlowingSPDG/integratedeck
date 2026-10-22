@@ -1,4 +1,4 @@
-//! In-process Companion module engine (embedded Boa, no Node.js).
+//! Companion module engine: a JSON-RPC bridge to the Node sidecar.
 
 use std::path::Path;
 
@@ -43,7 +43,8 @@ impl CompModuleRuntime {
     pub async fn spawn(modules_dir: &Path) -> anyhow::Result<Self> {
         let inner = EmbeddedEngine::spawn(modules_dir)?;
         info!(
-            "companion module engine started (embedded Boa, root={})",
+            "companion module engine started (node={}, root={})",
+            crate::engine::resolved_node_binary(),
             modules_dir.display()
         );
         Ok(Self { inner })

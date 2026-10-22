@@ -193,6 +193,11 @@ fn node_binary() -> String {
     std::env::var("IDECK_NODE").unwrap_or_else(|_| "node".to_string())
 }
 
+/// Node executable the sidecar will be started with (for logs).
+pub fn resolved_node_binary() -> String {
+    node_binary()
+}
+
 /// Delete sidecar scripts left behind by previous runs.
 fn sweep_stale_sidecars() {
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {

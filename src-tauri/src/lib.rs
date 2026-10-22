@@ -93,13 +93,23 @@ pub fn run() {
             // SDK plugins; an explicit IDECK_NODE always wins.
             if std::env::var("IDECK_NODE").is_err() {
                 if let Ok(resource_dir) = app.path().resource_dir() {
-                    let node = resource_dir.join("node").join(if cfg!(windows) {
-                        "node.exe"
-                    } else {
-                        "node"
-                    });
-                    if node.is_file() {
-                        std::env::set_var("IDECK_NODE", node);
+                    let binary = if cfg!(windows) { "node.exe" } else { "node" };
+                    // Bundled resources keep their path from tauri.conf
+                    // (`resources/node/*`), but older layouts dropped the
+                    // leading folder, so try both.
+                    let candidates = [
+                        resource_dir.join("resources").join("node").join(binary),
+                        resource_dir.join("node").join(binary),
+                    ];
+                    match candidates.iter().find(|path| path.is_file()) {
+                        Some(node) => {
+                            tracing::info!(node = %node.display(), "using the bundled Node runtime");
+                            std::env::set_var("IDECK_NODE", node);
+                        }
+                        None => tracing::debug!(
+                            dir = %resource_dir.display(),
+                            "no bundled Node runtime; falling back to PATH"
+                        ),
                     }
                 }
             }
