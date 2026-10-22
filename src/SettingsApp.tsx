@@ -78,6 +78,11 @@ const I18N = {
     importPreset: "読み込み",
     copyPreset: "クリップボードにコピー",
     presetPreview: "プリセット JSON",
+    profileSection: "プロファイル全体（全デバイス・ページ）",
+    profileJson: "プロファイル JSON",
+    profileOverwrite: "既存の設定を上書きする",
+    profileExported: "プロファイルを読み込みました",
+    profileImported: "プロファイルを復元しました",
     saved: "保存しました",
     exported: "プリセットを書き出しました",
     imported: "プリセットを読み込みました",
@@ -125,6 +130,11 @@ const I18N = {
     importPreset: "Import",
     copyPreset: "Copy to clipboard",
     presetPreview: "Preset JSON",
+    profileSection: "Whole profile (all devices and pages)",
+    profileJson: "Profile JSON",
+    profileOverwrite: "Overwrite the current setup",
+    profileExported: "Profile loaded",
+    profileImported: "Profile restored",
     saved: "Saved",
     exported: "Preset exported",
     imported: "Preset imported",
@@ -165,6 +175,8 @@ export default function SettingsApp() {
   const [selectedDeviceKey, setSelectedDeviceKey] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<SettingsDeviceEntry | null>(null);
   const [presetJson, setPresetJson] = useState("");
+  const [profileJson, setProfileJson] = useState("");
+  const [profileOverwrite, setProfileOverwrite] = useState(false);
   const [status, setStatus] = useState<{ message: string; kind: "normal" | "error" | "success" }>({
     message: "読み込み中…",
     kind: "normal",
@@ -673,6 +685,59 @@ export default function SettingsApp() {
         {activeTab === "presets" ? (
           <div className="tab-panel active" id="panel-presets">
             <h2 className="section-title">{s.presets}</h2>
+            <h3 className="section-subtitle">{s.profileSection}</h3>
+            <div className="field">
+              <label htmlFor="profile-json">{s.profileJson}</label>
+              <textarea
+                id="profile-json"
+                className="preset-preview"
+                spellCheck={false}
+                value={profileJson}
+                onChange={(e) => setProfileJson(e.target.value)}
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={async () => {
+                  try {
+                    setProfileJson(await invoke<string>("export_profile"));
+                    setStatusLine(s.profileExported, "success");
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.exportPreset}
+              </button>
+              <label className="field-inline">
+                <input
+                  type="checkbox"
+                  checked={profileOverwrite}
+                  onChange={(e) => setProfileOverwrite(e.target.checked)}
+                />
+                {s.profileOverwrite}
+              </label>
+              <button
+                type="button"
+                disabled={!profileOverwrite || !profileJson.trim()}
+                onClick={async () => {
+                  try {
+                    await invoke("import_profile", { args: { json: profileJson } });
+                    setProfileOverwrite(false);
+                    setStatusLine(s.profileImported, "success");
+                    await loadCompanion();
+                    await loadDevices();
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.importPreset}
+              </button>
+            </div>
+            <h3 className="section-subtitle">{s.presets}</h3>
             <div className="field">
               <label htmlFor="preset-device-select">{s.device}</label>
               <div id="preset-device-select">{deviceOptions}</div>

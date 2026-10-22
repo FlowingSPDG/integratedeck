@@ -909,29 +909,55 @@ impl Orchestrator {
 
     async fn restore_companion_connections(&mut self) {
         let records: Vec<ConnectionRecord> = self.inner.connections.list();
-        let Some(runtime) = self.inner.comp_runtime.as_ref() else {
+        if self.inner.comp_runtime.is_none() {
             return;
-        };
+        }
         for record in records {
             if !record.enabled {
                 continue;
             }
-            let resp = runtime
-                .request(
-                    "connection.add",
-                    json!({
-                        "id": record.id,
-                        "moduleId": record.module_id,
-                        "label": record.label,
-                        "config": record.config,
-                        "secrets": record.secrets
-                    }),
-                )
-                .await;
-            if let Err(e) = resp {
-                warn!("restore connection {} failed: {e}", record.id);
+            let resp = {
+                let Some(runtime) = self.inner.comp_runtime.as_ref() else {
+                    return;
+                };
+                runtime
+                    .request(
+                        "connection.add",
+                        json!({
+                            "id": record.id,
+                            "moduleId": record.module_id,
+                            "label": record.label,
+                            "config": record.config,
+                            "secrets": record.secrets
+                        }),
+                    )
+                    .await
+            };
+            match resp {
+                // `connection.add` reports "ok" synchronously, and that event
+                // can be emitted before the drain subscribes, so seed it here.
+                Ok(resp) if resp.ok => {
+                    self.seed_connection_status(&record.id);
+                }
+                Ok(resp) => warn!(
+                    "restore connection {} failed: {}",
+                    record.id,
+                    resp.error.unwrap_or_else(|| "unknown error".into())
+                ),
+                Err(e) => warn!("restore connection {} failed: {e}", record.id),
             }
         }
+    }
+
+    /// Record the status `connection.add` implies and tell the UI about it.
+    fn seed_connection_status(&mut self, connection_id: &str) {
+        let status = json!({
+            "connectionId": connection_id,
+            "status": "ok",
+        });
+        self.comp_status
+            .insert(connection_id.to_string(), status.clone());
+        let _ = self.app.emit("connection-status", status);
     }
 
     fn find_sd_plugin_path(&self, plugin_uuid: &str) -> Option<PathBuf> {
@@ -6813,6 +6839,7 @@ impl Orchestrator {
             if !resp.ok {
                 anyhow::bail!(resp.error.unwrap_or_else(|| "connection.add failed".into()));
             }
+            self.seed_connection_status(&id);
         }
         self.restore_companion_feedbacks().await.ok();
         Ok(())
