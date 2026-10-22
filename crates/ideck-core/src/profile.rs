@@ -16,6 +16,10 @@ pub struct Profile {
     /// Per-slot Companion feedback binding, keyed by slot id string.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub companion_feedbacks: HashMap<String, CompanionFeedbackConfig>,
+    /// Executables that switch to this profile while they run (lowercase, with
+    /// or without `.exe`), like Elgato's "smart profiles".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applications: Vec<String>,
 }
 
 /// Companion feedback instance attached to a slot.
@@ -68,6 +72,7 @@ impl Profile {
             pages: vec![page],
             active_page_id: Some(active),
             companion_feedbacks: HashMap::new(),
+            applications: Vec::new(),
         }
     }
 

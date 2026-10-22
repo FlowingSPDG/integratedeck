@@ -1259,3 +1259,13 @@ button:hover {
   color: var(--text);
   font-size: 0.68rem;
 }
+
+.profile-apps-input {
+  width: 160px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--slot-bg);
+  color: var(--text);
+  font-size: 0.7rem;
+}

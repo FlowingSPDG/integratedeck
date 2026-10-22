@@ -61,6 +61,9 @@ pub struct Orchestrator {
     comp_status: std::collections::HashMap<String, serde_json::Value>,
     /// A Stream Deck plugin asked for a profile switch (handled by the worker).
     pending_profile_switch: Option<String>,
+    /// Profile forced by a running application, and the one to return to.
+    auto_profile_current: Option<String>,
+    auto_profile_base: Option<String>,
     last_input: std::collections::HashMap<SurfaceId, Vec<SurfaceInput>>,
     input_count: std::collections::HashMap<SurfaceId, u64>,
     vsd_server: Option<tokio::task::JoinHandle<()>>,
@@ -855,6 +858,8 @@ impl Orchestrator {
             nfc: std::collections::HashMap::new(),
             comp_status: std::collections::HashMap::new(),
             pending_profile_switch: None,
+            auto_profile_current: None,
+            auto_profile_base: None,
             last_input: std::collections::HashMap::new(),
             input_count: std::collections::HashMap::new(),
             vsd_server: None,
@@ -3105,6 +3110,7 @@ impl Orchestrator {
                 "name": profile.name,
                 "active": id == active,
                 "pages": profile.pages.len(),
+                "applications": profile.applications,
             }));
         }
         entries.sort_by(|a, b| {
@@ -3150,6 +3156,130 @@ impl Orchestrator {
         let data = serde_json::to_string_pretty(&profile)?;
         paths::write_atomic(&path, data.as_bytes())?;
         Ok(())
+    }
+
+    /// Replace the applications that switch to a profile while they run.
+    pub async fn set_profile_applications(
+        &mut self,
+        profile_id: &str,
+        applications: Vec<String>,
+    ) -> anyhow::Result<()> {
+        let cleaned: Vec<String> = applications
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
+        if self.inner.profile.id.0.to_string() == profile_id {
+            self.inner.profile.applications = cleaned;
+            self.save_profile().await?;
+            return Ok(());
+        }
+        let path = paths::profile_file_for(profile_id);
+        let data = std::fs::read_to_string(&path)?;
+        let mut profile: Profile = serde_json::from_str(&data)?;
+        profile.applications = cleaned;
+        let data = serde_json::to_string_pretty(&profile)?;
+        paths::write_atomic(&path, data.as_bytes())?;
+        Ok(())
+    }
+
+    /// Switch profiles when an app listed by a profile starts or exits.
+    async fn apply_smart_profile(&mut self, candidate: Option<String>, orch: Arc<RwLock<Self>>) {
+        match candidate {
+            Some(id) if self.auto_profile_current.as_deref() != Some(id.as_str()) => {
+                if self.auto_profile_current.is_none() {
+                    self.auto_profile_base = Some(self.inner.profile.id.0.to_string());
+                }
+                info!(profile = %id, "switching profile for a running application");
+                self.auto_profile_current = Some(id.clone());
+                if let Err(error) = self.switch_profile(&id, orch).await {
+                    warn!("smart profile switch failed: {error}");
+                    self.auto_profile_current = None;
+                }
+            }
+            None if self.auto_profile_current.is_some() => {
+                self.auto_profile_current = None;
+                if let Some(base) = self.auto_profile_base.take() {
+                    info!(profile = %base, "application exited; returning to the previous profile");
+                    if let Err(error) = self.switch_profile(&base, orch).await {
+                        warn!("smart profile restore failed: {error}");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Watch running processes for profiles that name applications, and tell
+    /// plugins about apps starting/stopping (`applicationDidLaunch`).
+    pub fn start_smart_profile_worker(state: Arc<RwLock<Self>>) {
+        tauri::async_runtime::spawn(async move {
+            let mut previous: Option<std::collections::HashSet<String>> = None;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let running = crate::processes::running_executables();
+                if let Some(previous) = previous.as_ref() {
+                    let started: Vec<String> = running.difference(previous).cloned().collect();
+                    let stopped: Vec<String> = previous.difference(&running).cloned().collect();
+                    if !started.is_empty() || !stopped.is_empty() {
+                        let o = state.read().await;
+                        for name in &started {
+                            debug!(application = %name, "applicationDidLaunch");
+                            for uuid in o.inner.sd_supervisor.plugin_uuids() {
+                                if let Some(broker) = o.inner.sd_supervisor.get(&uuid) {
+                                    broker.application_event("applicationDidLaunch", name);
+                                }
+                            }
+                        }
+                        for name in &stopped {
+                            debug!(application = %name, "applicationDidTerminate");
+                            for uuid in o.inner.sd_supervisor.plugin_uuids() {
+                                if let Some(broker) = o.inner.sd_supervisor.get(&uuid) {
+                                    broker.application_event("applicationDidTerminate", name);
+                                }
+                            }
+                        }
+                    }
+                }
+                previous = Some(running.clone());
+                let profiles: Vec<(String, String, Vec<String>)> = {
+                    let o = state.read().await;
+                    o.list_profiles()
+                        .into_iter()
+                        .filter_map(|entry| {
+                            let id = entry.get("id")?.as_str()?.to_string();
+                            let name = entry
+                                .get("name")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let applications = entry
+                                .get("applications")
+                                .and_then(|value| value.as_array())
+                                .map(|items| {
+                                    items
+                                        .iter()
+                                        .filter_map(|item| item.as_str().map(str::to_string))
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            if applications.is_empty() {
+                                return None;
+                            }
+                            Some((id, name, applications))
+                        })
+                        .collect()
+                };
+                if profiles.is_empty() {
+                    continue;
+                }
+                let candidate =
+                    crate::processes::matching_profile(&profiles, &running).map(str::to_string);
+                let handle = state.clone();
+                let mut o = state.write().await;
+                o.apply_smart_profile(candidate, handle).await;
+            }
+        });
     }
 
     /// Switch the whole app to another profile file.

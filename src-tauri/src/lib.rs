@@ -8,6 +8,7 @@ mod logging;
 mod orchestrator;
 mod paths;
 mod plugin_host;
+mod processes;
 mod settings_store;
 mod state;
 mod windows;
@@ -71,6 +72,7 @@ fn start_orchestrator(app: &App) -> Result<(), String> {
     Orchestrator::start_usb_watch(state.clone());
     Orchestrator::start_plugin_restart_worker(state.clone());
     Orchestrator::start_profile_switch_worker(state.clone());
+    Orchestrator::start_smart_profile_worker(state.clone());
     app.manage(state);
     Ok(())
 }
@@ -179,6 +181,7 @@ pub fn run() {
             commands::bind_slot_builtin,
             commands::update_slot_appearance,
             commands::update_multi_action,
+            commands::set_profile_applications,
             commands::set_slot_profile_target,
             commands::set_switch_page_target,
             commands::add_multi_action_step,

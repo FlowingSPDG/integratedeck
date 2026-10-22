@@ -1067,6 +1067,25 @@ pub async fn create_profile(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SetProfileApplicationsArgs {
+    pub profile_id: String,
+    #[serde(default)]
+    pub applications: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn set_profile_applications(
+    state: State<'_, OrchState>,
+    args: SetProfileApplicationsArgs,
+) -> Result<(), String> {
+    let mut o = state.write().await;
+    o.set_profile_applications(&args.profile_id, args.applications)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SwitchProfileArgs {
     pub profile_id: String,
 }

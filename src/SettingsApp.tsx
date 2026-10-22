@@ -204,7 +204,13 @@ export default function SettingsApp() {
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [nfcTag, setNfcTag] = useState<string | null>(null);
   const [settingsProfiles, setSettingsProfiles] = useState<
-    Array<{ id: string; name: string; active: boolean; pages: number }>
+    Array<{
+      id: string;
+      name: string;
+      active: boolean;
+      pages: number;
+      applications?: string[];
+    }>
   >([]);
   const [newProfileName, setNewProfileName] = useState("");
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
@@ -254,9 +260,15 @@ export default function SettingsApp() {
   const loadGeneral = useCallback(async () => {
     try {
       setSettingsProfiles(
-        await invoke<Array<{ id: string; name: string; active: boolean; pages: number }>>(
-          "list_profiles",
-        ),
+        await invoke<
+          Array<{
+            id: string;
+            name: string;
+            active: boolean;
+            pages: number;
+            applications?: string[];
+          }>
+        >("list_profiles"),
       );
     } catch {
       // Profile list is optional here; keep the rest of the tab usable.
@@ -543,6 +555,27 @@ export default function SettingsApp() {
                       >
                         {s.renameProfile}
                       </button>{" "}
+                      <input
+                        type="text"
+                        className="profile-apps-input"
+                        title="このプロファイルに切り替えるアプリ（カンマ区切り、例: obs64.exe, code）"
+                        placeholder="アプリ (例: obs64.exe, code)"
+                        defaultValue={(p.applications ?? []).join(", ")}
+                        onBlur={async (e) => {
+                          const applications = e.target.value
+                            .split(",")
+                            .map((value) => value.trim())
+                            .filter(Boolean);
+                          try {
+                            await invoke("set_profile_applications", {
+                              args: { profileId: p.id, applications },
+                            });
+                            await loadGeneral();
+                          } catch (err) {
+                            setStatusLine(formatUserError(err), "error");
+                          }
+                        }}
+                      />{" "}
                       <button
                         type="button"
                         className="page-btn"

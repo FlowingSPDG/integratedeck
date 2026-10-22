@@ -125,6 +125,8 @@
 | ダイヤルの組み込みアクション（回転） | 実機 | [x] | 回転では実行されなかった組み込みアクションを回転でも実行。Switch Page を割当てたダイヤルを回すと Page 1→Folder へ遷移 |
 | ダイヤルのマルチアクション | 実機 | [x] | ダイヤル押下でマルチアクションを実行（プロファイル経由で設定）。Companion step を含む場合もカットが動作（active 1→2） |
 | Companionアクションのダイヤル回転 | 実機 | [x] | Companion準拠で押下時のみ実行。3ティック回転ではvMix不変、押下で1回だけカット（active 2→1） |
+| アプリ連動プロファイル | 実機 | [x] | プロファイルに `notepad` を設定 → 起動で自動切替、終了で Default へ復帰（セル32/8維持） |
+| applicationDidLaunch / Terminate | 実機 | [x] | プロセス差分を検出し `applicationDidLaunch application=notepad.exe` / `applicationDidTerminate` をログで確認（全プラグインへ配送） |
 | マルチアクションのダイヤル割当 | 実機 | [x] | キーで作ったマルチアクションを「選択中を割当」でダイヤルへコピー（`bind_encoder_multi_action`）。押下で実行（active 2→1） |
 | ダイヤルの表示名 | 実機 | [x] | 組み込み（「Switch Page」）とマルチアクション（「Multi Action」）をダイヤルに割当てると、LCD/ストリップのラベルが設定される（解除で消える） |
 | ページ削除時のプリセット同期 | 実機 | [x] | ページ削除時にデバイスプリセットからも該当ページを除去。再起動しても削除したページが復活しないことを確認 |
@@ -241,12 +243,12 @@ UI（SettingsEditor）から設定する場合はプリセット経由が確実�
 |---|---|---|
 | HTML プラグインのホスティング | 非対応 | ユーザー判断で対象外（Property Inspector の WebView は対応済み） |
 | `switchToProfile` | 実機 | プラグインの要求で同名プロファイルへ切替（検証用プラグインで Default→Second を確認）。該当名が無ければ警告 |
-| Stream Deck のプロファイル自動切替（アプリ連動） | 非対応 | 上記と同じ理由 |
-| `applicationDidLaunch` / `applicationDidTerminate` | 非対応 | プロファイル自動切替のためのプロセス監視。単一プロファイルモデルでは用途がない |
+| Stream Deck のプロファイル自動切替（アプリ連動） | 実機 | プロファイルにアプリ名を設定すると起動で自動切替、終了で元のプロファイルへ復帰（2秒間隔） |
+| `applicationDidLaunch` / `applicationDidTerminate` | 実機 | プロセス一覧の差分から検出してプラグインへ配送（2秒間隔のポーリング） |
 | `systemDidWakeUp` | 非対応 | スリープ復帰イベントの購読が未実装（復帰後の HID 再試行は実装済み） |
 | Studio USB の明るさ変更 | 非対応 | USB の WriteFile が明るさフレームを拒否するため。LAN 接続時のみ対応 |
 | タッチスワイプのプラグイン配送 | 非対応 | Elgato もプラグインへ公開していない。アプリ内のページ移動に使用 |
-| Companion ダイヤルへの「アクション」直接割当 | 拡張 | Companion 本家はプリセットのみ。integratedeck では回転ごとに実行する拡張も選べる |
+| Companion ダイヤルへの「アクション」直接割当 | 拡張 | Companion 本家はプリセットのみ。integratedeck ではアクションも割当て可能（回転はプリセットに委ね、押下時のみ実行） |
 | VSD2 `CreateVirtualDevice` | 未検証 | 公式アプリ側でのペアリング操作が必要 |
 | Pi GPIO 出力 | 未検証 | Linux + `gpio` feature。実機（Raspberry Pi）での確認が未実施 |
 

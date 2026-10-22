@@ -309,6 +309,20 @@ impl StreamDeckBroker {
         Ok(())
     }
 
+    /// Forward `applicationDidLaunch` / `applicationDidTerminate`.
+    pub fn application_event(&self, event: &str, application: &str) {
+        let payload = json!({
+            "event": event,
+            "payload": { "application": application },
+        });
+        if let Err(error) = self
+            .plugin_tx
+            .send(Message::Text(payload.to_string().into()))
+        {
+            debug!("could not forward {event} for {application}: {error}");
+        }
+    }
+
     /// Process id of the plugin child, used to put it in the kill-on-close job.
     pub fn process_pid(&self) -> Option<u32> {
         self.plugin_process
