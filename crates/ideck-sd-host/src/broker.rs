@@ -309,6 +309,17 @@ impl StreamDeckBroker {
         Ok(())
     }
 
+    /// Tell the plugin the machine woke from sleep.
+    pub fn system_did_wake_up(&self) {
+        let payload = json!({ "event": "systemDidWakeUp" });
+        if let Err(error) = self
+            .plugin_tx
+            .send(Message::Text(payload.to_string().into()))
+        {
+            debug!("could not forward systemDidWakeUp: {error}");
+        }
+    }
+
     /// Forward `applicationDidLaunch` / `applicationDidTerminate`.
     pub fn application_event(&self, event: &str, application: &str) {
         let payload = json!({

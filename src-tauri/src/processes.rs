@@ -74,6 +74,13 @@ pub fn application_running(application: &str, running: &HashSet<String>) -> bool
     running.contains(&needle) || running.contains(&with_exe)
 }
 
+/// A wall-clock jump much larger than the elapsed monotonic time means the
+/// machine was asleep, which is how `systemDidWakeUp` is detected without a
+/// window-message hook.
+pub fn looks_like_wake(wall_delta: std::time::Duration, mono_delta: std::time::Duration) -> bool {
+    wall_delta.as_secs() > mono_delta.as_secs().saturating_add(20)
+}
+
 /// The profile that should be active given the running processes.
 ///
 /// Returns the first profile (in name order) whose `applications` list matches.
@@ -108,6 +115,23 @@ mod tests {
         assert!(application_running(" CODE.EXE ", &running));
         assert!(!application_running("photoshop", &running));
         assert!(!application_running("   ", &running));
+    }
+
+    #[test]
+    fn detects_a_sleep_gap() {
+        use std::time::Duration;
+        assert!(looks_like_wake(
+            Duration::from_secs(120),
+            Duration::from_secs(2)
+        ));
+        assert!(!looks_like_wake(
+            Duration::from_secs(4),
+            Duration::from_secs(4)
+        ));
+        assert!(!looks_like_wake(
+            Duration::from_secs(6),
+            Duration::from_secs(5)
+        ));
     }
 
     #[test]

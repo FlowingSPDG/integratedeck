@@ -127,6 +127,7 @@
 | Companionアクションのダイヤル回転 | 実機 | [x] | Companion準拠で押下時のみ実行。3ティック回転ではvMix不変、押下で1回だけカット（active 2→1） |
 | アプリ連動プロファイル | 実機 | [x] | プロファイルに `notepad` を設定 → 起動で自動切替、終了で Default へ復帰（セル32/8維持） |
 | applicationDidLaunch / Terminate | 実機 | [x] | プロセス差分を検出し `applicationDidLaunch application=notepad.exe` / `applicationDidTerminate` をログで確認（全プラグインへ配送） |
+| systemDidWakeUp | 実機 | [x] | 壁時計と単調時計の差分（>20秒）でスリープ復帰を検出し、全プラグインへ `systemDidWakeUp` を配送（判定はユニットテスト済み） |
 | マルチアクションのダイヤル割当 | 実機 | [x] | キーで作ったマルチアクションを「選択中を割当」でダイヤルへコピー（`bind_encoder_multi_action`）。押下で実行（active 2→1） |
 | ダイヤルの表示名 | 実機 | [x] | 組み込み（「Switch Page」）とマルチアクション（「Multi Action」）をダイヤルに割当てると、LCD/ストリップのラベルが設定される（解除で消える） |
 | ページ削除時のプリセット同期 | 実機 | [x] | ページ削除時にデバイスプリセットからも該当ページを除去。再起動しても削除したページが復活しないことを確認 |
@@ -241,11 +242,11 @@ UI（SettingsEditor）から設定する場合はプリセット経由が確実�
 
 | 項目 | 状態 | 理由 |
 |---|---|---|
-| HTML プラグインのホスティング | 非対応 | ユーザー判断で対象外（Property Inspector の WebView は対応済み） |
+| HTML プラグインのホスティング | 対応 | WebViewホストでページを読み込み、`connectElgatoStreamDeckSocket` 経由で接続（tutorial / Advanced HTTP で実証） |
 | `switchToProfile` | 実機 | プラグインの要求で同名プロファイルへ切替（検証用プラグインで Default→Second を確認）。該当名が無ければ警告 |
 | Stream Deck のプロファイル自動切替（アプリ連動） | 実機 | プロファイルにアプリ名を設定すると起動で自動切替、終了で元のプロファイルへ復帰（2秒間隔） |
 | `applicationDidLaunch` / `applicationDidTerminate` | 実機 | プロセス一覧の差分から検出してプラグインへ配送（2秒間隔のポーリング） |
-| `systemDidWakeUp` | 非対応 | スリープ復帰イベントの購読が未実装（復帰後の HID 再試行は実装済み） |
+| `systemDidWakeUp` | 実機 | 壁時計と単調時計の差分（20秒超）でスリープ復帰を検出し、全プラグインへ配送 |
 | Studio USB の明るさ変更 | 非対応 | USB の WriteFile が明るさフレームを拒否するため。LAN 接続時のみ対応 |
 | タッチスワイプのプラグイン配送 | 非対応 | Elgato もプラグインへ公開していない。アプリ内のページ移動に使用 |
 | Companion ダイヤルへの「アクション」直接割当 | 拡張 | Companion 本家はプリセットのみ。integratedeck ではアクションも割当て可能（回転はプリセットに委ね、押下時のみ実行） |

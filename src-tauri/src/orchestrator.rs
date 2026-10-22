@@ -3215,8 +3215,25 @@ impl Orchestrator {
     pub fn start_smart_profile_worker(state: Arc<RwLock<Self>>) {
         tauri::async_runtime::spawn(async move {
             let mut previous: Option<std::collections::HashSet<String>> = None;
+            let mut last_wall = std::time::SystemTime::now();
+            let mut last_mono = std::time::Instant::now();
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let now_wall = std::time::SystemTime::now();
+                let now_mono = std::time::Instant::now();
+                let wall_delta = now_wall.duration_since(last_wall).unwrap_or_default();
+                let mono_delta = now_mono.duration_since(last_mono);
+                last_wall = now_wall;
+                last_mono = now_mono;
+                if crate::processes::looks_like_wake(wall_delta, mono_delta) {
+                    info!("detected a sleep/wake gap; notifying plugins");
+                    let o = state.read().await;
+                    for uuid in o.inner.sd_supervisor.plugin_uuids() {
+                        if let Some(broker) = o.inner.sd_supervisor.get(&uuid) {
+                            broker.system_did_wake_up();
+                        }
+                    }
+                }
                 let running = crate::processes::running_executables();
                 if let Some(previous) = previous.as_ref() {
                     let started: Vec<String> = running.difference(previous).cloned().collect();
