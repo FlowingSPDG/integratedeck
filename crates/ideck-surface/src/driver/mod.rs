@@ -62,6 +62,7 @@ pub trait SurfaceDriverPlugin: Send + Sync {
 
 /// Connected physical surface with input events and lifecycle hooks.
 #[async_trait]
+#[allow(clippy::double_must_use)]
 pub trait PhysicalSurface: Surface {
     fn surface_id(&self) -> SurfaceId;
     fn subscribe_inputs(&self) -> broadcast::Receiver<SurfaceInput>;

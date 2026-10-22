@@ -29,6 +29,9 @@ pub enum SurfaceError {
 
 /// Render target: mock emulator or physical hardware.
 #[async_trait]
+// `async_trait` already returns a `#[must_use]` future, so the extra attribute
+// it generates is redundant (clippy::double_must_use, new in Rust 1.99).
+#[allow(clippy::double_must_use)]
 pub trait Surface: Send + Sync {
     fn descriptor(&self) -> &SurfaceDescriptor;
     async fn render(&self, updates: &[CellUpdate]) -> Result<(), SurfaceError>;
