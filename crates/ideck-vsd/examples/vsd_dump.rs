@@ -34,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let mut created = false;
+    let mut opened = false;
     let mut pressed = false;
     for index in 0..12 {
         match tokio::time::timeout(Duration::from_secs(30), client.recv_raw()).await {
@@ -42,6 +43,30 @@ async fn main() -> anyhow::Result<()> {
                 match ideck_vsd::ServerMessage::decode(bytes.as_slice()) {
                     Ok(message) => {
                         println!("  decoded={message:?}");
+                        // Opening a device is what makes the server stream its
+                        // button images to us.
+                        let first_device = match &message.msg {
+                            Some(ideck_vsd::server_message::Msg::VirtualDevices(list)) => {
+                                list.devices.last().cloned()
+                            }
+                            _ => None,
+                        };
+                        if !opened {
+                            if let Some(first) = first_device {
+                                opened = true;
+                                let open = ideck_vsd::ClientMessage {
+                                    msg: Some(ideck_vsd::client_message::Msg::OpenVirtualDevice(
+                                        ideck_vsd::messages::OpenVirtualDevice {
+                                            device_id: first.id.clone(),
+                                        },
+                                    )),
+                                };
+                                println!("  opening device {} ({})", first.id, first.name);
+                                if let Err(error) = client.send(&open).await {
+                                    eprintln!("  open failed: {error}");
+                                }
+                            }
+                        }
                         if !pressed
                             && matches!(
                                 message.msg,

@@ -106,6 +106,11 @@ impl Surface for VsdSurface {
             };
             let index =
                 update.address.row * self.descriptor.capabilities.columns + update.address.column;
+            tracing::debug!(
+                device = %self.device_id,
+                index,
+                "vsd surface render"
+            );
             let _ = self.images.send(ideck_vsd::server::VsdImage {
                 device_id: self.device_id.clone(),
                 index,
@@ -7473,10 +7478,17 @@ impl Orchestrator {
         let id = SurfaceId::new();
         let rows = rows.max(1);
         let columns = columns.max(1);
+        // Keep the device id in the label so the UI (and tests) can tell the
+        // virtual devices apart; they all arrive with the same display name.
+        let label = if name.contains(&device_id) || device_id.is_empty() {
+            name.clone()
+        } else {
+            format!("{name} ({device_id})")
+        };
         if let Some(images) = self.vsd_images.clone() {
             let descriptor = SurfaceDescriptor {
                 id,
-                name: name.clone(),
+                name: label.clone(),
                 capabilities: SurfaceCapabilities {
                     rows,
                     columns,
@@ -7505,7 +7517,7 @@ impl Orchestrator {
             .surfaces
             .push(ideck_core::SurfaceAssignment {
                 surface_id: id,
-                label: name,
+                label,
                 emulation_profile: Some("custom".into()),
             });
         let _ = self.save_profile().await;

@@ -257,6 +257,13 @@ async fn handle_connection(
             }
             image = images.recv() => {
                 let Ok(image) = image else { continue };
+                tracing::debug!(
+                    device = %image.device_id,
+                    opened = ?opened_device_id,
+                    index = image.index,
+                    bytes = image.jpeg.len(),
+                    "vsd image from the app"
+                );
                 if opened_device_id.as_deref() == Some(image.device_id.as_str()) {
                     send_encrypted(
                         &mut sink,
