@@ -180,6 +180,8 @@ impl HubEvents {
     pub const DIAL_VISUAL: &'static str = "dial-visual";
     /// A surface switched to another page (hardware folder / swipe).
     pub const PAGE_CHANGED: &'static str = "page-changed";
+    /// The set of conflicting apps (Elgato Stream Deck / Companion) changed.
+    pub const CONFLICTS_CHANGED: &'static str = "conflicts-changed";
 
     pub fn emit_visual(app: &AppHandle, payload: VisualUpdatedPayload) {
         let _ = app.emit(Self::VISUAL_UPDATED, payload);
@@ -209,6 +211,14 @@ impl HubEvents {
             Self::SURFACES_CHANGED,
             SurfacesChangedPayload { surface_id },
         );
+    }
+
+    /// Tell the UI which conflicting applications are running.
+    pub fn emit_conflicts_changed(
+        app: &AppHandle,
+        report: crate::conflict_check::StartupConflictReport,
+    ) {
+        let _ = app.emit(Self::CONFLICTS_CHANGED, report);
     }
 
     /// Tell the UI that a surface now shows another page.

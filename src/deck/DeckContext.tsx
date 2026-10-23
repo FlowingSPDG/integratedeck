@@ -342,6 +342,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     bind("connection-status");
     bind("surfaces-changed");
     bind("page-changed");
+    void listen<StartupConflictReport>("conflicts-changed", (event) => {
+      if (disposed) return;
+      setStartupConflicts(event.payload);
+      if (event.payload?.conflicts?.length) setConflictDismissed(false);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    });
     bind("plugin-status");
     bind("settings-changed");
     return () => {

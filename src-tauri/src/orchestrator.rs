@@ -3215,6 +3215,29 @@ impl Orchestrator {
         }
     }
 
+    /// Watch for the official Stream Deck app / Companion starting or stopping,
+    /// so the UI can warn even when they appear after us.
+    pub fn start_conflict_watch(app: tauri::AppHandle) {
+        tauri::async_runtime::spawn(async move {
+            let mut last: Option<Vec<String>> = None;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                let report = crate::conflict_check::detect_conflicting_apps();
+                let ids: Vec<String> = report
+                    .conflicts
+                    .iter()
+                    .map(|conflict| conflict.id.clone())
+                    .collect();
+                if last.as_deref() == Some(ids.as_slice()) {
+                    continue;
+                }
+                info!(?ids, "conflicting applications changed");
+                last = Some(ids);
+                HubEvents::emit_conflicts_changed(&app, report);
+            }
+        });
+    }
+
     /// Watch running processes for profiles that name applications, and tell
     /// plugins about apps starting/stopping (`applicationDidLaunch`).
     pub fn start_smart_profile_worker(state: Arc<RwLock<Self>>) {

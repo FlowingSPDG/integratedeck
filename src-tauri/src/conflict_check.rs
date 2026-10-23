@@ -64,7 +64,13 @@ pub fn detect_conflicting_apps() -> StartupConflictReport {
 }
 
 fn normalize_process_name(name: &str) -> String {
-    name.trim().to_ascii_lowercase()
+    let normalized = name.trim().to_ascii_lowercase();
+    // sysinfo reports Windows executables with the extension ("StreamDeck.exe"),
+    // which none of the matchers expect.
+    normalized
+        .strip_suffix(".exe")
+        .map(str::to_string)
+        .unwrap_or(normalized)
 }
 
 fn is_stream_deck_process(normalized: &str) -> bool {
@@ -90,6 +96,18 @@ mod tests {
         assert!(is_stream_deck_process("streamdeck"));
         assert!(is_stream_deck_process("elgato stream deck"));
         assert!(!is_stream_deck_process("integratedeck"));
+    }
+
+    #[test]
+    fn strips_the_windows_executable_suffix() {
+        assert_eq!(normalize_process_name("StreamDeck.exe"), "streamdeck");
+        assert_eq!(normalize_process_name(" Companion.EXE "), "companion");
+        assert!(is_stream_deck_process(&normalize_process_name(
+            "StreamDeck.exe"
+        )));
+        assert!(is_companion_process(&normalize_process_name(
+            "Companion.exe"
+        )));
     }
 
     #[test]
