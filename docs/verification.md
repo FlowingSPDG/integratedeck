@@ -199,6 +199,7 @@
 | VirtualDeviceList | 実機 | [x] | Stream Deck Mobile |
 | CreateVirtualDevice | 実機 | [ ] | `Error{code:5}` でペアリング待ち |
 | VSD2 サーバー→クライアント | 実機 | [x] | 自前VSD2サーバーにクライアントを接続→Hello/KeypadConfig/VirtualDeviceList→Create→Open→キー割当のJPEGが `ButtonImage` で届くことを確認。デバイスIDをラベルに含めて識別可能にした |
+| VSD2 クライアント→アプリ | 実機 | [x] | クライアントの `KeyEvent` でVSDサーフェスのキーが押され、割当済みCompanionプリセットが実行（vMix active 1→2） |
 | クライアントcrate統合 | ビルド | [x] | `crates/ideck-vsd` をworkspaceへ追加 |
 | 自前 VSD2 サーバ | 実機 | [x] | `start_vsd_server` + 実クライアントで KeypadConfig 3x5 / Ok |
 | ソフトウェアサーフェス接続 | 実機 | [x] | Create で `integratedeck` サーフェスを登録 |
