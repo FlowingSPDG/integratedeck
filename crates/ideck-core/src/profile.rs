@@ -108,36 +108,17 @@ impl Profile {
         if siblings.len() < 2 {
             return None;
         }
-        // Skip pages that hold nothing: swiping onto one blanks the device, and
-        // empty pages are usually placeholders. A profile where every page is
-        // still empty keeps the old behaviour so it stays navigable while it is
-        // being built.
-        let populated: Vec<PageId> = self
-            .pages
-            .iter()
-            .filter(|page| page.parent_page_id == parent && !page.slots.is_empty())
-            .map(|page| page.id)
-            .collect();
-        let candidates = if populated.is_empty() {
-            siblings
-        } else {
-            populated
-        };
-        if candidates.len() < 2 {
-            return None;
-        }
-        // A page that is not part of `candidates` was skipped (it is empty), so
-        // enter the list from the side matching the swipe direction.
-        let Some(index) = candidates.iter().position(|id| *id == current) else {
-            let entry = if delta_x < 0 { 0 } else { candidates.len() - 1 };
-            return candidates.get(entry).copied();
-        };
+        // Match Elgato: swipe walks every sibling page in order, empty ones
+        // included. Skipping blanks made the gesture look broken on a profile
+        // with a single finished page, and pages are user-created on purpose.
+        let index = siblings.iter().position(|id| *id == current)?;
+        let len = siblings.len();
         let next = if delta_x < 0 {
-            (index + 1) % candidates.len()
+            (index + 1) % len
         } else {
-            (index + candidates.len() - 1) % candidates.len()
+            (index + len - 1) % len
         };
-        candidates.get(next).copied().filter(|id| *id != current)
+        siblings.get(next).copied().filter(|id| *id != current)
     }
 }
 
@@ -221,32 +202,32 @@ mod tests {
     }
 
     #[test]
-    fn swipe_skips_pages_without_content() {
+    fn swipe_visits_empty_pages_like_elgato() {
         let first = with_slot(page("One", None));
         let empty = page("Empty", None);
         let third = with_slot(page("Three", None));
         let (a, empty_id, c) = (first.id, empty.id, third.id);
         let profile = profile_with(vec![first, empty, third]);
 
-        // The empty page is skipped in both directions, with wraparound.
-        assert_eq!(profile.swipe_target_page(a, -1), Some(c));
+        assert_eq!(profile.swipe_target_page(a, -1), Some(empty_id));
+        assert_eq!(profile.swipe_target_page(empty_id, -1), Some(c));
         assert_eq!(profile.swipe_target_page(c, -1), Some(a));
         assert_eq!(profile.swipe_target_page(a, 1), Some(c));
-        // Starting from an empty page enters the populated pages.
-        assert_eq!(profile.swipe_target_page(empty_id, -1), Some(a));
-        assert_eq!(profile.swipe_target_page(empty_id, 1), Some(c));
+        assert_eq!(profile.swipe_target_page(empty_id, 1), Some(a));
     }
 
     #[test]
-    fn swipe_does_nothing_when_the_current_page_is_the_only_one_with_content() {
+    fn swipe_reaches_empty_pages_even_when_the_current_one_is_the_only_one_with_content() {
         let only = with_slot(page("Only", None));
         let empty_one = page("Empty One", None);
         let empty_two = page("Empty Two", None);
-        let only_id = only.id;
+        let (only_id, empty_id) = (only.id, empty_one.id);
         let profile = profile_with(vec![only, empty_one, empty_two]);
 
-        // Nothing to move to, and blanking the device is worse than ignoring it.
-        assert_eq!(profile.swipe_target_page(only_id, -1), None);
-        assert_eq!(profile.swipe_target_page(only_id, 1), None);
+        assert_eq!(profile.swipe_target_page(only_id, -1), Some(empty_id));
+        assert_eq!(
+            profile.swipe_target_page(only_id, 1),
+            profile.pages.last().map(|page| page.id)
+        );
     }
 }

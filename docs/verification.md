@@ -140,7 +140,7 @@
 | Nodeランタイムの同梱 | ビルド | [x] | `scripts/fetch-node.ps1` で Node 20.18.1 を `src-tauri/resources/node` へ取得しバンドル。リリースWFにも platform 別の取得ステップを追加 |
 | 同梱Nodeの使用 | 実機 | [x] | MSI展開版を実行し、Companionサイドカーが `resources\node\node.exe` で起動することを確認（修正前はシステムのNodeを使用）。vMix `ok`・214アクション・プリセット実行も確認 |
 | パッケージ版の起動 | 実機 | [x] | MSI管理インストールで展開した exe を直接起動し、2サーフェス接続・32/8セル・LED送信まで動作 |
-| タッチスワイプ入力 | 実機 | [x] | 内容のある2ページ目を作って注入すると、左スワイプで移動（1セル描画）→右スワイプで復帰。入力は `get_last_surface_input` にも記録される。物理ジェスチャ自体は実機確認待ち |
+| タッチスワイプ入力 | 実機 | [x] | 注入で Page 1 → Folder（空）→ Page 1 と往復することを確認（空ページも巡回）。`get_last_surface_input` に入力が記録される。物理ジェスチャは要再確認 |
 | ダイヤルの組み込みアクション（回転） | 実機 | [x] | 回転では実行されなかった組み込みアクションを回転でも実行するよう修正。Switch Page を割当てたダイヤルを回すと Page 1→Folder へ遷移 |
 | プロファイル作成/名前変更/削除 | 実機 | [x] | Settings > General。新規作成→空の1ページ、インラインで名前変更、削除でDefaultへフォールバック。最後の1つは削除不可 |
 | デバイスプリセットのプロファイル分離 | 実装 | [x] | `profiles/presets/<profileId>/` に保存。新規プロファイルが旧ページを継承しない |
@@ -165,7 +165,7 @@
 | Encoder JSON（layout / StackColor / TriggerDescription） | ユニット | [x] | `parses_encoder_layout_and_stack_color`、StackColorはダイヤルLEDへ反映 |
 | Plus タッチスワイプ | 実機 | [x] | `TouchScreenSwipe` を `TouchSwipe` として受け、左右スワイプでページ移動。IPC注入で 32→0→32 セルと往復を確認（実機スワイプは未実施） |
 | スワイプのページ選択 | ユニット | [x] | `swipe_walks_top_level_pages_in_both_directions`、`swipe_stays_inside_the_folder_of_the_current_page`、`swipe_skips_pages_without_content` |
-| 空ページのスキップ | ユニット | [x] | スロットの無いページは飛ばす（全ページが空なら従来どおり循環）。空ページから開始した場合は最寄りの非空ページへ |
+| スワイプの巡回先 | ユニット＋実機 | [x] | Elgato同等に、同じ階層の全ページを順に巡回（空ページも含む、端で折り返し）。空ページ中心のプロファイルでもスワイプでページが変わる |
 | Plus / Neo | 実機 | [x] | Plus key0のkey_down/up、ダイヤル回転→プラグイン配送、ストリップ描画を確認 |
 | フォルダの遷移先変更 | 実機 | [x] | 既存フォルダに `set_switch_page_target` で別ページを指定→`childPageId` が更新され、押下でそのページへ遷移（32→1）、戻るキーで復帰（→32） |
 | ページ削除時の参照解除 | 実機 | [x] | フォルダの子ページを削除すると、そのフォルダボタンの binding も解除される（`unbinding a button whose page was deleted`） |
