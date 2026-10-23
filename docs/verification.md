@@ -77,6 +77,7 @@
 | 競合アプリの検出 | 実機 | [x] | `StreamDeck.exe` 実行中に `check_startup_conflicts` が `stream_deck` を返し、UIに「競合の可能性があります」バナーが表示される（sysinfo が返す `.exe` 付き名称を正規化して修正） |
 | 競合の定期監視 | 実装 | [x] | 15秒ごとに再検出し、変化時のみ `conflicts-changed` を発火。起動後に公式アプリを立ち上げてもバナーが出る |
 | 二重起動時のデバイス共有 | 実機 | [x] | 2つ目のインスタンスも同じHIDデバイスを開ける（WindowsのHIDは共有可能）。両方で画像を書くと最後の書き込みが勝つため、同時起動は非推奨。終了後は1つ目のインスタンスが32/8セルで正常継続 |
+| アイドル時の負荷 | 実機 | [x] | 実機2台＋Companion＋プラグイン6本で メモリ約42MB / CPU 約6.5%（1コア比、60秒計測）。プロセス列挙を5秒周期の単一ワーカーに統合し、競合検出も同じスナップショットから導出 |
 | ログファイル出力 | 実装 | [x] | `%APPDATA%\integratedeck\logs\integratedeck.log` に出力。5MB超で `.log.1` へローテーション。設定に「ログフォルダを開く」ボタン |
 | パニックのログ記録 | 実装 | [x] | パニックフックで `panic: ...` をログファイルへ記録。起動時に `version` と `exe` パスも出力 |
 | Companionセルのサーフェス分離 | ユニット | [x] | `two_surfaces_can_share_a_cell_without_clobbering_each_other`（Studio(0,0) と Plus(0,0) が共存） |

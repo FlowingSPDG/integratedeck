@@ -3234,38 +3234,16 @@ impl Orchestrator {
         }
     }
 
-    /// Watch for the official Stream Deck app / Companion starting or stopping,
-    /// so the UI can warn even when they appear after us.
-    pub fn start_conflict_watch(app: tauri::AppHandle) {
-        tauri::async_runtime::spawn(async move {
-            let mut last: Option<Vec<String>> = None;
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                let report = crate::conflict_check::detect_conflicting_apps();
-                let ids: Vec<String> = report
-                    .conflicts
-                    .iter()
-                    .map(|conflict| conflict.id.clone())
-                    .collect();
-                if last.as_deref() == Some(ids.as_slice()) {
-                    continue;
-                }
-                info!(?ids, "conflicting applications changed");
-                last = Some(ids);
-                HubEvents::emit_conflicts_changed(&app, report);
-            }
-        });
-    }
-
     /// Watch running processes for profiles that name applications, and tell
     /// plugins about apps starting/stopping (`applicationDidLaunch`).
-    pub fn start_smart_profile_worker(state: Arc<RwLock<Self>>) {
+    pub fn start_smart_profile_worker(state: Arc<RwLock<Self>>, app: tauri::AppHandle) {
         tauri::async_runtime::spawn(async move {
             let mut previous: Option<std::collections::HashSet<String>> = None;
+            let mut conflict_ids: Option<Vec<String>> = None;
             let mut last_wall = std::time::SystemTime::now();
             let mut last_mono = std::time::Instant::now();
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let now_wall = std::time::SystemTime::now();
                 let now_mono = std::time::Instant::now();
                 let wall_delta = now_wall.duration_since(last_wall).unwrap_or_default();
@@ -3306,6 +3284,48 @@ impl Orchestrator {
                     }
                 }
                 previous = Some(running.clone());
+
+                // Same snapshot also tells us whether the official app (or
+                // Companion) appeared, so no second process enumeration is needed.
+                let mut conflicts: Vec<(&str, &str, String)> = Vec::new();
+                for name in &running {
+                    let normalized = crate::conflict_check::normalize_process_name(name);
+                    if crate::conflict_check::is_stream_deck_process(&normalized) {
+                        conflicts.push(("stream_deck", "Elgato Stream Deck", name.clone()));
+                        break;
+                    }
+                }
+                for name in &running {
+                    let normalized = crate::conflict_check::normalize_process_name(name);
+                    if crate::conflict_check::is_companion_process(&normalized) {
+                        conflicts.push(("companion", "Bitfocus Companion", name.clone()));
+                        break;
+                    }
+                }
+                let ids: Vec<String> = conflicts
+                    .iter()
+                    .map(|(id, _, _)| (*id).to_string())
+                    .collect();
+                if conflict_ids.as_ref() != Some(&ids) {
+                    conflict_ids = Some(ids);
+                    let report = crate::conflict_check::StartupConflictReport {
+                        conflicts: conflicts
+                            .into_iter()
+                            .map(|(id, display_name, process_name)| {
+                                crate::conflict_check::ConflictingApp {
+                                    id: id.to_string(),
+                                    display_name: display_name.to_string(),
+                                    process_name,
+                                }
+                            })
+                            .collect(),
+                    };
+                    info!(
+                        ids = ?report.conflicts.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+                        "conflicting applications changed"
+                    );
+                    HubEvents::emit_conflicts_changed(&app, report);
+                }
                 let profiles: Vec<(String, String, Vec<String>)> = {
                     let o = state.read().await;
                     o.list_profiles()
