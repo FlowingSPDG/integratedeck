@@ -61,6 +61,8 @@ pub struct Orchestrator {
     comp_status: std::collections::HashMap<String, serde_json::Value>,
     /// A Stream Deck plugin asked for a profile switch (handled by the worker).
     pending_profile_switch: Option<String>,
+    /// HID serials whose connect failure was already logged.
+    auto_connect_warned: std::collections::HashSet<String>,
     /// Profile forced by a running application, and the one to return to.
     auto_profile_current: Option<String>,
     auto_profile_base: Option<String>,
@@ -192,11 +194,27 @@ impl Orchestrator {
                 continue;
             }
             match Self::connect_hid_with_loops(state.clone(), serial.clone(), kind).await {
-                Ok(_) => info!("auto-connected HID device {serial}"),
+                Ok(_) => {
+                    info!("auto-connected HID device {serial}");
+                    let mut o = state.write().await;
+                    o.auto_connect_warned.remove(&serial);
+                }
                 Err(error) if error == "device already connected" => {
                     debug!("HID device {serial} was connected by another task")
                 }
-                Err(error) => warn!("auto-connect HID {serial} failed: {error}"),
+                Err(error) => {
+                    // Every 2 s would flood the log while another app holds the
+                    // device; warn once and keep trying quietly.
+                    let first = {
+                        let mut o = state.write().await;
+                        o.auto_connect_warned.insert(serial.clone())
+                    };
+                    if first {
+                        warn!("auto-connect HID {serial} failed: {error}");
+                    } else {
+                        debug!("auto-connect HID {serial} still failing: {error}");
+                    }
+                }
             }
         }
 
@@ -863,6 +881,7 @@ impl Orchestrator {
             nfc: std::collections::HashMap::new(),
             comp_status: std::collections::HashMap::new(),
             pending_profile_switch: None,
+            auto_connect_warned: std::collections::HashSet::new(),
             auto_profile_current: None,
             auto_profile_base: None,
             last_input: std::collections::HashMap::new(),
