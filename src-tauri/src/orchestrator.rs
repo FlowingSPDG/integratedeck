@@ -593,7 +593,7 @@ impl Orchestrator {
             .get(&surface_id)
             .copied()
             .or(self.inner.profile.active_page_id)
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         let Some(target) = self.inner.profile.swipe_target_page(current, delta_x) else {
             return Ok(());
         };
@@ -1843,7 +1843,7 @@ impl Orchestrator {
         let plan = {
             let o = state.read().await;
             let Some((binding, _locator)) = o.slot_binding_and_locator(slot_id) else {
-                anyhow::bail!("slot not found");
+                anyhow::bail!("スロットが見つかりません。");
             };
             let Some(binding) = binding else {
                 return Ok(());
@@ -2028,7 +2028,7 @@ impl Orchestrator {
         push_stack: bool,
     ) -> anyhow::Result<()> {
         if !self.inner.profile.pages.iter().any(|p| p.id == page_id) {
-            anyhow::bail!("page not found");
+            anyhow::bail!("ページが見つかりません。");
         }
         self.inner.ensure_surface_page(surface_id);
         if push_stack {
@@ -2325,7 +2325,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let surface_id = {
             let page = self
                 .inner
@@ -2333,11 +2333,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
 
         if let Some(page) = self
@@ -2367,11 +2367,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.locator.row,
                 slot.locator.column,
@@ -2392,7 +2392,7 @@ impl Orchestrator {
 
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let surface_id = {
             let page = self
                 .inner
@@ -2400,11 +2400,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
 
         let settings = match action_id.as_str() {
@@ -2451,7 +2451,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let surface_id = {
             let page = self
                 .inner
@@ -2459,11 +2459,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
 
         if let Some(page) = self
@@ -2490,7 +2490,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let surface_id = {
             let page = self
                 .inner
@@ -2498,11 +2498,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
         if let Some(page) = self
             .inner
@@ -2537,7 +2537,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let surface_id = {
             let page = self
                 .inner
@@ -2545,11 +2545,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
         let target_name = self
             .inner
@@ -2702,7 +2702,7 @@ impl Orchestrator {
                     });
                 let child_id = folder
                     .child_page_id()
-                    .ok_or_else(|| anyhow::anyhow!("folder has no child page"))?;
+                    .ok_or_else(|| anyhow::anyhow!("フォルダの遷移先が設定されていません。"))?;
                 if let Some(surface_id) = surface_id {
                     self.navigate_surface_to_page(surface_id, child_id, true)
                         .await?;
@@ -2832,18 +2832,18 @@ impl Orchestrator {
         if !self.inner.routing.slot_to_context.contains_key(&slot_id) {
             let page_id = self
                 .page_id_for_slot(slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             let page = self
                 .inner
                 .profile
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             let plugin_uuid = slot
                 .binding
                 .as_ref()
@@ -3726,7 +3726,7 @@ impl Orchestrator {
             .inner
             .profile
             .active_page_id
-            .ok_or_else(|| "no active page".to_string())?;
+            .ok_or_else(|| "アクティブなページがありません。".to_string())?;
         let mut count = 0;
         for row in 0..caps.rows {
             for column in 0..caps.columns {
@@ -4714,7 +4714,7 @@ impl Orchestrator {
 
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
 
         let (row, col, surface_id) = {
             let page = self
@@ -4723,11 +4723,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.locator.row,
                 slot.locator.column,
@@ -4822,7 +4822,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
 
         let (row, col, surface_id) = {
             let page = self
@@ -4831,11 +4831,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.locator.row,
                 slot.locator.column,
@@ -4909,7 +4909,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
 
         let (row, col, surface_id) = {
             let page = self
@@ -4918,11 +4918,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.locator.row,
                 slot.locator.column,
@@ -5201,18 +5201,18 @@ impl Orchestrator {
         let (connection_id, action_id) = {
             let page_id = self
                 .page_id_for_slot(slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             let page = self
                 .inner
                 .profile
                 .pages
                 .iter()
                 .find(|page| page.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             match &slot.binding {
                 Some(Binding {
                     kind:
@@ -5360,14 +5360,14 @@ impl Orchestrator {
             .inner
             .profile
             .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         let page = self
             .inner
             .profile
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         let title = action_display_name(&action_id)
             .unwrap_or(action_id.as_str())
             .to_string();
@@ -5407,14 +5407,14 @@ impl Orchestrator {
             .get(&surface_id)
             .copied()
             .or(self.inner.profile.active_page_id)
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         let page = self
             .inner
             .profile
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         page.encoders
             .insert(index, Binding::multi_action(steps, delay_ms.unwrap_or(200)));
         self.save_profile().await?;
@@ -5482,14 +5482,14 @@ impl Orchestrator {
             .inner
             .profile
             .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         let page = self
             .inner
             .profile
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         page.encoders.insert(
             index,
             Binding::stream_deck(
@@ -5534,7 +5534,7 @@ impl Orchestrator {
             .inner
             .profile
             .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         // The preset's own style colours the dial LED and names the strip
         // segment, like Companion does for an encoder preset. It is also stored
         // in the binding so the label survives a restart.
@@ -5558,7 +5558,7 @@ impl Orchestrator {
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         page.encoders.insert(
             index,
             Binding::companion_preset_styled(
@@ -5614,7 +5614,7 @@ impl Orchestrator {
             .inner
             .profile
             .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         let options = self
             .with_companion_defaults(&connection_id, &action_id, options)
             .await;
@@ -5631,7 +5631,7 @@ impl Orchestrator {
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         page.encoders
             .insert(index, Binding::companion(connection_id, action_id, options));
         self.inner.surface_pages.insert(surface_id, page_id);
@@ -5659,14 +5659,14 @@ impl Orchestrator {
             .inner
             .profile
             .active_page_id
-            .ok_or_else(|| anyhow::anyhow!("no active page"))?;
+            .ok_or_else(|| anyhow::anyhow!("アクティブなページがありません。"))?;
         let page = self
             .inner
             .profile
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         page.encoders.remove(&index);
         self.inner.surface_pages.insert(surface_id, page_id);
         self.save_profile().await?;
@@ -5687,7 +5687,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let mut found = false;
         if let Some(page) = self
             .inner
@@ -5718,7 +5718,7 @@ impl Orchestrator {
     pub async fn unbind_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
 
         let binding = {
             let page = self
@@ -5727,7 +5727,7 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots.get(&slot_id).and_then(|s| s.binding.clone())
         };
 
@@ -5738,11 +5738,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
 
         let context = self.inner.routing.slot_to_context.get(&slot_id).cloned();
@@ -5788,11 +5788,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (slot.locator.row, slot.locator.column)
         };
 
@@ -5828,11 +5828,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             is_slot_configured(slot)
         };
         self.sync_slot_cell_display(page_id, surface_id, row, col, configured, true)
@@ -5851,7 +5851,7 @@ impl Orchestrator {
 
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let (surface_id, row, col) = {
             let page = self
                 .inner
@@ -5859,11 +5859,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.locator.surface_id,
                 slot.locator.row,
@@ -5959,11 +5959,11 @@ impl Orchestrator {
                     .pages
                     .iter()
                     .find(|p| p.id == page_id)
-                    .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                    .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
                 let slot = page
                     .slots
                     .get(&slot_id)
-                    .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                    .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
                 is_slot_configured(slot)
             },
             true,
@@ -5993,7 +5993,7 @@ impl Orchestrator {
             .pages
             .iter()
             .find(|p| p.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
 
         let source_slot = page
             .slots
@@ -6218,7 +6218,7 @@ impl Orchestrator {
     ) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
 
         let (binding_kind, context, coordinates) = {
             let page = self
@@ -6227,11 +6227,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.binding.clone(),
                 self.inner.routing.slot_to_context.get(&slot_id).cloned(),
@@ -6335,11 +6335,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             page.slots
                 .get(&slot_id)
                 .map(|s| s.locator.surface_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?
         };
         self.persist_slot_changes(surface_id).await?;
         Ok(())
@@ -6464,7 +6464,7 @@ impl Orchestrator {
 
     pub async fn set_active_page(&mut self, page_id: PageId) -> anyhow::Result<()> {
         if !self.inner.profile.pages.iter().any(|p| p.id == page_id) {
-            anyhow::bail!("page not found");
+            anyhow::bail!("ページが見つかりません。");
         }
         self.inner.profile.active_page_id = Some(page_id);
         self.save_profile().await?;
@@ -6517,7 +6517,7 @@ impl Orchestrator {
             .pages
             .iter_mut()
             .find(|page| page.id == page_id)
-            .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
         page.name = trimmed.to_string();
         self.save_profile().await?;
         for surface_id in self.inner.surfaces.list().await.iter().map(|d| d.id) {
@@ -6554,10 +6554,10 @@ impl Orchestrator {
             .iter()
             .any(|page| page.id == page_id)
         {
-            anyhow::bail!("page not found");
+            anyhow::bail!("ページが見つかりません。");
         }
         if self.inner.profile.pages.len() <= 1 {
-            anyhow::bail!("cannot delete the last page");
+            anyhow::bail!("最後のページは削除できません。");
         }
         let mut remove = std::collections::HashSet::new();
         let mut stack = vec![page_id];
@@ -6686,7 +6686,7 @@ impl Orchestrator {
             .iter()
             .any(|s| s.surface_id == surface_id)
         {
-            anyhow::bail!("surface not found");
+            anyhow::bail!("サーフェスが見つかりません。");
         }
         self.navigate_surface_to_page(surface_id, page_id, false)
             .await?;
@@ -6698,7 +6698,7 @@ impl Orchestrator {
     pub async fn delete_slot(&mut self, slot_id: SlotId) -> anyhow::Result<()> {
         let page_id = self
             .page_id_for_slot(slot_id)
-            .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
         let (surface_id, row, col) = {
             let page = self
                 .inner
@@ -6706,11 +6706,11 @@ impl Orchestrator {
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             (
                 slot.locator.surface_id,
                 slot.locator.row,
@@ -6751,7 +6751,7 @@ impl Orchestrator {
         orch: Option<Arc<RwLock<Self>>>,
     ) -> anyhow::Result<()> {
         let Some((binding, locator)) = self.slot_binding_and_locator(slot_id) else {
-            anyhow::bail!("slot not found");
+            anyhow::bail!("スロットが見つかりません。");
         };
         let Some(binding) = binding else {
             return Ok(());
@@ -7403,18 +7403,18 @@ impl Orchestrator {
         if let Some(slot_id) = slot_id {
             let page_id = self
                 .page_id_for_slot(slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             let page = self
                 .inner
                 .profile
                 .pages
                 .iter()
                 .find(|p| p.id == page_id)
-                .ok_or_else(|| anyhow::anyhow!("page not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("ページが見つかりません。"))?;
             let slot = page
                 .slots
                 .get(&slot_id)
-                .ok_or_else(|| anyhow::anyhow!("slot not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("スロットが見つかりません。"))?;
             if let Some(Binding {
                 kind:
                     BindingKind::StreamDeck {
