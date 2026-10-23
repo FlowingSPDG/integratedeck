@@ -130,6 +130,7 @@
 | applicationDidLaunch / Terminate | 実機 | [x] | プロセス差分を検出し `applicationDidLaunch application=notepad.exe` / `applicationDidTerminate` をログで確認（全プラグインへ配送） |
 | systemDidWakeUp | 実機 | [x] | 壁時計と単調時計の差分（>20秒）でスリープ復帰を検出し、全プラグインへ `systemDidWakeUp` を配送（判定はユニットテスト済み） |
 | Studio USB の明るさ表示 | 実装 | [x] | 設定の明るさ欄に「保存され、LAN接続時に適用（USBはファームウェアの明るさ）」の注記を表示 |
+| 最後の入力の表示 | 実装 | [x] | Settings > Devices に「最後の入力」を追加。`rotate #2 x1 / swipe 700,50→100,50` のように直近2件を表示（スワイプ切り分け用） |
 | マルチアクションのダイヤル割当 | 実機 | [x] | キーで作ったマルチアクションを「選択中を割当」でダイヤルへコピー（`bind_encoder_multi_action`）。押下で実行（active 2→1） |
 | ダイヤルの表示名 | 実機 | [x] | 組み込み（「Switch Page」）とマルチアクション（「Multi Action」）をダイヤルに割当てると、LCD/ストリップのラベルが設定される（解除で消える） |
 | ページ削除時のプリセット同期 | 実機 | [x] | ページ削除時にデバイスプリセットからも該当ページを除去。再起動しても削除したページが復活しないことを確認 |

@@ -76,6 +76,7 @@ const I18N = {
     serial: "シリアル",
     firmware: "ファームウェア",
     nfc: "最後に読んだNFCタグ",
+    lastInput: "最後の入力",
     brightness: "明るさ",
     grid: "キーレイアウト",
     status: "状態",
@@ -140,6 +141,7 @@ const I18N = {
     serial: "Serial",
     firmware: "Firmware",
     nfc: "Last NFC tag",
+    lastInput: "Last input",
     brightness: "Brightness",
     grid: "Key layout",
     status: "Status",
@@ -203,6 +205,29 @@ export default function SettingsApp() {
   const [profileOverwrite, setProfileOverwrite] = useState(false);
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [nfcTag, setNfcTag] = useState<string | null>(null);
+  const [lastInputs, setLastInputs] = useState<unknown[]>([]);
+  const lastInputSummary =
+    lastInputs.length === 0
+      ? null
+      : lastInputs
+          .slice(-2)
+          .map((entry) => {
+            const value = entry as Record<string, unknown>;
+            const type = String(value.type ?? "?");
+            if (type === "encoder_rotate") return `rotate #${value.index} x${value.ticks}`;
+            if (type === "encoder_press")
+              return `${value.pressed ? "press" : "release"} #${value.index}`;
+            if (type === "touch_tap") return `tap @${value.x},${value.y}`;
+            if (type === "touch_swipe")
+              return `swipe ${value.start_x},${value.start_y}→${value.end_x},${value.end_y}`;
+            if (type === "key_down" || type === "key_up") {
+              const address = value.address as { row?: number; column?: number } | undefined;
+              return `${type === "key_down" ? "down" : "up"} ${address?.row},${address?.column}`;
+            }
+            if (type === "nfc") return "nfc";
+            return type;
+          })
+          .join(" / ");
   const [settingsProfiles, setSettingsProfiles] = useState<
     Array<{
       id: string;
@@ -856,6 +881,26 @@ export default function SettingsApp() {
                   <dt>{s.grid}</dt>
                   <dd>
                     {selectedDevice.rows} × {selectedDevice.columns}
+                  </dd>
+                  <dt>{s.lastInput}</dt>
+                  <dd>
+                    {lastInputSummary ?? "—"}{" "}
+                    {selectedDevice.surfaceId ? (
+                      <button
+                        type="button"
+                        className="btn-xs"
+                        onClick={() => {
+                          void invoke<{ count: number; inputs: unknown[] } | null>(
+                            "get_last_surface_input",
+                            { surfaceId: selectedDevice.surfaceId! },
+                          )
+                            .then((data) => setLastInputs(data?.inputs ?? []))
+                            .catch((err) => setStatusLine(formatUserError(err), "error"));
+                        }}
+                      >
+                        {s.refresh}
+                      </button>
+                    ) : null}
                   </dd>
                   <dt>{s.nfc}</dt>
                   <dd>
