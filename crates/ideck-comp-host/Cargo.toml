@@ -1,0 +1,17 @@
+[package]
+name = "ideck-comp-host"
+description = "Companion module compatibility host (embedded Boa, no Node.js)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+ideck-core = { workspace = true }
+ideck-js-runtime = { workspace = true }

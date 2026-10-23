@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libudev-dev \
+            pkg-config
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Rust workspace
+        run: cargo build --workspace --release
+
+      - name: Build Tauri app
+        run: npm run tauri build -- --no-bundle
+
+      # The Raspberry Pi GPIO bridge only compiles on Linux; check it here so it
+      # cannot rot unnoticed.
+      - name: Check the GPIO feature
+        run: cargo check -p ideck-vsd --features gpio --bin ideck-vsd-gpio
+
+  # Windows is the primary target (job objects, ToolHelp, Studio USB); make sure
+  # its code paths compile and its tests pass instead of relying on a dev box.
+  windows-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Type-check frontend
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The Windows bundle is what users install; build it here so packaging
+      # problems (resources, WebView2 config) surface before a release tag.
+      - name: Build Tauri app
+        run: npm run tauri build -- --no-bundle
+
+  # Compile check for macOS (LaunchAgent autostart, no Linux-only assumptions).
+  macos-check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Check the workspace
+        run: cargo check --workspace

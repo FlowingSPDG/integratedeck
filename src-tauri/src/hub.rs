@@ -1,0 +1,243 @@
+//! Central hub: device events, routing, and Tauri event emission.
+
+use std::collections::HashMap;
+
+use ideck_core::{PageId, SlotId, SurfaceId};
+use ideck_surface::SurfaceInput;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
+use tokio::sync::broadcast;
+
+/// All surface input events flow through this bus before routing.
+pub struct DeviceEventBus {
+    tx: broadcast::Sender<(SurfaceId, SurfaceInput)>,
+}
+
+impl DeviceEventBus {
+    pub fn new() -> Self {
+        let (tx, _) = broadcast::channel(256);
+        Self { tx }
+    }
+
+    pub fn publish(&self, surface_id: SurfaceId, input: SurfaceInput) {
+        let _ = self.tx.send((surface_id, input));
+    }
+}
+
+impl Default for DeviceEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Maps grid cells and slots to plugin contexts / companion control ids.
+#[derive(Default)]
+pub struct RoutingTable {
+    pub slot_to_context: HashMap<SlotId, String>,
+    pub cell_to_context: HashMap<(SurfaceId, u32, u32), String>,
+    pub cell_to_plugin: HashMap<(SurfaceId, u32, u32), String>,
+    pub context_to_cell: HashMap<String, (SurfaceId, u32, u32)>,
+    pub slot_to_companion: HashMap<SlotId, (String, String)>,
+}
+
+impl RoutingTable {
+    pub fn register_sd_cell(
+        &mut self,
+        surface_id: SurfaceId,
+        row: u32,
+        col: u32,
+        context: String,
+        plugin_uuid: impl Into<String>,
+    ) {
+        let plugin_uuid = plugin_uuid.into();
+        self.cell_to_context
+            .insert((surface_id, row, col), context.clone());
+        self.cell_to_plugin
+            .insert((surface_id, row, col), plugin_uuid);
+        self.context_to_cell.insert(context, (surface_id, row, col));
+    }
+
+    pub fn register_sd_slot(&mut self, slot_id: SlotId, context: String) {
+        self.slot_to_context.insert(slot_id, context);
+    }
+
+    pub fn register_companion_slot(
+        &mut self,
+        slot_id: SlotId,
+        connection_id: String,
+        action_id: String,
+    ) {
+        self.slot_to_companion
+            .insert(slot_id, (connection_id, action_id));
+    }
+
+    /// Drop the cell → context mappings of one surface (page switch).
+    pub fn clear_surface(&mut self, surface_id: SurfaceId) {
+        let contexts: Vec<String> = self
+            .cell_to_context
+            .iter()
+            .filter(|((sid, _, _), _)| *sid == surface_id)
+            .map(|(_, context)| context.clone())
+            .collect();
+        self.cell_to_context
+            .retain(|(sid, _, _), _| *sid != surface_id);
+        self.cell_to_plugin
+            .retain(|(sid, _, _), _| *sid != surface_id);
+        for context in contexts {
+            self.context_to_cell.remove(&context);
+        }
+    }
+
+    pub fn clear_slot(&mut self, slot_id: &SlotId) {
+        self.slot_to_context.remove(slot_id);
+        self.slot_to_companion.remove(slot_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ideck_core::SlotId;
+
+    #[test]
+    fn routing_table_registers_sd_and_companion() {
+        let mut table = RoutingTable::default();
+        let slot = SlotId::new();
+        let surface = SurfaceId::new();
+        table.register_sd_cell(surface, 0, 0, "ctx-1".into(), "plugin-1");
+        table.register_sd_slot(slot, "ctx-1".into());
+        table.register_companion_slot(slot, "conn".into(), "act".into());
+        assert_eq!(table.slot_to_context.get(&slot).unwrap(), "ctx-1");
+        assert_eq!(
+            table.cell_to_context.get(&(surface, 0, 0)).unwrap(),
+            "ctx-1"
+        );
+        assert_eq!(
+            table.slot_to_companion.get(&slot).unwrap(),
+            &("conn".into(), "act".into())
+        );
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualUpdatedPayload {
+    pub row: u32,
+    pub column: u32,
+    pub visual: ideck_core::VisualState,
+    /// Context of the update so the editor can ignore feedback for a page or
+    /// surface that is no longer displayed (prevents stale icons/titles).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsChangedPayload {
+    pub context: String,
+    pub settings: serde_json::Value,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginStatusPayload {
+    pub plugin_uuid: String,
+    pub status: String,
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DialVisualPayload {
+    pub surface_id: String,
+    pub index: u32,
+    pub title: Option<String>,
+    pub state_index: u8,
+}
+
+pub struct HubEvents;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfacesChangedPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface_id: Option<String>,
+}
+
+impl HubEvents {
+    pub const VISUAL_UPDATED: &'static str = "visual-updated";
+    pub const SETTINGS_CHANGED: &'static str = "settings-changed";
+    pub const DEFINITIONS_UPDATED: &'static str = "definitions-updated";
+    pub const PLUGIN_STATUS: &'static str = "plugin-status";
+    pub const PI_MESSAGE: &'static str = "pi-message";
+    pub const SURFACES_CHANGED: &'static str = "surfaces-changed";
+    pub const DIAL_VISUAL: &'static str = "dial-visual";
+    /// A surface switched to another page (hardware folder / swipe).
+    pub const PAGE_CHANGED: &'static str = "page-changed";
+    /// The set of conflicting apps (Elgato Stream Deck / Companion) changed.
+    pub const CONFLICTS_CHANGED: &'static str = "conflicts-changed";
+
+    pub fn emit_visual(app: &AppHandle, payload: VisualUpdatedPayload) {
+        let _ = app.emit(Self::VISUAL_UPDATED, payload);
+    }
+
+    pub fn emit_dial_visual(app: &AppHandle, payload: DialVisualPayload) {
+        let _ = app.emit(Self::DIAL_VISUAL, payload);
+    }
+
+    pub fn emit_settings(app: &AppHandle, payload: SettingsChangedPayload) {
+        let _ = app.emit(Self::SETTINGS_CHANGED, payload);
+    }
+
+    pub fn emit_plugin_status(app: &AppHandle, payload: PluginStatusPayload) {
+        let _ = app.emit(Self::PLUGIN_STATUS, payload);
+    }
+
+    pub fn emit_pi_message(app: &AppHandle, context: &str, payload: serde_json::Value) {
+        let _ = app.emit(
+            Self::PI_MESSAGE,
+            serde_json::json!({ "context": context, "payload": payload }),
+        );
+    }
+
+    pub fn emit_surfaces_changed(app: &AppHandle, surface_id: Option<String>) {
+        let _ = app.emit(
+            Self::SURFACES_CHANGED,
+            SurfacesChangedPayload { surface_id },
+        );
+    }
+
+    /// Tell the UI which conflicting applications are running.
+    pub fn emit_conflicts_changed(
+        app: &AppHandle,
+        report: crate::conflict_check::StartupConflictReport,
+    ) {
+        let _ = app.emit(Self::CONFLICTS_CHANGED, report);
+    }
+
+    /// Tell the UI that a surface now shows another page.
+    pub fn emit_page_changed(app: &AppHandle, surface_id: SurfaceId, page_id: PageId) {
+        let _ = app.emit(
+            Self::PAGE_CHANGED,
+            serde_json::json!({
+                "surfaceId": surface_id.0.to_string(),
+                "pageId": page_id.0.to_string(),
+            }),
+        );
+    }
+
+    /// Ask the UI to re-read the action/preset library (used after the module
+    /// engine is restarted).
+    pub fn emit_definitions_refresh(app: &AppHandle) {
+        let _ = app.emit(
+            Self::DEFINITIONS_UPDATED,
+            serde_json::json!({ "kind": "refresh" }),
+        );
+    }
+}

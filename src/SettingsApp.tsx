@@ -1,0 +1,1444 @@
+import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { formatUserError } from "./utils/format-error";
+
+type TabId = "general" | "devices" | "presets" | "companion";
+
+interface AppGlobalSettings {
+  language: string;
+  launchOnStartup: boolean;
+}
+
+interface SettingsDeviceEntry {
+  deviceKey: string;
+  serial: string;
+  kind: string;
+  product: string;
+  label: string;
+  status: "connected" | "available" | "offline";
+  surfaceId?: string;
+  firmwareVersion?: string;
+  brightness: number;
+  rows: number;
+  columns: number;
+}
+
+interface ScanResult {
+  companion: { path: string; name: string; bundleName: string }[];
+}
+
+interface ConnectionRecord {
+  id: string;
+  moduleId: string;
+  label: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+  secrets?: Record<string, unknown>;
+}
+
+interface CompanionConfigField {
+  id: string;
+  type: string;
+  label?: string;
+  default?: unknown;
+  choices?: Array<{ id: string | number; label: string }>;
+  min?: number;
+  max?: number;
+}
+
+const I18N = {
+  ja: {
+    title: "設定",
+    general: "General",
+    devices: "Devices",
+    presets: "Presets",
+    version: "バージョン",
+    dataDir: "データフォルダ",
+    openLogs: "ログフォルダを開く",
+    openPlugins: "プラグインフォルダを開く",
+    profiles: "プロファイル",
+    newProfileName: "新しいプロファイル名",
+    createProfile: "作成",
+    switchProfile: "切替",
+    renameProfile: "名前変更",
+    deleteProfile: "削除",
+    variables: "変数（Companion）",
+    refresh: "更新",
+    language: "設定画面の言語",
+    startup: "Windows 起動時に integratedeck を起動する",
+    save: "保存",
+    device: "デバイス",
+    selectDevice: "デバイスを選択…",
+    noDevices: "接続履歴のあるデバイスがありません",
+    label: "ラベル名",
+    product: "製品名",
+    serial: "シリアル",
+    firmware: "ファームウェア",
+    nfc: "最後に読んだNFCタグ",
+    lastInput: "最後の入力",
+    brightness: "明るさ",
+    grid: "キーレイアウト",
+    status: "状態",
+    connect: "接続",
+    disconnect: "切断",
+    connected: "接続中",
+    disconnected: "切断しました",
+    available: "利用可能",
+    offline: "オフライン",
+    unknownFirmware: "—（未接続）",
+    exportPreset: "書き出し",
+    importPreset: "読み込み",
+    copyPreset: "クリップボードにコピー",
+    presetPreview: "プリセット JSON",
+    profileSection: "プロファイル全体（全デバイス・ページ）",
+    profileJson: "プロファイル JSON",
+    profileOverwrite: "既存の設定を上書きする",
+    profileExported: "プロファイルを読み込みました",
+    profileImported: "プロファイルを復元しました",
+    saved: "保存しました",
+    exported: "プリセットを書き出しました",
+    imported: "プリセットを読み込みました",
+    copied: "クリップボードにコピーしました",
+    companion: "Companion",
+    companionModules: "モジュール",
+    companionConnections: "接続",
+    moduleId: "モジュール ID",
+    connectionLabel: "接続名",
+    addConnection: "接続を追加",
+    removeConnection: "削除",
+    openModulesFolder: "モジュールフォルダを開く",
+    noModules: "モジュールがありません（モジュールフォルダに配置してください）",
+    noConnections: "接続がありません",
+    hostRunning: "ホスト稼働中",
+    hostStopped: "ホスト停止",
+  },
+  en: {
+    title: "Settings",
+    general: "General",
+    devices: "Devices",
+    presets: "Presets",
+    version: "Version",
+    dataDir: "Data folder",
+    openLogs: "Open logs folder",
+    openPlugins: "Open plugins folder",
+    profiles: "Profiles",
+    newProfileName: "New profile name",
+    createProfile: "Create",
+    switchProfile: "Switch",
+    renameProfile: "Rename",
+    deleteProfile: "Delete",
+    variables: "Variables (Companion)",
+    refresh: "Refresh",
+    language: "Settings language",
+    startup: "Launch integratedeck at Windows startup",
+    save: "Save",
+    device: "Device",
+    selectDevice: "Select a device…",
+    noDevices: "No devices in history",
+    label: "Label",
+    product: "Product",
+    serial: "Serial",
+    firmware: "Firmware",
+    nfc: "Last NFC tag",
+    lastInput: "Last input",
+    brightness: "Brightness",
+    grid: "Key layout",
+    status: "Status",
+    connect: "Connect",
+    disconnect: "Disconnect",
+    connected: "Connected",
+    disconnected: "Disconnected",
+    available: "Available",
+    offline: "Offline",
+    unknownFirmware: "— (not connected)",
+    exportPreset: "Export",
+    importPreset: "Import",
+    copyPreset: "Copy to clipboard",
+    presetPreview: "Preset JSON",
+    profileSection: "Whole profile (all devices and pages)",
+    profileJson: "Profile JSON",
+    profileOverwrite: "Overwrite the current setup",
+    profileExported: "Profile loaded",
+    profileImported: "Profile restored",
+    saved: "Saved",
+    exported: "Preset exported",
+    imported: "Preset imported",
+    copied: "Copied to clipboard",
+    companion: "Companion",
+    companionModules: "Modules",
+    companionConnections: "Connections",
+    moduleId: "Module ID",
+    connectionLabel: "Connection label",
+    addConnection: "Add connection",
+    removeConnection: "Remove",
+    openModulesFolder: "Open modules folder",
+    noModules: "No modules found (drop one in the modules folder)",
+    noConnections: "No connections",
+    hostRunning: "Host running",
+    hostStopped: "Host stopped",
+  },
+} as const;
+
+function statusLabel(
+  status: SettingsDeviceEntry["status"],
+  lang: keyof typeof I18N,
+): string {
+  const labels = I18N[lang];
+  if (status === "connected") return labels.connected;
+  if (status === "available") return labels.available;
+  return labels.offline;
+}
+
+export default function SettingsApp() {
+  const [activeTab, setActiveTab] = useState<TabId>("general");
+  const [language, setLanguage] = useState<keyof typeof I18N>("ja");
+  const [globalSettings, setGlobalSettings] = useState<AppGlobalSettings>({
+    language: "ja",
+    launchOnStartup: false,
+  });
+  const [devices, setDevices] = useState<SettingsDeviceEntry[]>([]);
+  const [selectedDeviceKey, setSelectedDeviceKey] = useState<string | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<SettingsDeviceEntry | null>(null);
+  const [presetJson, setPresetJson] = useState("");
+  const [profileJson, setProfileJson] = useState("");
+  const [profileOverwrite, setProfileOverwrite] = useState(false);
+  const [variables, setVariables] = useState<Record<string, string>>({});
+  const [nfcTag, setNfcTag] = useState<string | null>(null);
+  const [lastInputs, setLastInputs] = useState<unknown[]>([]);
+  const lastInputSummary =
+    lastInputs.length === 0
+      ? null
+      : lastInputs
+          .slice(-2)
+          .map((entry) => {
+            const value = entry as Record<string, unknown>;
+            const type = String(value.type ?? "?");
+            if (type === "encoder_rotate") return `rotate #${value.index} x${value.ticks}`;
+            if (type === "encoder_press")
+              return `${value.pressed ? "press" : "release"} #${value.index}`;
+            if (type === "touch_tap") return `tap @${value.x},${value.y}`;
+            if (type === "touch_swipe")
+              return `swipe ${value.start_x},${value.start_y}→${value.end_x},${value.end_y}`;
+            if (type === "key_down" || type === "key_up") {
+              const address = value.address as { row?: number; column?: number } | undefined;
+              return `${type === "key_down" ? "down" : "up"} ${address?.row},${address?.column}`;
+            }
+            if (type === "nfc") return "nfc";
+            return type;
+          })
+          .join(" / ");
+  const [settingsProfiles, setSettingsProfiles] = useState<
+    Array<{
+      id: string;
+      name: string;
+      active: boolean;
+      pages: number;
+      applications?: string[];
+    }>
+  >([]);
+  const [newProfileName, setNewProfileName] = useState("");
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [status, setStatus] = useState<{ message: string; kind: "normal" | "error" | "success" }>({
+    message: "読み込み中…",
+    kind: "normal",
+  });
+  const [appInfo, setAppInfo] = useState<{ version: string; data_dir: string } | null>(null);
+  const [companionScan, setCompanionScan] = useState<ScanResult | null>(null);
+  const [connections, setConnections] = useState<ConnectionRecord[]>([]);
+  const [hostRunning, setHostRunning] = useState(false);
+  const [newConnLabel, setNewConnLabel] = useState("");
+  const [newConnModule, setNewConnModule] = useState("");
+  const [configConnectionId, setConfigConnectionId] = useState<string | null>(null);
+  const [companionStatuses, setCompanionStatuses] = useState<
+    Record<string, { status?: string; message?: string }>
+  >({});
+  const [configFields, setConfigFields] = useState<CompanionConfigField[]>([]);
+  const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
+  const [secretValues, setSecretValues] = useState<Record<string, unknown>>({});
+  const [studioAddr, setStudioAddr] = useState("192.168.3.48:5343");
+  const [surfaceDevices, setSurfaceDevices] = useState<
+    Array<{
+      driverId: string;
+      deviceId: string;
+      label: string;
+      product: string;
+      rows: number;
+      columns: number;
+    }>
+  >([]);
+  const [vsdRows, setVsdRows] = useState(3);
+  const [vsdCols, setVsdCols] = useState(5);
+  const [vsdPort, setVsdPort] = useState(28198);
+  const [vsdStatus, setVsdStatus] = useState<string | null>(null);
+
+  const s = I18N[language];
+
+  const setStatusLine = useCallback(
+    (message: string, kind: "normal" | "error" | "success" = "normal") => {
+      setStatus({ message, kind });
+    },
+    [],
+  );
+
+  const loadGeneral = useCallback(async () => {
+    try {
+      setSettingsProfiles(
+        await invoke<
+          Array<{
+            id: string;
+            name: string;
+            active: boolean;
+            pages: number;
+            applications?: string[];
+          }>
+        >("list_profiles"),
+      );
+    } catch {
+      // Profile list is optional here; keep the rest of the tab usable.
+    }
+    setAppInfo(await invoke("get_app_info"));
+  }, []);
+
+  const loadDevices = useCallback(async () => {
+    const list = await invoke<SettingsDeviceEntry[]>("list_settings_devices");
+    setDevices(list);
+    try {
+      setSurfaceDevices(await invoke("scan_surface_devices"));
+    } catch {
+      setSurfaceDevices([]);
+    }
+    try {
+      setVsdStatus(await invoke<string | null>("get_vsd_status"));
+    } catch {
+      setVsdStatus(null);
+    }
+    let key = selectedDeviceKey;
+    if (!key && list.length > 0) key = list[0].deviceKey;
+    setSelectedDeviceKey(key);
+    if (key) {
+      setSelectedDevice(
+        await invoke<SettingsDeviceEntry | null>("get_settings_device", { deviceKey: key }),
+      );
+    } else {
+      setSelectedDevice(null);
+    }
+  }, [selectedDeviceKey]);
+
+  const loadPresets = useCallback(async () => {
+    const list = await invoke<SettingsDeviceEntry[]>("list_settings_devices");
+    setDevices(list);
+    let key = selectedDeviceKey;
+    if (!key && list.length > 0) key = list[0].deviceKey;
+    setSelectedDeviceKey(key);
+    if (key) {
+      setPresetJson(
+        (await invoke<string | null>("load_saved_device_preset", { deviceKey: key })) ?? "",
+      );
+    }
+  }, [selectedDeviceKey]);
+
+  const loadCompanion = useCallback(async () => {
+    const [scan, conns, runtime, statuses] = await Promise.all([
+      invoke<ScanResult>("scan_plugins"),
+      invoke<ConnectionRecord[]>("list_connections"),
+      invoke<{ companion: { companionHostRunning: boolean } }>("get_runtime_status"),
+      invoke<Array<{ connectionId?: string; status?: string; message?: string }>>(
+        "list_companion_status",
+      ),
+    ]);
+    setCompanionScan(scan);
+    setConnections(conns);
+    setHostRunning(runtime.companion.companionHostRunning);
+    const map: Record<string, { status?: string; message?: string }> = {};
+    for (const entry of statuses) {
+      if (entry.connectionId) {
+        map[entry.connectionId] = { status: entry.status, message: entry.message };
+      }
+    }
+    setCompanionStatuses(map);
+    if (scan.companion[0]) setNewConnModule(scan.companion[0].name);
+  }, []);
+
+  const loadConnectionConfig = useCallback(
+    async (record: ConnectionRecord) => {
+      try {
+        const result = await invoke<
+          { fields?: CompanionConfigField[] } | CompanionConfigField[]
+        >("get_connection_config_fields", { connectionId: record.id });
+        const fields = Array.isArray(result) ? result : (result.fields ?? []);
+        setConfigConnectionId(record.id);
+        setConfigFields(fields);
+        setConfigValues({ ...(record.config ?? {}) });
+        setSecretValues({ ...(record.secrets ?? {}) });
+      } catch (err) {
+        setStatusLine(formatUserError(err), "error");
+      }
+    },
+    [setStatusLine],
+  );
+
+  const saveConnectionConfig = async () => {
+    if (!configConnectionId) return;
+    try {
+      await invoke("update_connection_config", {
+        args: {
+          connectionId: configConnectionId,
+          config: configValues,
+          secrets: secretValues,
+        },
+      });
+      setStatusLine(s.saved, "success");
+      setConfigConnectionId(null);
+      await loadCompanion();
+    } catch (err) {
+      setStatusLine(formatUserError(err), "error");
+    }
+  };
+
+  useEffect(() => {
+    void invoke<AppGlobalSettings>("get_global_settings")
+      .then((gs) => {
+        setGlobalSettings(gs);
+        setLanguage(gs.language === "en" ? "en" : "ja");
+        setStatusLine("");
+      })
+      .catch((err) => setStatusLine(formatUserError(err), "error"));
+  }, [setStatusLine]);
+
+  useEffect(() => {
+    if (activeTab === "general") void loadGeneral();
+    else if (activeTab === "devices") void loadDevices();
+    else if (activeTab === "presets") void loadPresets();
+    else void loadCompanion();
+  }, [activeTab, loadCompanion, loadDevices, loadGeneral, loadPresets]);
+
+  const deviceOptions = (
+    <select
+      value={selectedDeviceKey ?? ""}
+      onChange={(e) => {
+        const key = e.target.value || null;
+        setSelectedDeviceKey(key);
+        if (activeTab === "devices") void loadDevices();
+        if (activeTab === "presets") void loadPresets();
+      }}
+    >
+      <option value="">{devices.length === 0 ? s.noDevices : s.selectDevice}</option>
+      {devices.map((d) => (
+        <option key={d.deviceKey} value={d.deviceKey}>
+          {d.label} ({statusLabel(d.status, language)})
+        </option>
+      ))}
+    </select>
+  );
+
+  return (
+    <>
+      <header className="settings-header">
+        <h1>{s.title}</h1>
+        <button
+          type="button"
+          className="btn-close"
+          title="Close"
+          onClick={() => {
+            const win = getCurrentWindow();
+            void win.setSkipTaskbar(true).then(() => win.hide());
+          }}
+        >
+          ✕
+        </button>
+      </header>
+      <nav className="settings-tabs">
+        {(["general", "devices", "presets", "companion"] as TabId[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={`tab-btn${activeTab === tab ? " active" : ""}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {s[tab]}
+          </button>
+        ))}
+      </nav>
+      <div className="settings-content">
+        {activeTab === "general" && appInfo ? (
+          <div className="tab-panel active" id="panel-general">
+            <h2 className="section-title">{s.general}</h2>
+            <dl className="meta-grid">
+              <dt>{s.version}</dt>
+              <dd>v{appInfo.version}</dd>
+              <dt>{s.dataDir}</dt>
+              <dd>{appInfo.data_dir}</dd>
+            </dl>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  invoke("open_logs_folder").catch((err) =>
+                    setStatusLine(formatUserError(err), "error"),
+                  );
+                }}
+              >
+                {s.openLogs}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  invoke("open_plugins_folder").catch((err) =>
+                    setStatusLine(formatUserError(err), "error"),
+                  );
+                }}
+              >
+                {s.openPlugins}
+              </button>
+            </div>
+            <h3 className="section-subtitle">{s.profiles}</h3>
+            <table className="simple-table">
+              <thead>
+                <tr>
+                  <th>{s.presets}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {settingsProfiles.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      {editingProfileId === p.id ? (
+                        <input
+                          type="text"
+                          value={profileNameDraft}
+                          autoFocus
+                          onChange={(e) => setProfileNameDraft(e.target.value)}
+                          onBlur={async () => {
+                            const name = profileNameDraft.trim();
+                            setEditingProfileId(null);
+                            if (!name || name === p.name) return;
+                            try {
+                              await invoke("rename_profile", {
+                                args: { profileId: p.id, name },
+                              });
+                              await loadGeneral();
+                            } catch (err) {
+                              setStatusLine(formatUserError(err), "error");
+                            }
+                          }}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const name = profileNameDraft.trim();
+                              setEditingProfileId(null);
+                              if (!name || name === p.name) return;
+                              try {
+                                await invoke("rename_profile", {
+                                  args: { profileId: p.id, name },
+                                });
+                                await loadGeneral();
+                              } catch (err) {
+                                setStatusLine(formatUserError(err), "error");
+                              }
+                            } else if (e.key === "Escape") {
+                              setEditingProfileId(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <>
+                          {p.name}
+                          {p.active ? " ✓" : ""}
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      {p.active ? null : (
+                        <button
+                          type="button"
+                          className="page-btn"
+                          onClick={async () => {
+                            try {
+                              await invoke("switch_profile", {
+                                args: { profileId: p.id },
+                              });
+                              setStatusLine(s.saved, "success");
+                              await loadGeneral();
+                            } catch (err) {
+                              setStatusLine(formatUserError(err), "error");
+                            }
+                          }}
+                        >
+                          {s.switchProfile}
+                        </button>
+                      )}{" "}
+                      <button
+                        type="button"
+                        className="page-btn"
+                        onClick={() => {
+                          setEditingProfileId(p.id);
+                          setProfileNameDraft(p.name);
+                        }}
+                      >
+                        {s.renameProfile}
+                      </button>{" "}
+                      <input
+                        type="text"
+                        className="profile-apps-input"
+                        title="このプロファイルに切り替えるアプリ（カンマ区切り、例: obs64.exe, code）"
+                        placeholder="アプリ (例: obs64.exe, code)"
+                        defaultValue={(p.applications ?? []).join(", ")}
+                        onBlur={async (e) => {
+                          const applications = e.target.value
+                            .split(",")
+                            .map((value) => value.trim())
+                            .filter(Boolean);
+                          try {
+                            await invoke("set_profile_applications", {
+                              args: { profileId: p.id, applications },
+                            });
+                            await loadGeneral();
+                          } catch (err) {
+                            setStatusLine(formatUserError(err), "error");
+                          }
+                        }}
+                      />{" "}
+                      <button
+                        type="button"
+                        className="page-btn"
+                        onClick={async () => {
+                          try {
+                            await invoke("delete_profile", {
+                              args: { profileId: p.id },
+                            });
+                            setStatusLine(s.saved, "success");
+                            await loadGeneral();
+                          } catch (err) {
+                            setStatusLine(formatUserError(err), "error");
+                          }
+                        }}
+                      >
+                        {s.deleteProfile}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="actions">
+              <input
+                type="text"
+                placeholder={s.newProfileName}
+                value={newProfileName}
+                onChange={(e) => setNewProfileName(e.target.value)}
+              />
+              <button
+                type="button"
+                className="primary"
+                disabled={!newProfileName.trim()}
+                onClick={async () => {
+                  try {
+                    await invoke("create_profile", {
+                      args: { name: newProfileName },
+                    });
+                    setNewProfileName("");
+                    setStatusLine(s.saved, "success");
+                    await loadGeneral();
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.createProfile}
+              </button>
+            </div>
+            <div className="field">
+              <label htmlFor="language-select">{s.language}</label>
+              <select
+                id="language-select"
+                value={globalSettings.language}
+                onChange={(e) =>
+                  setGlobalSettings((g) => ({ ...g, language: e.target.value }))
+                }
+              >
+                <option value="ja">日本語</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={globalSettings.launchOnStartup}
+                  onChange={(e) =>
+                    setGlobalSettings((g) => ({ ...g, launchOnStartup: e.target.checked }))
+                  }
+                />
+                {s.startup}
+              </label>
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={async () => {
+                  try {
+                    await invoke("set_global_settings", { settings: globalSettings });
+                    setLanguage(globalSettings.language === "en" ? "en" : "ja");
+                    setStatusLine(s.saved, "success");
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.save}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "devices" ? (
+          <div className="tab-panel active" id="panel-devices">
+            <h2 className="section-title">{s.devices}</h2>
+            <div className="field">
+              <label htmlFor="studio-lan-addr">Studio LAN</label>
+              <div className="actions">
+                <input
+                  id="studio-lan-addr"
+                  value={studioAddr}
+                  onChange={(e) => setStudioAddr(e.target.value)}
+                  placeholder="192.168.3.48:5343"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await invoke("connect_surface_device", {
+                        driverId: "studio-lan",
+                        deviceId: studioAddr,
+                      });
+                      setStatusLine(
+                        language === "ja"
+                          ? "Studio LANに接続しました"
+                          : "Connected Studio LAN",
+                        "success",
+                      );
+                      await loadDevices();
+                    } catch (err) {
+                      setStatusLine(formatUserError(err), "error");
+                    }
+                  }}
+                >
+                  {s.connect}
+                </button>
+              </div>
+            </div>
+            <div className="field">
+              <label>サーフェスデバイス</label>
+              {surfaceDevices.length === 0 ? (
+                <p className="muted">検出されたデバイスはありません</p>
+              ) : (
+                surfaceDevices.map((device) => (
+                  <div className="actions" key={`${device.driverId}:${device.deviceId}`}>
+                    <span>
+                      {device.label} ({device.rows}×{device.columns})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const result = await invoke<{ surfaceId: string }>(
+                            "connect_surface_device",
+                            { driverId: device.driverId, deviceId: device.deviceId },
+                          );
+                          await invoke("ensure_surface_slots", {
+                            surfaceId: result.surfaceId,
+                          });
+                          setStatusLine(
+                            language === "ja"
+                              ? `${device.label} に接続しました`
+                              : `Connected ${device.label}`,
+                            "success",
+                          );
+                          await loadDevices();
+                        } catch (err) {
+                          setStatusLine(formatUserError(err), "error");
+                        }
+                      }}
+                    >
+                      {s.connect}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="field">
+              <label>VSD2 ソフトウェアサーフェス</label>
+              <div className="actions">
+                <label>
+                  行
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={vsdRows}
+                    onChange={(e) => setVsdRows(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  列
+                  <input
+                    type="number"
+                    min={1}
+                    max={32}
+                    value={vsdCols}
+                    onChange={(e) => setVsdCols(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  ポート
+                  <input
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={vsdPort}
+                    onChange={(e) => setVsdPort(Number(e.target.value))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const status = await invoke<string>("start_vsd_server", {
+                        rows: vsdRows,
+                        columns: vsdCols,
+                        port: vsdPort,
+                      });
+                      setVsdStatus(status);
+                      setStatusLine(`VSD: ${status}`, "success");
+                    } catch (err) {
+                      setStatusLine(formatUserError(err), "error");
+                    }
+                  }}
+                >
+                  起動
+                </button>
+                <button
+                  type="button"
+                  disabled={!vsdStatus}
+                  onClick={async () => {
+                    try {
+                      await invoke("stop_vsd_server");
+                      setVsdStatus(null);
+                      setStatusLine("VSDを停止しました", "success");
+                    } catch (err) {
+                      setStatusLine(formatUserError(err), "error");
+                    }
+                  }}
+                >
+                  停止
+                </button>
+                <span className="muted">{vsdStatus ?? "停止中"}</span>
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="device-select">{s.device}</label>
+              <select
+                id="device-select"                value={selectedDeviceKey ?? ""}
+                onChange={async (e) => {
+                  const key = e.target.value || null;
+                  setSelectedDeviceKey(key);
+                  if (key) {
+                    setSelectedDevice(
+                      await invoke("get_settings_device", { deviceKey: key }),
+                    );
+                  } else {
+                    setSelectedDevice(null);
+                  }
+                }}
+              >
+                <option value="">{devices.length === 0 ? s.noDevices : s.selectDevice}</option>
+                {devices.map((d) => (
+                  <option key={d.deviceKey} value={d.deviceKey}>
+                    {d.label} ({statusLabel(d.status, language)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedDevice ? (
+              <>
+                <dl className="meta-grid">
+                  <dt>{s.status}</dt>
+                  <dd>
+                    <span className={`status-badge ${selectedDevice.status}`}>
+                      {statusLabel(selectedDevice.status, language)}
+                    </span>
+                  </dd>
+                  <dt>{s.product}</dt>
+                  <dd>{selectedDevice.product}</dd>
+                  <dt>{s.serial}</dt>
+                  <dd>{selectedDevice.serial}</dd>
+                  <dt>{s.firmware}</dt>
+                  <dd>{selectedDevice.firmwareVersion ?? s.unknownFirmware}</dd>
+                  <dt>{s.grid}</dt>
+                  <dd>
+                    {selectedDevice.rows} × {selectedDevice.columns}
+                  </dd>
+                  <dt>{s.lastInput}</dt>
+                  <dd>
+                    {lastInputSummary ?? "—"}{" "}
+                    {selectedDevice.surfaceId ? (
+                      <button
+                        type="button"
+                        className="btn-xs"
+                        onClick={() => {
+                          void invoke<{ count: number; inputs: unknown[] } | null>(
+                            "get_last_surface_input",
+                            { surfaceId: selectedDevice.surfaceId! },
+                          )
+                            .then((data) => setLastInputs(data?.inputs ?? []))
+                            .catch((err) => setStatusLine(formatUserError(err), "error"));
+                        }}
+                      >
+                        {s.refresh}
+                      </button>
+                    ) : null}
+                  </dd>
+                  <dt>{s.nfc}</dt>
+                  <dd>
+                    {nfcTag ?? "—"}{" "}
+                    {selectedDevice.surfaceId ? (
+                      <button
+                        type="button"
+                        className="btn-xs"
+                        onClick={() => {
+                          void invoke<string | null>("get_last_nfc", {
+                            surfaceId: selectedDevice.surfaceId!,
+                          })
+                            .then((tag) => setNfcTag(tag))
+                            .catch((err) => setStatusLine(formatUserError(err), "error"));
+                        }}
+                      >
+                        {s.refresh}
+                      </button>
+                    ) : null}
+                  </dd>
+                </dl>
+                <DeviceForm
+                  device={selectedDevice}
+                  labels={s}
+                  onSave={async (label, brightness) => {
+                    if (!selectedDeviceKey) return;
+                    await invoke("set_device_label", {
+                      args: { deviceKey: selectedDeviceKey, label },
+                    });
+                    await invoke("set_device_brightness", {
+                      args: { deviceKey: selectedDeviceKey, brightness },
+                    });
+                    setStatusLine(s.saved, "success");
+                    await loadDevices();
+                  }}
+                />
+                {selectedDevice.status !== "connected" ? (
+                  <div className="actions">
+                    <button
+                      type="button"
+                      id="btn-connect-device"
+                      onClick={async () => {
+                        if (!selectedDeviceKey) return;
+                        try {
+                          await invoke("connect_settings_device", {
+                            deviceKey: selectedDeviceKey,
+                          });
+                          setStatusLine(s.connected, "success");
+                          await loadDevices();
+                        } catch (err) {
+                          setStatusLine(formatUserError(err), "error");
+                        }
+                      }}
+                    >
+                      {s.connect}
+                    </button>
+                  </div>
+                ) : selectedDevice.kind.startsWith("studio") ? (
+                  <p className="muted">
+                    このデバイスはアプリ終了またはUSBケーブルを抜いて切断します。
+                  </p>
+                ) : (
+                  <div className="actions">
+                    <button
+                      type="button"
+                      id="btn-disconnect-device"
+                      onClick={async () => {
+                        if (!selectedDeviceKey || !selectedDevice.surfaceId) return;
+                        try {
+                          await invoke("disconnect_hid_device", {
+                            surfaceId: selectedDevice.surfaceId,
+                          });
+                          setStatusLine(s.disconnected, "success");
+                          await loadDevices();
+                        } catch (err) {
+                          setStatusLine(formatUserError(err), "error");
+                        }
+                      }}
+                    >
+                      {s.disconnect}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="empty-state">{s.noDevices}</p>
+            )}
+          </div>
+        ) : null}
+
+        {activeTab === "presets" ? (
+          <div className="tab-panel active" id="panel-presets">
+            <h2 className="section-title">{s.presets}</h2>
+            <h3 className="section-subtitle">{s.profileSection}</h3>
+            <div className="field">
+              <label htmlFor="profile-json">{s.profileJson}</label>
+              <textarea
+                id="profile-json"
+                className="preset-preview"
+                spellCheck={false}
+                value={profileJson}
+                onChange={(e) => setProfileJson(e.target.value)}
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={async () => {
+                  try {
+                    setProfileJson(await invoke<string>("export_profile"));
+                    setStatusLine(s.profileExported, "success");
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.exportPreset}
+              </button>
+              <label className="field-inline">
+                <input
+                  type="checkbox"
+                  checked={profileOverwrite}
+                  onChange={(e) => setProfileOverwrite(e.target.checked)}
+                />
+                {s.profileOverwrite}
+              </label>
+              <button
+                type="button"
+                disabled={!profileOverwrite || !profileJson.trim()}
+                onClick={async () => {
+                  try {
+                    await invoke("import_profile", { args: { json: profileJson } });
+                    setProfileOverwrite(false);
+                    setStatusLine(s.profileImported, "success");
+                    await loadCompanion();
+                    await loadDevices();
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.importPreset}
+              </button>
+            </div>
+            <h3 className="section-subtitle">{s.presets}</h3>
+            <div className="field">
+              <label htmlFor="preset-device-select">{s.device}</label>
+              <div id="preset-device-select">{deviceOptions}</div>
+            </div>
+            {selectedDeviceKey ? (
+              <>
+                <div className="field">
+                  <label htmlFor="preset-json">{s.presetPreview}</label>
+                  <textarea
+                    id="preset-json"
+                    className="preset-preview"
+                    spellCheck={false}
+                    value={presetJson}
+                    onChange={(e) => setPresetJson(e.target.value)}
+                  />
+                </div>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={async () => {
+                      if (!selectedDeviceKey) return;
+                      try {
+                        const json = await invoke<string>("export_device_preset", {
+                          deviceKey: selectedDeviceKey,
+                        });
+                        setPresetJson(json);
+                        setStatusLine(s.exported, "success");
+                      } catch (err) {
+                        setStatusLine(formatUserError(err), "error");
+                      }
+                    }}
+                  >
+                    {s.exportPreset}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!selectedDeviceKey) return;
+                      try {
+                        await invoke("import_device_preset", {
+                          args: { deviceKey: selectedDeviceKey, json: presetJson },
+                        });
+                        setStatusLine(s.imported, "success");
+                      } catch (err) {
+                        setStatusLine(formatUserError(err), "error");
+                      }
+                    }}
+                  >
+                    {s.importPreset}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!presetJson) return;
+                      await navigator.clipboard.writeText(presetJson);
+                      setStatusLine(s.copied, "success");
+                    }}
+                  >
+                    {s.copyPreset}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="empty-state">{s.noDevices}</p>
+            )}
+          </div>
+        ) : null}
+
+        {activeTab === "companion" && companionScan ? (
+          <div className="tab-panel active" id="panel-companion">
+            <h2 className="section-title">{s.companion}</h2>
+            <p className="meta-line">{hostRunning ? s.hostRunning : s.hostStopped}</p>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await invoke("open_companion_modules_folder");
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.openModulesFolder}
+              </button>
+            </div>
+            <h3 className="section-subtitle">{s.companionConnections}</h3>
+            <table className="simple-table">
+              <thead>
+                <tr>
+                  <th>{s.connectionLabel}</th>
+                  <th>{s.moduleId}</th>
+                  <th />
+                  <th>状態</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {connections.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>{s.noConnections}</td>
+                  </tr>
+                ) : (
+                  connections.map((c) => (
+                    <tr key={c.id}>
+                      <td>{c.label}</td>
+                      <td>
+                        <code>{c.moduleId}</code>
+                      </td>
+                      <td>{c.enabled ? "✓" : "—"}</td>
+                      <td>
+                        {companionStatuses[c.id]?.message ??
+                          companionStatuses[c.id]?.status ??
+                          "—"}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="page-btn"
+                          onClick={() => void loadConnectionConfig(c)}
+                        >
+                          設定
+                        </button>{" "}
+                        <button
+                          type="button"
+                          className="btn-remove-conn"
+                          onClick={async () => {
+                            try {
+                              await invoke("remove_connection", { connectionId: c.id });
+                              setStatusLine(s.saved, "success");
+                              await loadCompanion();
+                            } catch (err) {
+                              setStatusLine(formatUserError(err), "error");
+                            }
+                          }}
+                        >
+                          {s.removeConnection}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            <h3 className="section-subtitle">{s.variables}</h3>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  void invoke<Record<string, string>>("list_variables")
+                    .then((values) => setVariables(values))
+                    .catch((err) => setStatusLine(formatUserError(err), "error"));
+                }}
+              >
+                {s.refresh}
+              </button>
+            </div>
+            {Object.keys(variables).length === 0 ? (
+              <p className="muted">—</p>
+            ) : (
+              <table className="simple-table">
+                <thead>
+                  <tr>
+                    <th>$(name)</th>
+                    <th>value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(variables).map(([name, value]) => (
+                    <tr key={name}>
+                      <td>${"{"}{name}{"}"}</td>
+                      <td>{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="field">
+              <label htmlFor="companion-module-select">{s.companionModules}</label>
+              <select
+                id="companion-module-select"
+                value={newConnModule}
+                onChange={(e) => setNewConnModule(e.target.value)}
+              >
+                {companionScan.companion.length === 0 ? (
+                  <option value="">{s.noModules}</option>
+                ) : (
+                  companionScan.companion.map((m) => (
+                    <option key={m.name} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="companion-label">{s.connectionLabel}</label>
+              <input
+                id="companion-label"
+                type="text"
+                placeholder="My connection"
+                value={newConnLabel}
+                onChange={(e) => setNewConnLabel(e.target.value)}
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={companionScan.companion.length === 0}
+                onClick={async () => {
+                  if (!newConnModule) return;
+                  try {
+                    const record = await invoke<ConnectionRecord>("add_connection", {
+                      args: {
+                        moduleId: newConnModule,
+                        label: newConnLabel.trim() || newConnModule,
+                        config: {},
+                        secrets: {},
+                      },
+                    });
+                    setStatusLine(s.saved, "success");
+                    setNewConnLabel("");
+                    await loadCompanion();
+                    await loadConnectionConfig(record);
+                  } catch (err) {
+                    setStatusLine(formatUserError(err), "error");
+                  }
+                }}
+              >
+                {s.addConnection}
+              </button>
+            </div>
+            {configConnectionId ? (
+              <div className="field">
+                <label>接続設定</label>
+                {configFields.map((field) => {
+                  const label = field.label ?? field.id;
+                  const value = configValues[field.id];
+                  if (field.type === "static-text") {
+                    return (
+                      <p className="muted" key={field.id}>
+                        {String(field.default ?? "")}
+                      </p>
+                    );
+                  }
+                  if (field.type === "checkbox") {
+                    return (
+                      <label key={field.id}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value ?? field.default ?? false)}
+                          onChange={(e) =>
+                            setConfigValues((current) => ({
+                              ...current,
+                              [field.id]: e.target.checked,
+                            }))
+                          }
+                        />{" "}
+                        {label}
+                      </label>
+                    );
+                  }
+                  if (field.type === "dropdown") {
+                    return (
+                      <label key={field.id}>
+                        {label}
+                        <select
+                          value={String(value ?? field.default ?? "")}
+                          onChange={(e) =>
+                            setConfigValues((current) => ({
+                              ...current,
+                              [field.id]: e.target.value,
+                            }))
+                          }
+                        >
+                          {field.choices?.map((choice) => (
+                            <option key={String(choice.id)} value={String(choice.id)}>
+                              {choice.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  }
+                  if (field.type === "secret") {
+                    return (
+                      <label key={field.id}>
+                        {label}
+                        <input
+                          type="password"
+                          value={String(secretValues[field.id] ?? "")}
+                          onChange={(e) =>
+                            setSecretValues((current) => ({
+                              ...current,
+                              [field.id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    );
+                  }
+                  return (
+                    <label key={field.id}>
+                      {label}
+                      <input
+                        type={field.type === "number" ? "number" : "text"}
+                        value={String(value ?? field.default ?? "")}
+                        onChange={(e) =>
+                          setConfigValues((current) => ({
+                            ...current,
+                            [field.id]:
+                              field.type === "number"
+                                ? Number(e.target.value)
+                                : e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  );
+                })}
+                <div className="actions">
+                  <button type="button" className="primary" onClick={() => void saveConnectionConfig()}>
+                    {s.save}
+                  </button>
+                  <button type="button" onClick={() => setConfigConnectionId(null)}>
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div
+          className={`status-line${status.kind === "error" ? " error" : status.kind === "success" ? " success" : ""}`}
+        >
+          {status.message}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function DeviceForm({
+  device,
+  labels,
+  onSave,
+}: {
+  device: SettingsDeviceEntry;
+  labels: (typeof I18N)[keyof typeof I18N];
+  onSave: (label: string, brightness: number) => Promise<void>;
+}) {
+  const [label, setLabel] = useState(device.label);
+  const [brightness, setBrightness] = useState(device.brightness);
+
+  useEffect(() => {
+    setLabel(device.label);
+    setBrightness(device.brightness);
+  }, [device]);
+
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="device-label">{labels.label}</label>
+        <input id="device-label" type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="device-brightness">{labels.brightness}</label>
+        <div className="field-row">
+          <input
+            id="device-brightness"
+            type="range"
+            min={0}
+            max={100}
+            value={brightness}
+            onChange={(e) => setBrightness(Number(e.target.value))}
+          />
+          <output>{brightness}</output>
+        </div>
+        {device.kind === "studio-usb" ? (
+          <p className="muted" id="device-brightness-note">
+            この値は保存され、LAN 接続時に適用されます（USB 接続ではファームウェアの明るさになります）。
+          </p>
+        ) : null}
+      </div>
+      <div className="actions">
+        <button type="button" className="primary" onClick={() => void onSave(label, brightness)}>
+          {labels.save}
+        </button>
+      </div>
+    </>
+  );
+}
