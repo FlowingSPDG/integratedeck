@@ -20,7 +20,7 @@ mod imp {
         client_message, server_message, ClientInformation, ClientMessage, KeyEvent,
         OpenVirtualDevice,
     };
-    use rppal::gpio::{Gpio, Level, PullUp};
+    use rppal::gpio::{Gpio, Level};
 
     pub fn run() -> anyhow::Result<()> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -50,8 +50,10 @@ mod imp {
             };
             let mut inputs = Vec::new();
             for pin in &pins_for_thread {
-                match gpio.get(*pin).and_then(|pin| pin.into_input_pullup()) {
-                    Ok(input) => inputs.push(input),
+                match gpio.get(*pin) {
+                    // `into_input_pullup` returns the configured pin directly in
+                    // rppal 0.19; only `get` can fail.
+                    Ok(configured) => inputs.push(configured.into_input_pullup()),
                     Err(error) => eprintln!("gpio {pin} failed: {error}"),
                 }
             }
