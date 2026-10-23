@@ -51,6 +51,11 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build -- --no-bundle
 
+      # The Raspberry Pi GPIO bridge only compiles on Linux; check it here so it
+      # cannot rot unnoticed.
+      - name: Check the GPIO feature
+        run: cargo check -p ideck-vsd --features gpio --bin ideck-vsd-gpio
+
   # Windows is the primary target (job objects, ToolHelp, Studio USB); make sure
   # its code paths compile and its tests pass instead of relying on a dev box.
   windows-test:

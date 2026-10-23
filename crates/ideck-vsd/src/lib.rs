@@ -151,3 +151,30 @@ mod tests {
         assert_eq!(server, decoded);
     }
 }
+/// Parse a comma separated BCM pin list (`"17,27,22"`), ignoring blanks and
+/// values that do not fit in a pin number. Used by the Raspberry Pi bridge.
+pub fn parse_button_pins(value: &str) -> Vec<u8> {
+    value
+        .split(',')
+        .filter_map(|entry| entry.trim().parse::<u8>().ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod pin_tests {
+    use super::parse_button_pins;
+
+    #[test]
+    fn parses_the_default_pin_list() {
+        assert_eq!(
+            parse_button_pins("17,27,22,23,24,25"),
+            vec![17, 27, 22, 23, 24, 25]
+        );
+    }
+
+    #[test]
+    fn ignores_blanks_garbage_and_overflow() {
+        assert_eq!(parse_button_pins(" 4 , ,5,abc,300"), vec![4, 5]);
+        assert!(parse_button_pins("").is_empty());
+    }
+}

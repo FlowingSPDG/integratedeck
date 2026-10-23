@@ -32,11 +32,9 @@ mod imp {
     async fn async_main() -> anyhow::Result<()> {
         let addr = std::env::var("VSD_ADDR").unwrap_or_else(|_| "127.0.0.1:28198".into());
         let device = std::env::var("VSD_DEVICE").unwrap_or_else(|_| "integratedeck-primary".into());
-        let pins: Vec<u8> = std::env::var("VSD_BUTTON_PINS")
-            .unwrap_or_else(|_| "17,27,22,23,24,25".into())
-            .split(',')
-            .filter_map(|value| value.trim().parse().ok())
-            .collect();
+        let pins = ideck_vsd::parse_button_pins(
+            &std::env::var("VSD_BUTTON_PINS").unwrap_or_else(|_| "17,27,22,23,24,25".into()),
+        );
         let image_dir = std::env::var("VSD_IMAGE_DIR").unwrap_or_else(|_| "/tmp/ideck-vsd".into());
         std::fs::create_dir_all(&image_dir)?;
 
