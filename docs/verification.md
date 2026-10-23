@@ -147,6 +147,9 @@
 | 同梱Nodeの使用 | 実機 | [x] | MSI展開版を実行し、Companionサイドカーが `resources\node\node.exe` で起動することを確認（修正前はシステムのNodeを使用）。vMix `ok`・214アクション・プリセット実行も確認 |
 | パッケージ版の起動 | 実機 | [x] | MSI管理インストールで展開した exe を直接起動し、2サーフェス接続・32/8セル・LED送信まで動作 |
 | タッチスワイプ入力 | 実機 | [x] | 注入で Page 1 → Folder（空）→ Page 1 と往復することを確認（空ページも巡回）。`get_last_surface_input` に入力が記録される。物理ジェスチャは要再確認 |
+| タッチスワイプ（実機） | 実機 | [x] | 物理スワイプでページが変わることをユーザーが確認（空ページも含めて巡回する修正後） |
+| GPIOブリッジのコンパイル | CI | [x] | Linux CI で `--features gpio` のビルドを検証。初回実行で rppal 0.19 のAPI誤用（`PullUp` 型、`into_input_pullup` の戻り値）が判明し修正 |
+| GPIOピン設定のパース | ユニット | [x] | `ideck_vsd::parse_button_pins` に切り出し、空要素・不正値・オーバーフローを無視することをテスト |
 | ダイヤルの組み込みアクション（回転） | 実機 | [x] | 回転では実行されなかった組み込みアクションを回転でも実行するよう修正。Switch Page を割当てたダイヤルを回すと Page 1→Folder へ遷移 |
 | プロファイル作成/名前変更/削除 | 実機 | [x] | Settings > General。新規作成→空の1ページ、インラインで名前変更、削除でDefaultへフォールバック。最後の1つは削除不可 |
 | デバイスプリセットのプロファイル分離 | 実装 | [x] | `profiles/presets/<profileId>/` に保存。新規プロファイルが旧ページを継承しない |
@@ -261,7 +264,7 @@ UI（SettingsEditor）から設定する場合はプリセット経由が確実�
 | タッチスワイプのプラグイン配送 | 非対応 | Elgato もプラグインへ公開していない。アプリ内のページ移動に使用 |
 | Companion ダイヤルへの「アクション」直接割当 | 拡張 | Companion 本家はプリセットのみ。integratedeck ではアクションも割当て可能（回転はプリセットに委ね、押下時のみ実行） |
 | VSD2 `CreateVirtualDevice` | 未検証 | 公式アプリ側でのペアリング操作が必要 |
-| Pi GPIO 出力 | 未検証 | Linux + `gpio` feature。実機（Raspberry Pi）での確認が未実施 |
+| Pi GPIO 出力 | 一部 | コードはLinux CIでコンパイル検証済み（rppal 0.19対応）。実際のピン動作はRaspberry Pi実機が必要 |
 
 ## 再現コマンド
 
