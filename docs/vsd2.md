@@ -28,3 +28,16 @@ So the desktop app only trusts clients whose key was paired elsewhere (the mobil
 app / account flow). Reproducing `CreateVirtualDevice` needs a capture of that
 pairing handshake; the self-hosted VSD2 server in `ideck-vsd` does not have this
 limitation and is verified end to end (see verification.md).
+## How to capture a working pairing
+
+`scripts/capture-vsd.ps1` records the loopback websocket (127.0.0.1:28198) that
+the stock app exposes:
+
+```powershell
+pwsh scripts/capture-vsd.ps1 -Seconds 120 -Output vsd-pairing.pcap
+```
+
+While it runs, remove and re-add a virtual device in the stock app (or pair a
+phone that is not known yet). The pcap then contains the handshake that our
+client is missing; `tshark -r vsd-pairing.pcap -Y "tcp.port==28198" -T fields
+-e tcp.payload` dumps the frames.
